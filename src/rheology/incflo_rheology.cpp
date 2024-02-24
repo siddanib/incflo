@@ -73,6 +73,13 @@ void incflo::compute_viscosity_at_level (int /*lev*/,
     {
         vel_eta->setVal(m_mu, 0, 1, nghost);
     }
+#ifdef USE_AMREX_MPMD
+    else if (m_fluid_model == FluidModel::DataDrivenMPMD)
+    {
+        compute_viscosity_at_level_mpmd(lev, vel_eta,
+                rho, vel, lev_geom, time, nghost);
+    }
+#endif
     else
     {
         NonNewtonianViscosity non_newtonian_viscosity;
@@ -133,6 +140,75 @@ void incflo::compute_viscosity_at_level (int /*lev*/,
         }
     }
 }
+
+#ifdef USE_AMREX_MPMD
+#ifdef AMREX_USE_EB
+void compute_viscosity_at_level_mpmd (int lev,
+#else
+void compute_viscosity_at_level_mpmd (int /*lev*/,
+#endif
+                                         MultiFab* vel_eta,
+                                         MultiFab* /*rho*/,
+                                         MultiFab* vel,
+                                         Geometry& lev_geom,
+                                         Real /*time*/, int nghost)
+{
+    // Create a strain-rate MultiFab using vel_eta
+    MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap,1,nghost);
+    // Below code is a copy-paste of Non-Newtonian code
+    // to get the strain-rate into the sr_mf
+
+#ifdef AMREX_USE_EB
+    auto const& fact = EBFactory(lev);
+    auto const& flags = fact.getMultiEBCellFlagFab();
+#endif
+
+    Real idx = Real(1.0) / lev_geom.CellSize(0);
+    Real idy = Real(1.0) / lev_geom.CellSize(1);
+#if (AMREX_SPACEDIM == 3)
+    Real idz = Real(1.0) / lev_geom.CellSize(2);
+#endif
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(*vel_eta,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        Box const& bx = mfi.growntilebox(nghost);
+        Array4<Real> const& sr_arr = sr_mf.array(mfi);
+        Array4<Real const> const& vel_arr = vel->const_array(mfi);
+#ifdef AMREX_USE_EB
+        auto const& flag_fab = flags[mfi];
+        auto typ = flag_fab.getType(bx);
+        if (typ == FabType::covered)
+        {
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                sr_arr(i,j,k) = Real(0.0);
+            });
+        }
+        else if (typ == FabType::singlevalued)
+        {
+            auto const& flag_arr = flag_fab.const_array();
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                Real sr = incflo_strainrate_eb(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr,flag_arr(i,j,k));
+                sr_arr(i,j,k) = sr;
+            });
+        }
+        else
+#endif
+        {
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                Real sr = incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr);
+                sr_arr(i,j,k) = sr;
+            });
+        }
+    }
+    // Copier send of sr_mf and Copier recv of *vel_eta
+}
+#endif
 
 void incflo::compute_tracer_diff_coeff (Vector<MultiFab*> const& tra_eta, int nghost)
 {
