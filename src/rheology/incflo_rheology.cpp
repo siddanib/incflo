@@ -1,5 +1,8 @@
 #include <incflo.H>
 #include <incflo_derive_K.H>
+#ifdef USE_AMREX_MPMD
+#include <AMReX_MPMD.H>
+#endif
 
 using namespace amrex;
 
@@ -64,10 +67,19 @@ void incflo::compute_viscosity_at_level (int lev,
 void incflo::compute_viscosity_at_level (int /*lev*/,
 #endif
                                          MultiFab* vel_eta,
+#ifdef USE_AMREX_MPMD
+                                         MultiFab* rho,
+#else
                                          MultiFab* /*rho*/,
+#endif
                                          MultiFab* vel,
                                          Geometry& lev_geom,
-                                         Real /*time*/, int nghost)
+#ifdef USE_AMREX_MPMD
+                                         Real time,
+#else
+                                         Real /*time*/,
+#endif
+                                         int nghost)
 {
     if (m_fluid_model == FluidModel::Newtonian)
     {
@@ -143,9 +155,9 @@ void incflo::compute_viscosity_at_level (int /*lev*/,
 
 #ifdef USE_AMREX_MPMD
 #ifdef AMREX_USE_EB
-void compute_viscosity_at_level_mpmd (int lev,
+void incflo::compute_viscosity_at_level_mpmd (int lev,
 #else
-void compute_viscosity_at_level_mpmd (int /*lev*/,
+void incflo::compute_viscosity_at_level_mpmd (int /*lev*/,
 #endif
                                          MultiFab* vel_eta,
                                          MultiFab* /*rho*/,
@@ -154,7 +166,9 @@ void compute_viscosity_at_level_mpmd (int /*lev*/,
                                          Real /*time*/, int nghost)
 {
     // Create a strain-rate MultiFab using vel_eta
-    MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap,1,nghost);
+    MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+    // Also create an amrex::MPMD::Copier object
+    auto copr = amrex::MPMD::Copier(vel_eta->boxArray(),vel_eta->DistributionMap());
     // Below code is a copy-paste of Non-Newtonian code
     // to get the strain-rate into the sr_mf
 
@@ -207,6 +221,8 @@ void compute_viscosity_at_level_mpmd (int /*lev*/,
         }
     }
     // Copier send of sr_mf and Copier recv of *vel_eta
+    copr.send(sr_mf,0,1);
+    copr.recv(*vel_eta,0,1);
 }
 #endif
 

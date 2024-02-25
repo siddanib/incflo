@@ -24,7 +24,8 @@ public:
     friend DiffusionScalarOp;
 
     enum struct FluidModel {
-        Newtonian, powerlaw, Bingham, HerschelBulkley, deSouzaMendesDutra
+        Newtonian, powerlaw, Bingham, HerschelBulkley, deSouzaMendesDutra,
+        DataDrivenMPMD
     };
 
     incflo ();
@@ -244,6 +245,14 @@ public:
                                      amrex::MultiFab* vel,
                                      amrex::Geometry& lev_geom,
                                      amrex::Real time, int nghost);
+#ifdef USE_AMREX_MPMD
+    void compute_viscosity_at_level_mpmd (int lev,
+                                     amrex::MultiFab* eta,
+                                     amrex::MultiFab* rho,
+                                     amrex::MultiFab* vel,
+                                     amrex::Geometry& lev_geom,
+                                     amrex::Real time, int nghost);
+#endif
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
 
 #ifdef AMREX_USE_EB
