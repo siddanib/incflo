@@ -1,5 +1,5 @@
-AMREX_HOME = /home/bsiddani/siddanib_github/amrex
-AMREX_HYDRO_HOME = /home/bsiddani/siddanib_github/AMReX-Hydro
+AMREX_HOME ?= ../../amrex
+AMREX_HYDRO_HOME ?= ../../AMReX-Hydro
 TOP = ..
 
 EBASE = incflo
@@ -16,8 +16,6 @@ DEBUG      = FALSE
 COMP	   = gnu
 
 USE_MPI    = TRUE
-USE_AMREX_MPMD = TRUE
-
 USE_OMP    = FALSE
 USE_CUDA   = FALSE
 
@@ -29,7 +27,3 @@ USE_EB = TRUE
 USE_CSG = FALSE
 
 include ../src/Make.incflo
-
-ifeq ($(USE_AMREX_MPMD), TRUE)
-  DEFINES += -DUSE_AMREX_MPMD
-endif
