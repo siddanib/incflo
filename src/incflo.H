@@ -13,6 +13,10 @@
 #include <AMReX_EBMultiFabUtil.H>
 #endif
 
+#ifdef USE_AMREX_MPMD
+#include <AMReX_MPMD.H>
+#endif
+
 #include <DiffusionTensorOp.H>
 #include <DiffusionScalarOp.H>
 
@@ -53,6 +57,14 @@ public:
 
 #ifdef AMREX_USE_EB
     void WriteMyEBSurface ();
+#endif
+
+#ifdef USE_AMREX_MPMD
+    //void initialize_mpmd_copiers ();
+    void mpmd_copiers_send_lev (amrex::MultiFab& send_mf,
+            int icomp, int ncomp, int lev);
+    void mpmd_copiers_recv_lev (amrex::MultiFab& recv_mf,
+           int icomp, int ncomp, int lev);
 #endif
 
     // Evolve solution to final time through repeated calls to Advance()
@@ -611,6 +623,11 @@ private:
     std::unique_ptr<DiffusionTensorOp> m_diffusion_tensor_op;
     std::unique_ptr<DiffusionScalarOp> m_diffusion_scalar_op;
 
+#ifdef USE_AMREX_MPMD
+    // Create a vector of MPMD::Copiers
+    amrex::Vector<std::unique_ptr<amrex::MPMD::Copier>> mpmd_copiers;
+#endif
+
     //
     // end of member variables
     //
@@ -871,6 +888,7 @@ private:
     void WriteCheckPointFile () const;
     void WritePlotFile ();
     void ReadCheckpointFile ();
+
 };
 
 #endif

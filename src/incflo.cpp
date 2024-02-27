@@ -232,6 +232,10 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
 #else
     macproj = std::make_unique<Hydro::MacProjector>(Geom(0,finest_level));
 #endif
+
+#ifdef USE_AMREX_MPMD
+    mpmd_copiers[lev] = std::make_unique<MPMD::Copier>(grids[lev], dmap[lev]);
+#endif
 }
 
 bool
@@ -618,3 +622,25 @@ void incflo::copy_from_old_to_new_tracer (int lev, IntVect const& ng)
                        m_leveldata[lev]->tracer_o, 0, 0, m_ntrac, ng);
     }
 }
+
+#ifdef USE_AMREX_MPMD
+/*
+void incflo::initialize_mpmd_copiers (){
+    mpmd_copiers.reserve(finest_level+1);
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        mpmd_copiers.push_back(
+                std::make_unique<MPMD::Copier>(grids[lev], dmap[lev]));
+    }
+    amrex::Print() << "Size of mpmd_copiers is" << mpmd_copiers.size()<<"\n";
+}
+*/
+void incflo::mpmd_copiers_send_lev (amrex::MultiFab& send_mf,
+        int icomp, int ncomp, int lev){
+    mpmd_copiers[lev]->send(send_mf, icomp, ncomp);
+}
+
+void incflo::mpmd_copiers_recv_lev (amrex::MultiFab& recv_mf,
+           int icomp, int ncomp, int lev){
+    mpmd_copiers[lev]->recv(recv_mf, icomp, ncomp);
+}
+#endif

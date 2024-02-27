@@ -154,11 +154,7 @@ void incflo::compute_viscosity_at_level (int /*lev*/,
 }
 
 #ifdef USE_AMREX_MPMD
-#ifdef AMREX_USE_EB
 void incflo::compute_viscosity_at_level_mpmd (int lev,
-#else
-void incflo::compute_viscosity_at_level_mpmd (int /*lev*/,
-#endif
                                          MultiFab* vel_eta,
                                          MultiFab* /*rho*/,
                                          MultiFab* vel,
@@ -167,11 +163,6 @@ void incflo::compute_viscosity_at_level_mpmd (int /*lev*/,
 {
     // Create a strain-rate MultiFab using vel_eta
     MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-    // Also create an amrex::MPMD::Copier object
-    std::unique_ptr<amrex::MPMD::Copier> copr;
-    copr = std::make_unique<amrex::MPMD::Copier>(vel_eta->boxArray(),
-            vel_eta->DistributionMap());
-    //auto copr = amrex::MPMD::Copier(vel_eta->boxArray(),vel_eta->DistributionMap());
     // Below code is a copy-paste of Non-Newtonian code
     // to get the strain-rate into the sr_mf
 
@@ -225,9 +216,9 @@ void incflo::compute_viscosity_at_level_mpmd (int /*lev*/,
     }
     // Copier send of sr_mf and Copier recv of *vel_eta
     amrex::Print() << "Sending strain-rate MF \n";
-    copr->send(sr_mf,0,1);
+    mpmd_copiers_send_lev(sr_mf,0,1,lev);
     amrex::Print() << "Receiving Viscosity MF \n";
-    copr->recv(*vel_eta,0,1);
+    mpmd_copiers_recv_lev(*vel_eta,0,1,lev);
 }
 #endif
 
