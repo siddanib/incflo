@@ -60,7 +60,6 @@ public:
 #endif
 
 #ifdef USE_AMREX_MPMD
-    //void initialize_mpmd_copiers ();
     void mpmd_copiers_send_lev (amrex::MultiFab& send_mf,
             int icomp, int ncomp, int lev);
     void mpmd_copiers_recv_lev (amrex::MultiFab& recv_mf,
@@ -625,7 +624,7 @@ private:
 
 #ifdef USE_AMREX_MPMD
     // Create a vector of MPMD::Copiers
-    amrex::Vector<std::unique_ptr<amrex::MPMD::Copier>> mpmd_copiers;
+    amrex::Vector<std::unique_ptr<amrex::MPMD::Copier>> m_mpmd_copiers;
 #endif
 
     //

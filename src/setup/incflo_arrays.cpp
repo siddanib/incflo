@@ -59,4 +59,7 @@ void incflo::ResizeArrays ()
     m_leveldata.resize(max_level+1);
 
     m_factory.resize(max_level+1);
+#ifdef USE_AMREX_MPMD
+    m_mpmd_copiers.resize(max_level+1);
+#endif
 }
