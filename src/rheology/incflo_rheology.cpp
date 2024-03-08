@@ -219,7 +219,7 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
     mpmd_copiers_recv_lev(*vel_eta,0,1,lev);
 
     // Zero out vel_eta for FabType::covered cells
-    // preprocessor directives could be optimized
+#ifdef AMREX_USE_EB
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -227,8 +227,6 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
     {
         Box const& bx = mfi.growntilebox(nghost);
         Array4<Real> const& eta_arr = vel_eta->array(mfi);
-        Array4<Real const> const& vel_arr = vel->const_array(mfi);
-#ifdef AMREX_USE_EB
         auto const& flag_fab = flags[mfi];
         auto typ = flag_fab.getType(bx);
         if (typ == FabType::covered)
@@ -238,10 +236,12 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
                 eta_arr(i,j,k) = Real(0.0);
             });
         }
-#endif
     }
-    // MANDATORY:update information in ghost cells
-    vel_eta->FillBoundary(lev_geom.periodicity());
+#endif
+    if (nghost > 0){
+        // MANDATORY:update information in ghost cells
+        vel_eta->FillBoundary(lev_geom.periodicity());
+    }
 }
 #endif
 
