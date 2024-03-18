@@ -1,5 +1,7 @@
 #include <AMReX_BC_TYPES.H>
+#include <AMReX_PhysBCFunct.H>
 #include <incflo.H>
+#include <prob_bc.H>
 #include <memory>
 
 using namespace amrex;
@@ -107,7 +109,25 @@ void incflo::ApplyNodalProjection (Vector<MultiFab const*> density,
         vel.push_back(&(m_leveldata[lev]->velocity));
         vel[lev]->setBndry(0.0);
         if (!proj_for_small_dt && !incremental) {
-            set_inflow_velocity(lev, time, *vel[lev], 1);
+            // Only the inflow boundary gets set here
+            IntVect nghost(1);
+            amrex::Vector<amrex::BCRec> inflow_bcr;
+            inflow_bcr.resize(AMREX_SPACEDIM);
+            for (OrientationIter oit; oit; ++oit) {
+                if (m_bc_type[oit()] == BC::mass_inflow) {
+                    AMREX_D_TERM(inflow_bcr[0].set(oit(), BCType::ext_dir);,
+                                 inflow_bcr[1].set(oit(), BCType::ext_dir);,
+                                 inflow_bcr[2].set(oit(), BCType::ext_dir));
+                }
+            }
+
+            PhysBCFunct<GpuBndryFuncFab<IncfloVelFill> > physbc
+                (geom[lev], inflow_bcr, IncfloVelFill{m_probtype, m_bc_velocity});
+            physbc(*vel[lev], 0, AMREX_SPACEDIM, nghost, time, 0);
+
+            // We make sure to only fill "nghost" ghost cells so we don't accidentally
+            // over-write good ghost cell values with unfilled ghost cell values
+            vel[lev]->EnforcePeriodicity(0, AMREX_SPACEDIM, nghost, geom[lev].periodicity());
         }
     }
 
@@ -132,6 +152,17 @@ void incflo::ApplyNodalProjection (Vector<MultiFab const*> density,
           nodal_projector->getLinOp().setEBInflowVelocity(lev, *get_velocity_eb()[lev]);
        }
     }
+
+    if(m_has_mixedBC)
+    {
+        // We use an overset mask to effectively apply the mixed BC
+        for(int lev = 0; lev <= finest_level; ++lev)
+        {
+            const auto mask = make_nodalBC_mask(lev);
+            nodal_projector->getLinOp().setOversetMask(lev, mask);
+        }
+    }
+
 #endif
 
     nodal_projector->project(m_nodal_mg_rtol, m_nodal_mg_atol);

@@ -20,9 +20,10 @@ incflo::get_nodal_projection_bc (Orientation::Side side) const noexcept
                 break;
             }
             case BC::mass_inflow:
-        {
+            case BC::mixed:
+            {
                 r[dir] = LinOpBCType::inflow;
-        break;
+                break;
             }
             case BC::slip_wall:
             case BC::no_slip_wall:
@@ -60,6 +61,11 @@ incflo::get_mac_projection_bc (Orientation::Side side) const noexcept
             case BC::no_slip_wall:
             {
                 r[dir] = LinOpBCType::Neumann;
+                break;
+            }
+            case BC::mixed:
+            {
+                r[dir] = LinOpBCType::Robin;
                 break;
             }
             default:
