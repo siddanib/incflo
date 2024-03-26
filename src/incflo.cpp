@@ -234,7 +234,10 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
 #endif
 
 #ifdef USE_AMREX_MPMD
-    m_mpmd_copiers[lev] = std::make_unique<MPMD::Copier>(grids[lev], dmap[lev]);
+    m_mpmd_copiers[lev] = std::make_unique<MPMD::Copier>(
+                               amrex::convert(grids[lev],
+                               IndexType::TheNodeType().ixType()),
+                               dmap[lev],true);
 #endif
 }
 

@@ -88,8 +88,9 @@ void incflo::compute_viscosity_at_level (int /*lev*/,
 #ifdef USE_AMREX_MPMD
     else if (m_fluid_model == FluidModel::DataDrivenMPMD)
     {
+        // MPMD based vel_eta is nodal, nghost = 0
         compute_viscosity_at_level_mpmd(lev, vel_eta,
-                rho, vel, lev_geom, time, nghost);
+                rho, vel, lev_geom, time, 0);
     }
 #endif
     else
@@ -161,11 +162,8 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
                                          Geometry& lev_geom,
                                          Real /*time*/, int nghost)
 {
-    // Create a strain-rate MultiFab using vel_eta
+    // Create a nodal strain-rate MultiFab, nghost is already set to 0
     MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-    // Below code is a copy-paste of Non-Newtonian code
-    // to get the strain-rate into the sr_mf
-
 #ifdef AMREX_USE_EB
     auto const& fact = EBFactory(lev);
     auto const& flags = fact.getMultiEBCellFlagFab();
@@ -176,13 +174,76 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
 #if (AMREX_SPACEDIM == 3)
     Real idz = Real(1.0) / lev_geom.CellSize(2);
 #endif
-
+    const Dim3 dlo = amrex::lbound(lev_geom.Domain());
+    const Dim3 dhi = amrex::ubound(lev_geom.Domain());
+    GpuArray<GpuArray<int,2>,AMREX_SPACEDIM> bc_type;
+    GpuArray<GpuArray<Real,2*AMREX_SPACEDIM>,AMREX_SPACEDIM> bc_velocity;
+    for (OrientationIter oit; oit; ++oit) {
+        Orientation ori = oit();
+        int dir = ori.coordDir();
+        Orientation::Side side = ori.faceDir();
+        auto const bct = m_bc_type[ori];
+        if (bct == BC::no_slip_wall) {
+            if (side == Orientation::low) {
+                bc_type[dir][0] = 2;
+                bc_velocity[dir][0] = m_bc_velocity[ori][0];
+                bc_velocity[dir][1] = m_bc_velocity[ori][1];
+#if (AMREX_SPACEDIM == 3)
+                bc_velocity[dir][2] = m_bc_velocity[ori][2];
+#endif
+            }
+            if (side == Orientation::high) {
+                bc_type[dir][1] = 2;
+                bc_velocity[dir][AMREX_SPACEDIM] = m_bc_velocity[ori][0];
+                bc_velocity[dir][AMREX_SPACEDIM + 1] = m_bc_velocity[ori][1];
+#if (AMREX_SPACEDIM == 3)
+                bc_velocity[dir][AMREX_SPACEDIM + 2] = m_bc_velocity[ori][2];
+#endif
+            }
+        }
+        else if (bct == BC::slip_wall) {
+            if (side == Orientation::low) {
+                bc_type[dir][0] = 1;
+                bc_velocity[dir][0] = m_bc_velocity[ori][0];
+                bc_velocity[dir][1] = m_bc_velocity[ori][1];
+#if (AMREX_SPACEDIM == 3)
+                bc_velocity[dir][2] = m_bc_velocity[ori][2];
+#endif
+            }
+            if (side == Orientation::high) {
+                bc_type[dir][1] = 1;
+                bc_velocity[dir][AMREX_SPACEDIM] = m_bc_velocity[ori][0];
+                bc_velocity[dir][AMREX_SPACEDIM + 1] = m_bc_velocity[ori][1];
+#if (AMREX_SPACEDIM == 3)
+                bc_velocity[dir][AMREX_SPACEDIM + 2] = m_bc_velocity[ori][2];
+#endif
+            }
+        }
+        else {
+            if (side == Orientation::low) {
+                bc_type[dir][0] = 0;
+                bc_velocity[dir][0] = m_bc_velocity[ori][0];
+                bc_velocity[dir][1] = m_bc_velocity[ori][1];
+#if (AMREX_SPACEDIM == 3)
+                bc_velocity[dir][2] = m_bc_velocity[ori][2];
+#endif
+            }
+            if (side == Orientation::high) {
+                bc_type[dir][1] = 0;
+                bc_velocity[dir][AMREX_SPACEDIM] = m_bc_velocity[ori][0];
+                bc_velocity[dir][AMREX_SPACEDIM + 1] = m_bc_velocity[ori][1];
+#if (AMREX_SPACEDIM == 3)
+                bc_velocity[dir][AMREX_SPACEDIM + 2] = m_bc_velocity[ori][2];
+#endif
+            }
+        }
+    }
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-    for (MFIter mfi(*vel_eta,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
     {
-        Box const& bx = mfi.growntilebox(nghost);
+        Box const& bx = mfi.tilebox();
         Array4<Real> const& sr_arr = sr_mf.array(mfi);
         Array4<Real const> const& vel_arr = vel->const_array(mfi);
 #ifdef AMREX_USE_EB
@@ -190,58 +251,53 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
         auto typ = flag_fab.getType(bx);
         if (typ == FabType::covered)
         {
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-            {
-                sr_arr(i,j,k) = Real(0.0);
-            });
+            amrex::Abort("MPMD-based vel_eta is not implemented for EB\n");
         }
         else if (typ == FabType::singlevalued)
         {
-            auto const& flag_arr = flag_fab.const_array();
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-            {
-                Real sr = incflo_strainrate_eb(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr,flag_arr(i,j,k));
-                sr_arr(i,j,k) = sr;
-            });
+            amrex::Abort("MPMD-based vel_eta is not implemented for EB\n");
         }
         else
 #endif
         {
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
-                Real sr = incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr);
+                Real sr = incflo_strainrate_nd(i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                               vel_arr,dlo,dhi,bc_type,bc_velocity);
                 sr_arr(i,j,k) = sr;
             });
         }
     }
-    // Copier send of sr_mf and Copier recv of *vel_eta
-    mpmd_copiers_send_lev(sr_mf,0,1,lev);
-    mpmd_copiers_recv_lev(*vel_eta,0,1,lev);
 
-    // Zero out vel_eta for FabType::covered cells
-#ifdef AMREX_USE_EB
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-    for (MFIter mfi(*vel_eta,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-    {
-        Box const& bx = mfi.growntilebox(nghost);
-        Array4<Real> const& eta_arr = vel_eta->array(mfi);
-        auto const& flag_fab = flags[mfi];
-        auto typ = flag_fab.getType(bx);
-        if (typ == FabType::covered)
-        {
-            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-            {
-                eta_arr(i,j,k) = Real(0.0);
-            });
-        }
+    MultiFab vel_copy(*vel,amrex::make_alias,0,3);
+    // Print velocity to check
+    std::string plotfilename = "vel_mf_" +
+                std::to_string(amrex::ParallelDescriptor::MyProc());
+
+    std::ofstream ofs(plotfilename, std::ofstream::out);
+    for (MFIter mfi(vel_copy); mfi.isValid(); ++mfi) {
+        ofs<<std::setprecision(16)<< (vel_copy[mfi])<<std::endl;
     }
-#endif
-    if (nghost > 0){
-        // MANDATORY:update information in ghost cells
-        vel_eta->FillBoundary(lev_geom.periodicity());
+    ofs.close();
+
+    plotfilename = "sr_mf_" +
+                std::to_string(amrex::ParallelDescriptor::MyProc());
+
+    ofs = std::ofstream(plotfilename, std::ofstream::out);
+    for (MFIter mfi(sr_mf); mfi.isValid(); ++mfi) {
+        ofs<<std::setprecision(16)<< (sr_mf[mfi])<<std::endl;
     }
+    ofs.close();
+
+    //auto mask = amrex::OwnerMask(*vel_eta, lev_geom.periodicity());
+    //sr_mf.OverrideSync(*mask,lev_geom.periodicity());
+    // Copier send of sr_mf and Copier recv of *vel_eta
+    amrex::Print() << "Preparing to send strainrate to python\n";
+    mpmd_copiers_send_lev(sr_mf,0,1,lev);
+    amrex::Print() << "Successfuly sent the strainrate\n";
+    mpmd_copiers_recv_lev(*vel_eta,0,1,lev);
+    amrex::Print() << "Successfully received the viscosity\n";
+    //vel_eta->OverrideSync(*mask,lev_geom.periodicity());
 }
 #endif
 

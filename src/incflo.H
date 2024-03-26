@@ -189,6 +189,9 @@ public:
     [[nodiscard]] amrex::Array<amrex::MultiFab,AMREX_SPACEDIM>
     average_velocity_eta_to_faces (int lev, amrex::MultiFab const& cc_eta) const;
 
+    [[nodiscard]] amrex::Array<amrex::MultiFab,AMREX_SPACEDIM>
+    average_nodal_velocity_eta_to_faces (int lev, amrex::MultiFab const& nd_eta) const;
+
     void compute_divtau  (amrex::Vector<amrex::MultiFab      *> const& divtau,
                           amrex::Vector<amrex::MultiFab const*> const& velocity,
                           amrex::Vector<amrex::MultiFab const*> const& density,
@@ -578,6 +581,7 @@ private:
         amrex::MultiFab divtau_o;
         amrex::MultiFab laps;
         amrex::MultiFab laps_o;
+
     };
 
     amrex::Vector<std::unique_ptr<LevelData> > m_leveldata;
