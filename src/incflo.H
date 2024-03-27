@@ -188,6 +188,11 @@ public:
                                               amrex::MultiFab* vel,
                                               amrex::Geometry& lev_geom,
                                               amrex::Real time, int nghost);
+    virtual void compute_nd_strainrate_at_level (int lev,
+                                              amrex::MultiFab* strainrate,
+                                              amrex::MultiFab* vel,
+                                              amrex::Geometry& lev_geom,
+                                              amrex::Real time, int nghost);
 
     ///////////////////////////////////////////////////////////////////////////
     //

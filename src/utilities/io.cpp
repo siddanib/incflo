@@ -572,7 +572,9 @@ void incflo::WritePlotFile()
                                            &m_leveldata[lev]->velocity,
                                            Geom(lev),
                                            m_cur_time, 0);
-                amrex::average_node_to_cellcenter(mf[lev],icomp,vel_eta,0,1,0);
+                amrex::average_node_to_cellcenter(mf[lev],icomp,vel_eta,0,1);
+                amrex::Print()<<"Cell-centered eta max is "<< mf[lev].max(icomp)
+                    <<", occuring at " << mf[lev].maxIndex(icomp)<<"\n";
             }
             else {
                 MultiFab vel_eta(mf[lev], amrex::make_alias, icomp, 1);
@@ -613,12 +615,27 @@ void incflo::WritePlotFile()
     if (m_plt_strainrate) {
 
         for (int lev = 0; lev <= finest_level; ++lev) {
-            MultiFab strainrate(mf[lev], amrex::make_alias, icomp, 1);
-            compute_strainrate_at_level(lev,
-                                        &strainrate,
-                                        &m_leveldata[lev]->velocity,
-                                        Geom(lev),
-                                        m_cur_time, 0);
+            if (m_fluid_model == FluidModel::DataDrivenMPMD) {
+                MultiFab strainrate(amrex::convert(mf[lev].boxArray(),
+                                    IndexType::TheNodeType().ixType()),
+                                    mf[lev].DistributionMap(),1,0);
+                compute_nd_strainrate_at_level(lev,
+                                               &strainrate,
+                                               &m_leveldata[lev]->velocity,
+                                               Geom(lev),
+                                               m_cur_time, 0);
+                amrex::average_node_to_cellcenter(mf[lev],icomp,strainrate,0,1);
+                amrex::Print()<<"Cell-centered strainrate max is "<< mf[lev].max(icomp)
+                    <<", occuring at " << mf[lev].maxIndex(icomp)<<"\n";
+            }
+            else {
+                MultiFab strainrate(mf[lev], amrex::make_alias, icomp, 1);
+                compute_strainrate_at_level(lev,
+                                            &strainrate,
+                                            &m_leveldata[lev]->velocity,
+                                            Geom(lev),
+                                            m_cur_time, 0);
+            }
         }
         pltscaVarsName.push_back("strainrate");
         ++icomp;

@@ -243,7 +243,7 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
 #endif
     for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
     {
-        Box const& bx = mfi.tilebox();
+        Box const& bx = mfi.growntilebox(nghost);
         Array4<Real> const& sr_arr = sr_mf.array(mfi);
         Array4<Real const> const& vel_arr = vel->const_array(mfi);
 #ifdef AMREX_USE_EB
@@ -262,12 +262,14 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
         {
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
-                Real sr = incflo_strainrate_nd(i,j,k,AMREX_D_DECL(idx,idy,idz),
+                sr_arr(i,j,k) = incflo_strainrate_nd(i,j,k,AMREX_D_DECL(idx,idy,idz),
                                                vel_arr,dlo,dhi,bc_type,bc_velocity);
-                sr_arr(i,j,k) = sr;
             });
         }
     }
+
+    amrex::Print() << "Nodal Strainrate max is " << sr_mf.max(0)
+        <<",occurring at: "<< sr_mf.maxIndex(0)<<"\n";
 
     MultiFab vel_copy(*vel,amrex::make_alias,0,3);
     // Print velocity to check
@@ -298,6 +300,9 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
     mpmd_copiers_recv_lev(*vel_eta,0,1,lev);
     amrex::Print() << "Successfully received the viscosity\n";
     //vel_eta->OverrideSync(*mask,lev_geom.periodicity());
+
+    amrex::Print() << "Nodal eta max is " << vel_eta->max(0)
+        <<",occurring at: "<< vel_eta->maxIndex(0)<<"\n";
 }
 #endif
 

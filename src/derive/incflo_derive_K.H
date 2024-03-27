@@ -89,6 +89,7 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
     Real wzmm = (vel(i-1,j-1,k,2) - vel(i-1,j-1,k-1,2)) * idz;
 
     // Applying Boundary Conditions
+    // Slip walls check again
     int idim, vdim;
     if (i == dlo.x) {
         idim = 0;
@@ -115,16 +116,15 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
             uxmp = Real(2.0) * (vel(i,j,k-1,0) - bc_velocity[idim][vdim]) * idx;
             uxmm = Real(2.0) * (vel(i,j-1,k-1,0) - bc_velocity[idim][vdim]) * idx;
 
-            vxpp = Real(0.0);
-            vxpm = Real(0.0);
-            vxmp = Real(0.0);
-            vxmm = Real(0.0);
+            vxpp = Real(0.0); uypp = Real(0.0);
+            vxpm = Real(0.0); uypm = Real(0.0);
+            vxmp = Real(0.0); uymp = Real(0.0);
+            vxmm = Real(0.0); uymm = Real(0.0);
 
-            wxpp = Real(0.0);
-            wxpm = Real(0.0);
-            wxmp = Real(0.0);
-            wxmm = Real(0.0);
-
+            wxpp = Real(0.0); uzpp = Real(0.0);
+            wxpm = Real(0.0); uzpm = Real(0.0);
+            wxmp = Real(0.0); uzmp = Real(0.0);
+            wxmm = Real(0.0); uzmm = Real(0.0);
         }
     }
 
@@ -146,7 +146,6 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
             wxpm = Real(-2.0) * (vel(i-1,j-1,k,2) - bc_velocity[idim][vdim+2]) * idx;
             wxmp = Real(-2.0) * (vel(i-1,j,k-1,2) - bc_velocity[idim][vdim+2]) * idx;
             wxmm = Real(-2.0) * (vel(i-1,j-1,k-1,2) - bc_velocity[idim][vdim+2]) * idx;
-
         }
         else if (bc_type[idim][1] == 1) {
             uxpp = Real(-2.0) * (vel(i-1,j,k,0) - bc_velocity[idim][vdim]) * idx;
@@ -154,15 +153,15 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
             uxmp = Real(-2.0) * (vel(i-1,j,k-1,0) - bc_velocity[idim][vdim]) * idx;
             uxmm = Real(-2.0) * (vel(i-1,j-1,k-1,0) - bc_velocity[idim][vdim]) * idx;
 
-            vxpp = Real(0.0);
-            vxpm = Real(0.0);
-            vxmp = Real(0.0);
-            vxmm = Real(0.0);
+            vxpp = Real(0.0); uypp = Real(0.0);
+            vxpm = Real(0.0); uypm = Real(0.0);
+            vxmp = Real(0.0); uymp = Real(0.0);
+            vxmm = Real(0.0); uymm = Real(0.0);
 
-            wxpp = Real(0.0);
-            wxpm = Real(0.0);
-            wxmp = Real(0.0);
-            wxmm = Real(0.0);
+            wxpp = Real(0.0); uzpp = Real(0.0);
+            wxpm = Real(0.0); uzpm = Real(0.0);
+            wxmp = Real(0.0); uzmp = Real(0.0);
+            wxmm = Real(0.0); uzmm = Real(0.0);
         }
     }
 
@@ -187,20 +186,20 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
 
         }
         else if (bc_type[idim][0] == 1){
-            uypp = Real(0.0);
-            uypm = Real(0.0);
-            uymp = Real(0.0);
-            uymm = Real(0.0);
+            uypp = Real(0.0); vxpp = Real(0.0);
+            uypm = Real(0.0); vxpm = Real(0.0);
+            uymp = Real(0.0); vxmp = Real(0.0);
+            uymm = Real(0.0); vxmm = Real(0.0);
 
             vypp = Real(2.0) * (vel(i,j,k,1) - bc_velocity[idim][vdim+1]) * idy;
             vypm = Real(2.0) * (vel(i-1,j,k,1) - bc_velocity[idim][vdim+1]) * idy;
             vymp = Real(2.0) * (vel(i,j,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
             vymm = Real(2.0) * (vel(i-1,j,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
 
-            wypp = Real(0.0);
-            wypm = Real(0.0);
-            wymp = Real(0.0);
-            wymm = Real(0.0);
+            wypp = Real(0.0); vzpp = Real(0.0);
+            wypm = Real(0.0); vzpm = Real(0.0);
+            wymp = Real(0.0); vzmp = Real(0.0);
+            wymm = Real(0.0); vzmm = Real(0.0);
         }
     }
 
@@ -225,20 +224,20 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
 
         }
         else if (bc_type[idim][1] == 1){
-            uypp = Real(0.0);
-            uypm = Real(0.0);
-            uymp = Real(0.0);
-            uymm = Real(0.0);
+            uypp = Real(0.0); vxpp = Real(0.0);
+            uypm = Real(0.0); vxpm = Real(0.0);
+            uymp = Real(0.0); vxmp = Real(0.0);
+            uymm = Real(0.0); vxmm = Real(0.0);
 
             vypp = Real(-2.0) * (vel(i,j-1,k,1) - bc_velocity[idim][vdim+1]) * idy;
             vypm = Real(-2.0) * (vel(i-1,j-1,k,1) - bc_velocity[idim][vdim+1]) * idy;
             vymp = Real(-2.0) * (vel(i,j-1,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
             vymm = Real(-2.0) * (vel(i-1,j-1,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
 
-            wypp = Real(0.0);
-            wypm = Real(0.0);
-            wymp = Real(0.0);
-            wymm = Real(0.0);
+            wypp = Real(0.0); vzpp = Real(0.0);
+            wypm = Real(0.0); vzpm = Real(0.0);
+            wymp = Real(0.0); vzmp = Real(0.0);
+            wymm = Real(0.0); vzmm = Real(0.0);
         }
     }
 
@@ -262,15 +261,15 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
             wzmm = Real(2.0) * (vel(i-1,j-1,k,2) - bc_velocity[idim][vdim+2]) * idz;
         }
         else if (bc_type[idim][0] == 1){
-            uzpp = Real(0.0);
-            uzpm = Real(0.0);
-            uzmp = Real(0.0);
-            uzmm = Real(0.0);
+            uzpp = Real(0.0); wxpp = Real(0.0);
+            uzpm = Real(0.0); wxpm = Real(0.0);
+            uzmp = Real(0.0); wxmp = Real(0.0);
+            uzmm = Real(0.0); wxmm = Real(0.0);
 
-            vzpp = Real(0.0);
-            vzpm = Real(0.0);
-            vzmp = Real(0.0);
-            vzmm = Real(0.0);
+            vzpp = Real(0.0); wypp = Real(0.0);
+            vzpm = Real(0.0); wypm = Real(0.0);
+            vzmp = Real(0.0); wymp = Real(0.0);
+            vzmm = Real(0.0); wymm = Real(0.0);
 
             wzpp = Real(2.0) * (vel(i,j,k,2) - bc_velocity[idim][vdim+2]) * idz;
             wzpm = Real(2.0) * (vel(i-1,j,k,2) - bc_velocity[idim][vdim+2]) * idz;
@@ -299,15 +298,15 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
             wzmm = Real(-2.0) * (vel(i-1,j-1,k-1,2) - bc_velocity[idim][vdim+2]) * idz;
         }
         else if (bc_type[idim][1] == 1){
-            uzpp = Real(0.0);
-            uzpm = Real(0.0);
-            uzmp = Real(0.0);
-            uzmm = Real(0.0);
+            uzpp = Real(0.0); wxpp = Real(0.0);
+            uzpm = Real(0.0); wxpm = Real(0.0);
+            uzmp = Real(0.0); wxmp = Real(0.0);
+            uzmm = Real(0.0); wxmm = Real(0.0);
 
-            vzpp = Real(0.0);
-            vzpm = Real(0.0);
-            vzmp = Real(0.0);
-            vzmm = Real(0.0);
+            vzpp = Real(0.0); wypp = Real(0.0);
+            vzpm = Real(0.0); wypm = Real(0.0);
+            vzmp = Real(0.0); wymp = Real(0.0);
+            vzmm = Real(0.0); wymm = Real(0.0);
 
             wzpp = Real(-2.0) * (vel(i,j,k-1,2) - bc_velocity[idim][vdim+2]) * idz;
             wzpm = Real(-2.0) * (vel(i-1,j,k-1,2) - bc_velocity[idim][vdim+2]) * idz;
@@ -321,84 +320,71 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
     Real dnmtr_z = Real(4.0);
     if (i == dlo.x) {
         idim = 0;
-        if ((bc_type[idim][0] == 2) or (bc_type[idim][0] == 1)) {
-
+        if (bc_type[idim][0] == 2) {
             uymm = Real(0.0); uypm = Real(0.0); uzmm = Real(0.0); uzpm = Real(0.0);
             vymm = Real(0.0); vypm = Real(0.0); vzmm = Real(0.0); vzpm = Real(0.0);
             wymm = Real(0.0); wypm = Real(0.0); wzmm = Real(0.0); wzpm = Real(0.0);
             dnmtr_y -= Real(2.0);
             dnmtr_z -= Real(2.0);
-
         }
     }
 
     if (i == dhi.x + 1) {
         idim = 0;
-        if ((bc_type[idim][1] == 2) or (bc_type[idim][1] == 1)) {
-
+        if (bc_type[idim][1] == 2) {
             uymp = Real(0.0); uypp = Real(0.0); uzmp = Real(0.0); uzpp = Real(0.0);
             vymp = Real(0.0); vypp = Real(0.0); vzmp = Real(0.0); vzpp = Real(0.0);
             wymp = Real(0.0); wypp = Real(0.0); wzmp = Real(0.0); wzpp = Real(0.0);
             dnmtr_y -= Real(2.0);
             dnmtr_z -= Real(2.0);
-
         }
     }
 
     if (j == dlo.y) {
         idim = 1;
-        if ((bc_type[idim][0] == 2) or (bc_type[idim][0] == 1)) {
-
+        if (bc_type[idim][0] == 2) {
             uxmm = Real(0.0); uxpm = Real(0.0); uzmm = Real(0.0); uzmp = Real(0.0);
             vxmm = Real(0.0); vxpm = Real(0.0); vzmm = Real(0.0); vzmp = Real(0.0);
             wxmm = Real(0.0); wxpm = Real(0.0); wzmm = Real(0.0); wzmp = Real(0.0);
             dnmtr_x -= Real(2.0);
             dnmtr_z -= Real(2.0);
-
         }
     }
 
     if (j == dhi.y + 1) {
         idim = 1;
-        if ((bc_type[idim][1] == 2) or (bc_type[idim][1] == 1)) {
-
+        if (bc_type[idim][1] == 2) {
             uxmp = Real(0.0); uxpp = Real(0.0); uzpp = Real(0.0); uzpm = Real(0.0);
             vxmp = Real(0.0); vxpp = Real(0.0); vzpp = Real(0.0); vzpm = Real(0.0);
             wxmp = Real(0.0); wxpp = Real(0.0); wzpp = Real(0.0); wzpm = Real(0.0);
             dnmtr_x -= Real(2.0);
             dnmtr_z -= Real(2.0);
-
         }
     }
 
     if (k == dlo.z) {
         idim = 2;
-        if ((bc_type[idim][0] == 2) or (bc_type[idim][0] == 1)) {
-
+        if (bc_type[idim][0] == 2) {
             uxmm = Real(0.0); uxmp = Real(0.0); uymm = Real(0.0); uymp = Real(0.0);
             vxmm = Real(0.0); vxmp = Real(0.0); vymm = Real(0.0); vymp = Real(0.0);
             wxmm = Real(0.0); wxmp = Real(0.0); wymm = Real(0.0); wymp = Real(0.0);
             dnmtr_x -= Real(2.0);
             dnmtr_y -= Real(2.0);
-
         }
     }
 
     if (k == dhi.z + 1) {
         idim = 2;
-        if ((bc_type[idim][1] == 2) or (bc_type[idim][1] == 1)) {
-
+        if (bc_type[idim][1] == 2) {
             uxpm = Real(0.0); uxpp = Real(0.0); uypp = Real(0.0); uypm = Real(0.0);
             vxpm = Real(0.0); vxpp = Real(0.0); vypp = Real(0.0); vypm = Real(0.0);
             wxpm = Real(0.0); wxpp = Real(0.0); wypp = Real(0.0); wypm = Real(0.0);
             dnmtr_x -= Real(2.0);
             dnmtr_y -= Real(2.0);
-
         }
     }
-
-    AMREX_ALWAYS_ASSERT(dnmtr_x >= Real(0.0));
-    AMREX_ALWAYS_ASSERT(dnmtr_y >= Real(0.0));
+    AMREX_ALWAYS_ASSERT(dnmtr_x >= Real(2.0));
+    AMREX_ALWAYS_ASSERT(dnmtr_y >= Real(2.0));
     AMREX_ALWAYS_ASSERT(dnmtr_z >= Real(0.0));
     // Remove double-counting effect
     if (dnmtr_x == Real(0.0)) dnmtr_x = Real(1.0);
@@ -417,10 +403,10 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
     Real wy = (wypp + wypm + wymp + wymm)/dnmtr_y;
     Real wz = (wzpp + wzpm + wzmp + wzmm)/dnmtr_z;
 
-    return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy + amrex::Real(2.0) * wz*wz
+    return std::sqrt(Real(2.0) * ux*ux + Real(2.0) * vy*vy + Real(2.0) * wz*wz
                      + (uy+vx)*(uy+vx) + (vz+wy)*(vz+wy) + (wx+uz)*(wx+uz));
 #else
-
+    // Needs changes
     Real uxp = (vel(i,j,k,0) - vel(i-1,j,k,0)) * idx;
     Real uxm = (vel(i,j-1,k,0) - vel(i-1,j-1,k,0)) * idx;
     Real vxp = (vel(i,j,k,1) - vel(i-1,j,k,1)) * idx;
