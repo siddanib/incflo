@@ -257,7 +257,8 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
     // Zero-derivatives
     if ((i == dlo.x) or (i == dhi.x+1)) {
         idim = 0;
-        if (bc_type[idim][0] == 2) {
+        int jdim = (i == dlo.x)? 0:1;
+        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1) ){
             uypp = Real(0.0); vypp = Real(0.0); wypp = Real(0.0);
             uypm = Real(0.0); vypm = Real(0.0); wypm = Real(0.0);
             uymp = Real(0.0); vymp = Real(0.0); wymp = Real(0.0);
@@ -267,12 +268,19 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
             uzpm = Real(0.0); vzpm = Real(0.0); wzpm = Real(0.0);
             uzmp = Real(0.0); vzmp = Real(0.0); wzmp = Real(0.0);
             uzmm = Real(0.0); vzmm = Real(0.0); wzmm = Real(0.0);
+        }
+        if (bc_type[idim][jdim] == 1) {
+            vxpp = Real(0.0); wxpp = Real(0.0);
+            vxpm = Real(0.0); wxpm = Real(0.0);
+            vxmp = Real(0.0); wxmp = Real(0.0);
+            vxmm = Real(0.0); wxmm = Real(0.0);
         }
     }
 
     if ((j == dlo.y) or (j == dhi.y+1)) {
         idim = 1;
-        if (bc_type[idim][0] == 2) {
+        int jdim = (j == dlo.y)? 0:1;
+        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1)){
             uxpp = Real(0.0); vxpp = Real(0.0); wxpp = Real(0.0);
             uxpm = Real(0.0); vxpm = Real(0.0); wxpm = Real(0.0);
             uxmp = Real(0.0); vxmp = Real(0.0); wxmp = Real(0.0);
@@ -283,11 +291,18 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
             uzmp = Real(0.0); vzmp = Real(0.0); wzmp = Real(0.0);
             uzmm = Real(0.0); vzmm = Real(0.0); wzmm = Real(0.0);
         }
+        if (bc_type[idim][jdim] == 1) {
+            uypp = Real(0.0); wypp = Real(0.0);
+            uypm = Real(0.0); wypm = Real(0.0);
+            uymp = Real(0.0); wymp = Real(0.0);
+            uymm = Real(0.0); wymm = Real(0.0);
+        }
     }
 
     if ((k == dlo.z) or (k == dhi.z+1)) {
         idim = 2;
-        if (bc_type[idim][0] == 2) {
+        int jdim = (k == dlo.z)? 0:1;
+        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 2)) {
             uxpp = Real(0.0); vxpp = Real(0.0); wxpp = Real(0.0);
             uxpm = Real(0.0); vxpm = Real(0.0); wxpm = Real(0.0);
             uxmp = Real(0.0); vxmp = Real(0.0); wxmp = Real(0.0);
@@ -297,6 +312,12 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
             uypm = Real(0.0); vypm = Real(0.0); wypm = Real(0.0);
             uymp = Real(0.0); vymp = Real(0.0); wymp = Real(0.0);
             uymm = Real(0.0); vymm = Real(0.0); wymm = Real(0.0);
+        }
+        if (bc_type[idim][jdim] == 1) {
+            uzpp = Real(0.0); vzpp = Real(0.0);
+            uzpm = Real(0.0); vzpm = Real(0.0);
+            uzmp = Real(0.0); vzmp = Real(0.0);
+            uzmm = Real(0.0); vzmm = Real(0.0);
         }
     }
 
@@ -396,17 +417,25 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
     // Zero-derivatives
     if ((i == dlo.x) or (i == dhi.x+1)) {
         idim = 0;
-        if (bc_type[idim][0] == 2) {
+        int jdim = (i == dlo.x)? 0:1;
+        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1)){
             uyp = Real(0.0); vyp = Real(0.0);
             uym = Real(0.0); vym = Real(0.0);
+        }
+        if (bc_type[idim][jdim] == 1) {
+            vxp = Real(0.0); vxm = Real(0.0);
         }
     }
 
     if ((j == dlo.y) or (j == dhi.y+1)) {
         idim = 1;
-        if (bc_type[idim][0] == 2) {
+        int jdim = (j == dlo.y)? 0:1;
+        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1)) {
             uxp = Real(0.0); vxp = Real(0.0);
             uxm = Real(0.0); vxm = Real(0.0);
+        }
+        if (bc_type[idim][jdim] == 1) {
+            uyp = Real(0.0); uym = Real(0.0);
         }
     }
 
