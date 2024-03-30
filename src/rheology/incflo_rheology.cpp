@@ -177,7 +177,6 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
     const Dim3 dlo = amrex::lbound(lev_geom.Domain());
     const Dim3 dhi = amrex::ubound(lev_geom.Domain());
     GpuArray<GpuArray<int,2>,AMREX_SPACEDIM> bc_type;
-    GpuArray<GpuArray<Real,2*AMREX_SPACEDIM>,AMREX_SPACEDIM> bc_velocity;
     for (OrientationIter oit; oit; ++oit) {
         Orientation ori = oit();
         int dir = ori.coordDir();
@@ -186,55 +185,25 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
         if (bct == BC::no_slip_wall) {
             if (side == Orientation::low) {
                 bc_type[dir][0] = 2;
-                bc_velocity[dir][0] = m_bc_velocity[ori][0];
-                bc_velocity[dir][1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][2] = m_bc_velocity[ori][2];
-#endif
             }
             if (side == Orientation::high) {
                 bc_type[dir][1] = 2;
-                bc_velocity[dir][AMREX_SPACEDIM] = m_bc_velocity[ori][0];
-                bc_velocity[dir][AMREX_SPACEDIM + 1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][AMREX_SPACEDIM + 2] = m_bc_velocity[ori][2];
-#endif
             }
         }
         else if (bct == BC::slip_wall) {
             if (side == Orientation::low) {
                 bc_type[dir][0] = 1;
-                bc_velocity[dir][0] = m_bc_velocity[ori][0];
-                bc_velocity[dir][1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][2] = m_bc_velocity[ori][2];
-#endif
             }
             if (side == Orientation::high) {
                 bc_type[dir][1] = 1;
-                bc_velocity[dir][AMREX_SPACEDIM] = m_bc_velocity[ori][0];
-                bc_velocity[dir][AMREX_SPACEDIM + 1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][AMREX_SPACEDIM + 2] = m_bc_velocity[ori][2];
-#endif
             }
         }
         else {
             if (side == Orientation::low) {
                 bc_type[dir][0] = 0;
-                bc_velocity[dir][0] = m_bc_velocity[ori][0];
-                bc_velocity[dir][1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][2] = m_bc_velocity[ori][2];
-#endif
             }
             if (side == Orientation::high) {
                 bc_type[dir][1] = 0;
-                bc_velocity[dir][AMREX_SPACEDIM] = m_bc_velocity[ori][0];
-                bc_velocity[dir][AMREX_SPACEDIM + 1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][AMREX_SPACEDIM + 2] = m_bc_velocity[ori][2];
-#endif
             }
         }
     }
@@ -263,7 +232,7 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
                 sr_arr(i,j,k) = incflo_strainrate_nd(i,j,k,AMREX_D_DECL(idx,idy,idz),
-                                               vel_arr,dlo,dhi,bc_type,bc_velocity);
+                                               vel_arr,dlo,dhi,bc_type);
             });
         }
     }
@@ -291,16 +260,12 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
     }
     ofs.close();
 
-    //auto mask = amrex::OwnerMask(*vel_eta, lev_geom.periodicity());
-    //sr_mf.OverrideSync(*mask,lev_geom.periodicity());
     // Copier send of sr_mf and Copier recv of *vel_eta
     amrex::Print() << "Preparing to send strainrate to python\n";
     mpmd_copiers_send_lev(sr_mf,0,1,lev);
     amrex::Print() << "Successfuly sent the strainrate\n";
     mpmd_copiers_recv_lev(*vel_eta,0,1,lev);
     amrex::Print() << "Successfully received the viscosity\n";
-    //vel_eta->OverrideSync(*mask,lev_geom.periodicity());
-
     amrex::Print() << "Nodal eta max is " << vel_eta->max(0)
         <<",occurring at: "<< vel_eta->maxIndex(0)<<"\n";
 }

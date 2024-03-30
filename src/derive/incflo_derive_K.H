@@ -43,8 +43,7 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
              AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
              amrex::Array4<amrex::Real const> const& vel,
              const amrex::Dim3& dlo, const amrex::Dim3& dhi,
-             amrex::GpuArray<amrex::GpuArray<int,2>,AMREX_SPACEDIM> bc_type,
-             amrex::GpuArray<amrex::GpuArray<amrex::Real,2*AMREX_SPACEDIM>,AMREX_SPACEDIM> bc_velocity) noexcept
+             amrex::GpuArray<amrex::GpuArray<int,2>,AMREX_SPACEDIM> bc_type) noexcept
 {
     using namespace amrex;
 
@@ -89,235 +88,194 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
     Real wzmm = (vel(i-1,j-1,k,2) - vel(i-1,j-1,k-1,2)) * idz;
 
     // Applying Boundary Conditions
-    // Slip walls check again
-    // Non-zero derivatives
-    int idim, vdim;
-    if (i == dlo.x) {
+    // First ghost cells of boundary are populated
+    // with domain boundary value
+    int idim, jdim;
+    if ((i == dlo.x) or (i == dhi.x+1) ){
         idim = 0;
-        vdim = 0;
-        if (bc_type[idim][0] == 2) {
-            uxpp = Real(2.0) * (vel(i,j,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxpm = Real(2.0) * (vel(i,j-1,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxmp = Real(2.0) * (vel(i,j,k-1,0) - bc_velocity[idim][vdim]) * idx;
-            uxmm = Real(2.0) * (vel(i,j-1,k-1,0) - bc_velocity[idim][vdim]) * idx;
-
-            vxpp = Real(2.0) * (vel(i,j,k,1) - bc_velocity[idim][vdim+1]) * idx;
-            vxpm = Real(2.0) * (vel(i,j-1,k,1) - bc_velocity[idim][vdim+1]) * idx;
-            vxmp = Real(2.0) * (vel(i,j,k-1,1) - bc_velocity[idim][vdim+1]) * idx;
-            vxmm = Real(2.0) * (vel(i,j-1,k-1,1) - bc_velocity[idim][vdim+1]) * idx;
-
-            wxpp = Real(2.0) * (vel(i,j,k,2) - bc_velocity[idim][vdim+2]) * idx;
-            wxpm = Real(2.0) * (vel(i,j-1,k,2) - bc_velocity[idim][vdim+2]) * idx;
-            wxmp = Real(2.0) * (vel(i,j,k-1,2) - bc_velocity[idim][vdim+2]) * idx;
-            wxmm = Real(2.0) * (vel(i,j-1,k-1,2) - bc_velocity[idim][vdim+2]) * idx;
+        jdim = (i == dlo.x)? 0:1;
+        if (bc_type[idim][jdim] == 2) {
+            uxpp *= Real(2.0); vxpp *= Real(2.0); wxpp *= Real(2.0);
+            uxpm *= Real(2.0); vxpm *= Real(2.0); wxpm *= Real(2.0);
+            uxmp *= Real(2.0); vxmp *= Real(2.0); wxmp *= Real(2.0);
+            uxmm *= Real(2.0); vxmm *= Real(2.0); wxmm *= Real(2.0);
         }
-        else if (bc_type[idim][0] == 1) {
-            uxpp = Real(2.0) * (vel(i,j,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxpm = Real(2.0) * (vel(i,j-1,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxmp = Real(2.0) * (vel(i,j,k-1,0) - bc_velocity[idim][vdim]) * idx;
-            uxmm = Real(2.0) * (vel(i,j-1,k-1,0) - bc_velocity[idim][vdim]) * idx;
+        else if (bc_type[idim][jdim] == 1) {
+            uxpp *= Real(2.0); vxpp = Real(0.0); wxpp = Real(0.0);
+            uxpm *= Real(2.0); vxpm = Real(0.0); wxpm = Real(0.0);
+            uxmp *= Real(2.0); vxmp = Real(0.0); wxmp = Real(0.0);
+            uxmm *= Real(2.0); vxmm = Real(0.0); wxmm = Real(0.0);
         }
     }
 
-    if (i == dhi.x + 1) {
-        idim = 0;
-        vdim = AMREX_SPACEDIM;
-        if (bc_type[idim][1] == 2) {
-            uxpp = Real(-2.0) * (vel(i-1,j,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxpm = Real(-2.0) * (vel(i-1,j-1,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxmp = Real(-2.0) * (vel(i-1,j,k-1,0) - bc_velocity[idim][vdim]) * idx;
-            uxmm = Real(-2.0) * (vel(i-1,j-1,k-1,0) - bc_velocity[idim][vdim]) * idx;
-
-            vxpp = Real(-2.0) * (vel(i-1,j,k,1) - bc_velocity[idim][vdim+1]) * idx;
-            vxpm = Real(-2.0) * (vel(i-1,j-1,k,1) - bc_velocity[idim][vdim+1]) * idx;
-            vxmp = Real(-2.0) * (vel(i-1,j,k-1,1) - bc_velocity[idim][vdim+1]) * idx;
-            vxmm = Real(-2.0) * (vel(i-1,j-1,k-1,1) - bc_velocity[idim][vdim+1]) * idx;
-
-            wxpp = Real(-2.0) * (vel(i-1,j,k,2) - bc_velocity[idim][vdim+2]) * idx;
-            wxpm = Real(-2.0) * (vel(i-1,j-1,k,2) - bc_velocity[idim][vdim+2]) * idx;
-            wxmp = Real(-2.0) * (vel(i-1,j,k-1,2) - bc_velocity[idim][vdim+2]) * idx;
-            wxmm = Real(-2.0) * (vel(i-1,j-1,k-1,2) - bc_velocity[idim][vdim+2]) * idx;
-        }
-        else if (bc_type[idim][1] == 1) {
-            uxpp = Real(-2.0) * (vel(i-1,j,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxpm = Real(-2.0) * (vel(i-1,j-1,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxmp = Real(-2.0) * (vel(i-1,j,k-1,0) - bc_velocity[idim][vdim]) * idx;
-            uxmm = Real(-2.0) * (vel(i-1,j-1,k-1,0) - bc_velocity[idim][vdim]) * idx;
-        }
-    }
-
-    if (j == dlo.y) {
+    if ((j == dlo.y) or (j == dhi.y+1)){
         idim = 1;
-        vdim = 0;
-        if (bc_type[idim][0] == 2) {
-            uypp = Real(2.0) * (vel(i,j,k,0) - bc_velocity[idim][vdim]) * idy;
-            uypm = Real(2.0) * (vel(i-1,j,k,0) - bc_velocity[idim][vdim]) * idy;
-            uymp = Real(2.0) * (vel(i,j,k-1,0) - bc_velocity[idim][vdim]) * idy;
-            uymm = Real(2.0) * (vel(i-1,j,k-1,0) - bc_velocity[idim][vdim]) * idy;
-
-            vypp = Real(2.0) * (vel(i,j,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vypm = Real(2.0) * (vel(i-1,j,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vymp = Real(2.0) * (vel(i,j,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
-            vymm = Real(2.0) * (vel(i-1,j,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
-
-            wypp = Real(2.0) * (vel(i,j,k,2) - bc_velocity[idim][vdim+2]) * idy;
-            wypm = Real(2.0) * (vel(i-1,j,k,2) - bc_velocity[idim][vdim+2]) * idy;
-            wymp = Real(2.0) * (vel(i,j,k-1,2) - bc_velocity[idim][vdim+2]) * idy;
-            wymm = Real(2.0) * (vel(i-1,j,k-1,2) - bc_velocity[idim][vdim+2]) * idy;
+        jdim = (j == dlo.y)? 0:1;
+        if (bc_type[idim][jdim] == 2) {
+            uypp *= Real(2.0); vypp *= Real(2.0); wypp *= Real(2.0);
+            uypm *= Real(2.0); vypm *= Real(2.0); wypm *= Real(2.0);
+            uymp *= Real(2.0); vymp *= Real(2.0); wymp *= Real(2.0);
+            uymm *= Real(2.0); vymm *= Real(2.0); wymm *= Real(2.0);
         }
-        else if (bc_type[idim][0] == 1){
-            vypp = Real(2.0) * (vel(i,j,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vypm = Real(2.0) * (vel(i-1,j,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vymp = Real(2.0) * (vel(i,j,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
-            vymm = Real(2.0) * (vel(i-1,j,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
-        }
-    }
-
-    if (j == dhi.y + 1) {
-        idim = 1;
-        vdim = AMREX_SPACEDIM;
-        if (bc_type[idim][1] == 2) {
-            uypp = Real(-2.0) * (vel(i,j-1,k,0) - bc_velocity[idim][vdim]) * idy;
-            uypm = Real(-2.0) * (vel(i-1,j-1,k,0) - bc_velocity[idim][vdim]) * idy;
-            uymp = Real(-2.0) * (vel(i,j-1,k-1,0) - bc_velocity[idim][vdim]) * idy;
-            uymm = Real(-2.0) * (vel(i-1,j-1,k-1,0) - bc_velocity[idim][vdim]) * idy;
-
-            vypp = Real(-2.0) * (vel(i,j-1,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vypm = Real(-2.0) * (vel(i-1,j-1,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vymp = Real(-2.0) * (vel(i,j-1,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
-            vymm = Real(-2.0) * (vel(i-1,j-1,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
-
-            wypp = Real(-2.0) * (vel(i,j-1,k,2) - bc_velocity[idim][vdim+2]) * idy;
-            wypm = Real(-2.0) * (vel(i-1,j-1,k,2) - bc_velocity[idim][vdim+2]) * idy;
-            wymp = Real(-2.0) * (vel(i,j-1,k-1,2) - bc_velocity[idim][vdim+2]) * idy;
-            wymm = Real(-2.0) * (vel(i-1,j-1,k-1,2) - bc_velocity[idim][vdim+2]) * idy;
-
-        }
-        else if (bc_type[idim][1] == 1){
-            vypp = Real(-2.0) * (vel(i,j-1,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vypm = Real(-2.0) * (vel(i-1,j-1,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vymp = Real(-2.0) * (vel(i,j-1,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
-            vymm = Real(-2.0) * (vel(i-1,j-1,k-1,1) - bc_velocity[idim][vdim+1]) * idy;
-        }
-    }
-
-    if (k == dlo.z) {
-        idim = 2;
-        vdim = 0;
-        if (bc_type[idim][0] == 2) {
-            uzpp = Real(2.0) * (vel(i,j,k,0) - bc_velocity[idim][vdim]) * idz;
-            uzpm = Real(2.0) * (vel(i-1,j,k,0) - bc_velocity[idim][vdim]) * idz;
-            uzmp = Real(2.0) * (vel(i,j-1,k,0) - bc_velocity[idim][vdim]) * idz;
-            uzmm = Real(2.0) * (vel(i-1,j-1,k,0) - bc_velocity[idim][vdim]) * idz;
-
-            vzpp = Real(2.0) * (vel(i,j,k,1) - bc_velocity[idim][vdim+1]) * idz;
-            vzpm = Real(2.0) * (vel(i-1,j,k,1) - bc_velocity[idim][vdim+1]) * idz;
-            vzmp = Real(2.0) * (vel(i,j-1,k,1) - bc_velocity[idim][vdim+1]) * idz;
-            vzmm = Real(2.0) * (vel(i-1,j-1,k,1) - bc_velocity[idim][vdim+1]) * idz;
-
-            wzpp = Real(2.0) * (vel(i,j,k,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzpm = Real(2.0) * (vel(i-1,j,k,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzmp = Real(2.0) * (vel(i,j-1,k,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzmm = Real(2.0) * (vel(i-1,j-1,k,2) - bc_velocity[idim][vdim+2]) * idz;
-        }
-        else if (bc_type[idim][0] == 1){
-            wzpp = Real(2.0) * (vel(i,j,k,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzpm = Real(2.0) * (vel(i-1,j,k,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzmp = Real(2.0) * (vel(i,j-1,k,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzmm = Real(2.0) * (vel(i-1,j-1,k,2) - bc_velocity[idim][vdim+2]) * idz;
-        }
-    }
-
-    if (k == dhi.z + 1) {
-        idim = 2;
-        vdim = AMREX_SPACEDIM;
-        if (bc_type[idim][1] == 2) {
-            uzpp = Real(-2.0) * (vel(i,j,k-1,0) - bc_velocity[idim][vdim]) * idz;
-            uzpm = Real(-2.0) * (vel(i-1,j,k-1,0) - bc_velocity[idim][vdim]) * idz;
-            uzmp = Real(-2.0) * (vel(i,j-1,k-1,0) - bc_velocity[idim][vdim]) * idz;
-            uzmm = Real(-2.0) * (vel(i-1,j-1,k-1,0) - bc_velocity[idim][vdim]) * idz;
-
-            vzpp = Real(-2.0) * (vel(i,j,k-1,1) - bc_velocity[idim][vdim+1]) * idz;
-            vzpm = Real(-2.0) * (vel(i-1,j,k-1,1) - bc_velocity[idim][vdim+1]) * idz;
-            vzmp = Real(-2.0) * (vel(i,j-1,k-1,1) - bc_velocity[idim][vdim+1]) * idz;
-            vzmm = Real(-2.0) * (vel(i-1,j-1,k-1,1) - bc_velocity[idim][vdim+1]) * idz;
-
-            wzpp = Real(-2.0) * (vel(i,j,k-1,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzpm = Real(-2.0) * (vel(i-1,j,k-1,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzmp = Real(-2.0) * (vel(i,j-1,k-1,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzmm = Real(-2.0) * (vel(i-1,j-1,k-1,2) - bc_velocity[idim][vdim+2]) * idz;
-        }
-        else if (bc_type[idim][1] == 1){
-            wzpp = Real(-2.0) * (vel(i,j,k-1,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzpm = Real(-2.0) * (vel(i-1,j,k-1,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzmp = Real(-2.0) * (vel(i,j-1,k-1,2) - bc_velocity[idim][vdim+2]) * idz;
-            wzmm = Real(-2.0) * (vel(i-1,j-1,k-1,2) - bc_velocity[idim][vdim+2]) * idz;
-        }
-    }
-    // Zero-derivatives
-    if ((i == dlo.x) or (i == dhi.x+1)) {
-        idim = 0;
-        int jdim = (i == dlo.x)? 0:1;
-        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1) ){
-            uypp = Real(0.0); vypp = Real(0.0); wypp = Real(0.0);
-            uypm = Real(0.0); vypm = Real(0.0); wypm = Real(0.0);
-            uymp = Real(0.0); vymp = Real(0.0); wymp = Real(0.0);
-            uymm = Real(0.0); vymm = Real(0.0); wymm = Real(0.0);
-
-            uzpp = Real(0.0); vzpp = Real(0.0); wzpp = Real(0.0);
-            uzpm = Real(0.0); vzpm = Real(0.0); wzpm = Real(0.0);
-            uzmp = Real(0.0); vzmp = Real(0.0); wzmp = Real(0.0);
-            uzmm = Real(0.0); vzmm = Real(0.0); wzmm = Real(0.0);
-        }
-        if (bc_type[idim][jdim] == 1) {
-            vxpp = Real(0.0); wxpp = Real(0.0);
-            vxpm = Real(0.0); wxpm = Real(0.0);
-            vxmp = Real(0.0); wxmp = Real(0.0);
-            vxmm = Real(0.0); wxmm = Real(0.0);
-        }
-    }
-
-    if ((j == dlo.y) or (j == dhi.y+1)) {
-        idim = 1;
-        int jdim = (j == dlo.y)? 0:1;
-        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1)){
-            uxpp = Real(0.0); vxpp = Real(0.0); wxpp = Real(0.0);
-            uxpm = Real(0.0); vxpm = Real(0.0); wxpm = Real(0.0);
-            uxmp = Real(0.0); vxmp = Real(0.0); wxmp = Real(0.0);
-            uxmm = Real(0.0); vxmm = Real(0.0); wxmm = Real(0.0);
-
-            uzpp = Real(0.0); vzpp = Real(0.0); wzpp = Real(0.0);
-            uzpm = Real(0.0); vzpm = Real(0.0); wzpm = Real(0.0);
-            uzmp = Real(0.0); vzmp = Real(0.0); wzmp = Real(0.0);
-            uzmm = Real(0.0); vzmm = Real(0.0); wzmm = Real(0.0);
-        }
-        if (bc_type[idim][jdim] == 1) {
-            uypp = Real(0.0); wypp = Real(0.0);
-            uypm = Real(0.0); wypm = Real(0.0);
-            uymp = Real(0.0); wymp = Real(0.0);
-            uymm = Real(0.0); wymm = Real(0.0);
+        else if (bc_type[idim][jdim] == 1) {
+            uypp = Real(0.0); vypp *= Real(2.0); wypp = Real(0.0);
+            uypm = Real(0.0); vypm *= Real(2.0); wypm = Real(0.0);
+            uymp = Real(0.0); vymp *= Real(2.0); wymp = Real(0.0);
+            uymm = Real(0.0); vymm *= Real(2.0); wymm = Real(0.0);
         }
     }
 
     if ((k == dlo.z) or (k == dhi.z+1)) {
         idim = 2;
-        int jdim = (k == dlo.z)? 0:1;
-        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 2)) {
-            uxpp = Real(0.0); vxpp = Real(0.0); wxpp = Real(0.0);
-            uxpm = Real(0.0); vxpm = Real(0.0); wxpm = Real(0.0);
-            uxmp = Real(0.0); vxmp = Real(0.0); wxmp = Real(0.0);
-            uxmm = Real(0.0); vxmm = Real(0.0); wxmm = Real(0.0);
-
-            uypp = Real(0.0); vypp = Real(0.0); wypp = Real(0.0);
-            uypm = Real(0.0); vypm = Real(0.0); wypm = Real(0.0);
-            uymp = Real(0.0); vymp = Real(0.0); wymp = Real(0.0);
-            uymm = Real(0.0); vymm = Real(0.0); wymm = Real(0.0);
+        jdim = (k == dlo.z)? 0:1;
+        if (bc_type[idim][jdim] == 2) {
+            uzpp *= Real(2.0); vzpp *= Real(2.0); wzpp *= Real(2.0);
+            uzpm *= Real(2.0); vzpm *= Real(2.0); wzpm *= Real(2.0);
+            uzmp *= Real(2.0); vzmp *= Real(2.0); wzmp *= Real(2.0);
+            uzmm *= Real(2.0); vzmm *= Real(2.0); wzmm *= Real(2.0);
         }
-        if (bc_type[idim][jdim] == 1) {
-            uzpp = Real(0.0); vzpp = Real(0.0);
-            uzpm = Real(0.0); vzpm = Real(0.0);
-            uzmp = Real(0.0); vzmp = Real(0.0);
-            uzmm = Real(0.0); vzmm = Real(0.0);
+        else if (bc_type[idim][jdim] == 1) {
+            uzpp = Real(0.0); vzpp = Real(0.0); wzpp *= Real(2.0);
+            uzpm = Real(0.0); vzpm = Real(0.0); wzpm *= Real(2.0);
+            uzmp = Real(0.0); vzmp = Real(0.0); wzmp *= Real(2.0);
+            uzmm = Real(0.0); vzmm = Real(0.0); wzmm *= Real(2.0);
+        }
+    }
+
+    // Corner cases
+    // Slip walls are opposite of no-slip walls
+    if ((i == dlo.x) or (i == dhi.x+1)) {
+        idim = 0;
+        jdim = (i == dlo.x)? 0:1;
+        if (bc_type[idim][jdim] == 2) {
+            if (jdim == 0) {
+                uypp = uypm; uymp = uymm;
+                vypp = vypm; vymp = vymm;
+                wypp = wypm; wymp = wymm;
+
+                uzpp = uzpm; uzmp = uzmm;
+                vzpp = vzpm; vzmp = vzmm;
+                wzpp = wzpm; wzmp = wzmm;
+            }
+            else {
+                uypm = uypp; uymm = uymp;
+                vypm = vypp; vymm = vymp;
+                wypm = wypp; wymm = wymp;
+
+                uzpm = uzpp; uzmm = uzmp;
+                vzpm = vzpp; vzmm = vzmp;
+                wzpm = wzpp; wzmm = wzmp;
+            }
+        }
+        else if (bc_type[idim][jdim] == 1) {
+            if (jdim == 0) {
+                uypm = uypp; uymm = uymp;
+                vypm = vypp; vymm = vymp;
+                wypm = wypp; wymm = wymp;
+
+                uzpm = uzpp; uzmm = uzmp;
+                vzpm = vzpp; vzmm = vzmp;
+                wzpm = wzpp; wzmm = wzmp;
+            }
+            else {
+                uypp = uypm; uymp = uymm;
+                vypp = vypm; vymp = vymm;
+                wypp = wypm; wymp = wymm;
+
+                uzpp = uzpm; uzmp = uzmm;
+                vzpp = vzpm; vzmp = vzmm;
+                wzpp = wzpm; wzmp = wzmm;
+            }
+        }
+    }
+
+    if ((j == dlo.y) or (j == dhi.y+1)) {
+        idim = 1;
+        jdim = (j == dlo.y)? 0:1;
+        if (bc_type[idim][jdim] == 2) {
+            if (jdim == 0) {
+                uxpp = uxpm; uxmp = uxmm;
+                vxpp = vxpm; vxmp = vxmm;
+                wxpp = wxpm; wxmp = wxmm;
+
+                uzpp = uzmp; uzpm = uzmm;
+                vzpp = vzmp; vzpm = vzmm;
+                wzpp = wzmp; wzpm = wzmm;
+            }
+            else {
+                uxpm = uxpp; uxmm = uxmp;
+                vxpm = vxpp; vxmm = vxmp;
+                wxpm = wxpp; wxmm = wxmp;
+
+                uzmp = uzpp; uzmm = uzpm;
+                vzmp = vzpp; vzmm = vzpm;
+                wzmp = wzpp; wzmm = wzpm;
+            }
+        }
+        else if (bc_type[idim][jdim] == 1) {
+            if (jdim == 0) {
+                uxpm = uxpp; uxmm = uxmp;
+                vxpm = vxpp; vxmm = vxmp;
+                wxpm = wxpp; wxmm = wxmp;
+
+                uzmp = uzpp; uzmm = uzpm;
+                vzmp = vzpp; vzmm = vzpm;
+                wzmp = wzpp; wzmm = wzpm;
+            }
+            else {
+                uxpp = uxpm; uxmp = uxmm;
+                vxpp = vxpm; vxmp = vxmm;
+                wxpp = wxpm; wxmp = wxmm;
+
+                uzpp = uzmp; uzpm = uzmm;
+                vzpp = vzmp; vzpm = vzmm;
+                wzpp = wzmp; wzpm = wzmm;
+            }
+        }
+    }
+
+    if ((k == dlo.z) or (k == dhi.z+1)) {
+        idim = 2;
+        jdim = (k == dlo.z)? 0:1;
+        if (bc_type[idim][jdim] == 2) {
+            if (jdim == 0) {
+                uxpp = uxmp; uxpm = uxmm;
+                vxpp = vxmp; vxpm = vxmm;
+                wxpp = wxmp; wxpm = wxmm;
+
+                uypp = uymp; uypm = uymm;
+                vypp = vymp; vypm = vymm;
+                wypp = wymp; wypm = wymm;
+            }
+            else {
+                uxmp = uxpp; uxmm = uxpm;
+                vxmp = vxpp; vxmm = vxpm;
+                wxmp = wxpp; wxmm = wxpm;
+
+                uymp = uypp; uymm = uypm;
+                vymp = vypp; vymm = vypm;
+                wymp = wypp; wymm = wypm;
+            }
+        }
+        else if(bc_type[idim][jdim] == 1) {
+            if (jdim == 0) {
+                uxmp = uxpp; uxmm = uxpm;
+                vxmp = vxpp; vxmm = vxpm;
+                wxmp = wxpp; wxmm = wxpm;
+
+                uymp = uypp; uymm = uypm;
+                vymp = vypp; vymm = vypm;
+                wymp = wypp; wymm = wypm;
+            }
+            else {
+                uxpp = uxmp; uxpm = uxmm;
+                vxpp = vxmp; vxpm = vxmm;
+                wxpp = wxmp; wxpm = wxmm;
+
+                uypp = uymp; uypm = uymm;
+                vypp = vymp; vypm = vymm;
+                wypp = wymp; wypm = wymm;
+            }
         }
     }
 
@@ -347,95 +305,83 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
     Real vym = (vel(i-1,j,k,1) - vel(i-1,j-1,k,1)) * idy;
 
     // Applying Boundary Conditions
-    // Slip walls check again
-    // Non-zero derivatives
-    int idim, vdim;
-    if (i == dlo.x) {
-        idim = 0;
-        vdim = 0;
-        if (bc_type[idim][0] == 2) {
-            uxp = Real(2.0) * (vel(i,j,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxm = Real(2.0) * (vel(i,j-1,k,0) - bc_velocity[idim][vdim]) * idx;
-
-            vxp = Real(2.0) * (vel(i,j,k,1) - bc_velocity[idim][vdim+1]) * idx;
-            vxp = Real(2.0) * (vel(i,j-1,k,1) - bc_velocity[idim][vdim+1]) * idx;
-        }
-        else if (bc_type[idim][0] == 1) {
-            uxp = Real(2.0) * (vel(i,j,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxm = Real(2.0) * (vel(i,j-1,k,0) - bc_velocity[idim][vdim]) * idx;
-        }
-    }
-
-    if (i == dhi.x + 1) {
-        idim = 0;
-        vdim = AMREX_SPACEDIM;
-        if (bc_type[idim][1] == 2) {
-            uxp = Real(-2.0) * (vel(i-1,j,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxm = Real(-2.0) * (vel(i-1,j-1,k,0) - bc_velocity[idim][vdim]) * idx;
-
-            vxp = Real(-2.0) * (vel(i-1,j,k,1) - bc_velocity[idim][vdim+1]) * idx;
-            vxm = Real(-2.0) * (vel(i-1,j-1,k,1) - bc_velocity[idim][vdim+1]) * idx;
-        }
-        else if (bc_type[idim][1] == 1) {
-            uxp = Real(-2.0) * (vel(i-1,j,k,0) - bc_velocity[idim][vdim]) * idx;
-            uxm = Real(-2.0) * (vel(i-1,j-1,k,0) - bc_velocity[idim][vdim]) * idx;
-        }
-    }
-
-    if (j == dlo.y) {
-        idim = 1;
-        vdim = 0;
-        if (bc_type[idim][0] == 2) {
-            uyp = Real(2.0) * (vel(i,j,k,0) - bc_velocity[idim][vdim]) * idy;
-            uym = Real(2.0) * (vel(i-1,j,k,0) - bc_velocity[idim][vdim]) * idy;
-
-            vyp = Real(2.0) * (vel(i,j,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vym = Real(2.0) * (vel(i-1,j,k,1) - bc_velocity[idim][vdim+1]) * idy;
-        }
-        else if (bc_type[idim][0] == 1){
-            vyp = Real(2.0) * (vel(i,j,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vym = Real(2.0) * (vel(i-1,j,k,1) - bc_velocity[idim][vdim+1]) * idy;
-        }
-    }
-
-    if (j == dhi.y + 1) {
-        idim = 1;
-        vdim = AMREX_SPACEDIM;
-        if (bc_type[idim][1] == 2) {
-            uyp = Real(-2.0) * (vel(i,j-1,k,0) - bc_velocity[idim][vdim]) * idy;
-            uym = Real(-2.0) * (vel(i-1,j-1,k,0) - bc_velocity[idim][vdim]) * idy;
-
-            vyp = Real(-2.0) * (vel(i,j-1,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vym = Real(-2.0) * (vel(i-1,j-1,k,1) - bc_velocity[idim][vdim+1]) * idy;
-        }
-        else if (bc_type[idim][1] == 1){
-            vyp = Real(-2.0) * (vel(i,j-1,k,1) - bc_velocity[idim][vdim+1]) * idy;
-            vym = Real(-2.0) * (vel(i-1,j-1,k,1) - bc_velocity[idim][vdim+1]) * idy;
-        }
-    }
-
-    // Zero-derivatives
+    // First ghost cells of boundary are populated
+    // with domain boundary value
+    int idim, jdim;
     if ((i == dlo.x) or (i == dhi.x+1)) {
         idim = 0;
-        int jdim = (i == dlo.x)? 0:1;
-        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1)){
-            uyp = Real(0.0); vyp = Real(0.0);
-            uym = Real(0.0); vym = Real(0.0);
+        jdim = (i == dlo.x)? 0:1;
+        if (bc_type[idim][jdim] == 2) {
+            uxp *= Real(2.0); vxp *= Real(2.0);
+            uxm *= Real(2.0); vxm *= Real(2.0);
         }
-        if (bc_type[idim][jdim] == 1) {
-            vxp = Real(0.0); vxm = Real(0.0);
+        else if (bc_type[idim][jdim] == 1) {
+            uxp *= Real(2.0); vxp = Real(0.0);
+            uxm *= Real(2.0); vxm = Real(0.0);
         }
     }
 
     if ((j == dlo.y) or (j == dhi.y+1)) {
         idim = 1;
-        int jdim = (j == dlo.y)? 0:1;
-        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1)) {
-            uxp = Real(0.0); vxp = Real(0.0);
-            uxm = Real(0.0); vxm = Real(0.0);
+        jdim = (j == dlo.y)? 0:1;
+        if (bc_type[idim][jdim] == 2) {
+            uyp *= Real(2.0); vyp *= Real(2.0);
+            uym *= Real(2.0); vym *= Real(2.0);
         }
-        if (bc_type[idim][jdim] == 1) {
-            uyp = Real(0.0); uym = Real(0.0);
+        else if (bc_type[idim][jdim] == 1) {
+            uyp = Real(0.0); vyp *= Real(2.0);
+            uym = Real(0.0); vym *= Real(2.0);
+        }
+    }
+    // Corner cases
+    // Slip walls are opposite of no-slip walls
+    if ((i == dlo.x) or (i == dhi.x+1)) {
+        idim = 0;
+        jdim = (i == dlo.x)? 0:1;
+        if (bc_type[idim][jdim] == 2) {
+            if (jdim == 0) {
+                uyp = uym;
+                vyp = vym;
+            }
+            else {
+                uym = uyp;
+                vym = vyp;
+            }
+        }
+        else if (bc_type[idim][jdim] == 1) {
+            if (jdim == 0) {
+                uym = uyp;
+                vym = vyp;
+            }
+            else {
+                uyp = uym;
+                vyp = vym;
+            }
+        }
+    }
+
+    if ((j == dlo.y) or (j == dhi.y+1)) {
+        idim = 1;
+        jdim = (j == dlo.y)? 0:1;
+        if (bc_type[idim][jdim] == 2) {
+            if (jdim == 0) {
+                uxp = uxm;
+                vxp = vxm;
+            }
+            else {
+                uxm = uxp;
+                vxm = vxp;
+            }
+        }
+        else if (bc_type[idim][jdim] == 1) {
+            if (jdim == 0) {
+                uxm = uxp;
+                vxm = vxp;
+            }
+            else {
+                uxp = uxm;
+                vxp = vxm;
+            }
         }
     }
 

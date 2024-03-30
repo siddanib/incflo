@@ -109,7 +109,6 @@ void incflo::compute_nd_strainrate_at_level (int /*lev*/,
     const Dim3 dlo = amrex::lbound(lev_geom.Domain());
     const Dim3 dhi = amrex::ubound(lev_geom.Domain());
     GpuArray<GpuArray<int,2>,AMREX_SPACEDIM> bc_type;
-    GpuArray<GpuArray<Real,2*AMREX_SPACEDIM>,AMREX_SPACEDIM> bc_velocity;
     for (OrientationIter oit; oit; ++oit) {
         Orientation ori = oit();
         int dir = ori.coordDir();
@@ -118,55 +117,25 @@ void incflo::compute_nd_strainrate_at_level (int /*lev*/,
         if (bct == BC::no_slip_wall) {
             if (side == Orientation::low) {
                 bc_type[dir][0] = 2;
-                bc_velocity[dir][0] = m_bc_velocity[ori][0];
-                bc_velocity[dir][1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][2] = m_bc_velocity[ori][2];
-#endif
             }
             if (side == Orientation::high) {
                 bc_type[dir][1] = 2;
-                bc_velocity[dir][AMREX_SPACEDIM] = m_bc_velocity[ori][0];
-                bc_velocity[dir][AMREX_SPACEDIM + 1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][AMREX_SPACEDIM + 2] = m_bc_velocity[ori][2];
-#endif
             }
         }
         else if (bct == BC::slip_wall) {
             if (side == Orientation::low) {
                 bc_type[dir][0] = 1;
-                bc_velocity[dir][0] = m_bc_velocity[ori][0];
-                bc_velocity[dir][1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][2] = m_bc_velocity[ori][2];
-#endif
             }
             if (side == Orientation::high) {
                 bc_type[dir][1] = 1;
-                bc_velocity[dir][AMREX_SPACEDIM] = m_bc_velocity[ori][0];
-                bc_velocity[dir][AMREX_SPACEDIM + 1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][AMREX_SPACEDIM + 2] = m_bc_velocity[ori][2];
-#endif
             }
         }
         else {
             if (side == Orientation::low) {
                 bc_type[dir][0] = 0;
-                bc_velocity[dir][0] = m_bc_velocity[ori][0];
-                bc_velocity[dir][1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][2] = m_bc_velocity[ori][2];
-#endif
             }
             if (side == Orientation::high) {
                 bc_type[dir][1] = 0;
-                bc_velocity[dir][AMREX_SPACEDIM] = m_bc_velocity[ori][0];
-                bc_velocity[dir][AMREX_SPACEDIM + 1] = m_bc_velocity[ori][1];
-#if (AMREX_SPACEDIM == 3)
-                bc_velocity[dir][AMREX_SPACEDIM + 2] = m_bc_velocity[ori][2];
-#endif
             }
         }
     }
@@ -183,8 +152,7 @@ void incflo::compute_nd_strainrate_at_level (int /*lev*/,
                     amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                     {
                         sr_arr(i,j,k) = incflo_strainrate_nd(i,j,k,AMREX_D_DECL(idx,idy,idz),
-                                                             vel_arr,dlo,dhi,
-                                                             bc_type,bc_velocity);
+                                                             vel_arr,dlo,dhi,bc_type);
                     });
                 }
         }
