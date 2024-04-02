@@ -128,6 +128,23 @@ struct IncfloVelFill
                         amrex::Real x = amrex::Real(i+0.5)*(amrex::Real(1.0)/domain_box.length(0));
                         vel(i,j,k,dcomp+nc) = 16.0 * (x*x*x*x - 2.0 * x*x*x + x*x);
                     }
+                } else if (456 == probtype) {
+                    // Lid driven cavity flow with sine-based x-velocity profile
+                    if (orig_comp+nc == 0) { // x velocity
+                        constexpr auto two_pi = amrex::Real(2.0)*amrex::Real(3.1415926535897932);
+                        constexpr auto half_pi = amrex::Real(0.5)*amrex::Real(3.1415926535897932);
+                        amrex::Real x;
+                        if (i < domain_box.smallEnd(0)) {
+                            x = amrex::Real(0.0);
+                        } else if (i > domain_box.bigEnd(0)) {
+                            x = amrex::Real(domain_box.length(0));
+                        } else {
+                            x = amrex::Real(i) + amrex::Real(0.5);
+                        }
+                        x *= (amrex::Real(1.0)/amrex::Real(domain_box.length(0)));
+                        x = x*two_pi - half_pi;
+                        vel(i,j,k,dcomp+nc) = amrex::Real(0.5)*(std::sin(x)+amrex::Real(1.0));
+                    }
                 } else {
                    vel(i,j,k,dcomp+nc) = bcv[amrex::Orientation(amrex::Direction::y,amrex::Orientation::high)][orig_comp+nc];
                 }
