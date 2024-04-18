@@ -48,43 +48,43 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
     using namespace amrex;
 
 #if (AMREX_SPACEDIM == 3)
-    Real uxpp = (vel(i,j,k,0) - vel(i-1,j,k,0)) * idx;
-    Real uxpm = (vel(i,j-1,k,0) - vel(i-1,j-1,k,0)) * idx;
-    Real uxmp = (vel(i,j,k-1,0) - vel(i-1,j,k-1,0)) * idx;
+    Real uxpp = (vel(i,j  ,k  ,0) - vel(i-1,j  ,k  ,0)) * idx;
+    Real uxpm = (vel(i,j-1,k  ,0) - vel(i-1,j-1,k  ,0)) * idx;
+    Real uxmp = (vel(i,j  ,k-1,0) - vel(i-1,j  ,k-1,0)) * idx;
     Real uxmm = (vel(i,j-1,k-1,0) - vel(i-1,j-1,k-1,0)) * idx;
-    Real vxpp = (vel(i,j,k,1) - vel(i-1,j,k,1)) * idx;
-    Real vxpm = (vel(i,j-1,k,1) - vel(i-1,j-1,k,1)) * idx;
-    Real vxmp = (vel(i,j,k-1,1) - vel(i-1,j,k-1,1)) * idx;
+    Real vxpp = (vel(i,j  ,k  ,1) - vel(i-1,j  ,k  ,1)) * idx;
+    Real vxpm = (vel(i,j-1,k  ,1) - vel(i-1,j-1,k  ,1)) * idx;
+    Real vxmp = (vel(i,j  ,k-1,1) - vel(i-1,j  ,k-1,1)) * idx;
     Real vxmm = (vel(i,j-1,k-1,1) - vel(i-1,j-1,k-1,1)) * idx;
-    Real wxpp = (vel(i,j,k,2) - vel(i-1,j,k,2)) * idx;
-    Real wxpm = (vel(i,j-1,k,2) - vel(i-1,j-1,k,2)) * idx;
-    Real wxmp = (vel(i,j,k-1,2) - vel(i-1,j,k-1,2)) * idx;
+    Real wxpp = (vel(i,j  ,k  ,2) - vel(i-1,j  ,k  ,2)) * idx;
+    Real wxpm = (vel(i,j-1,k  ,2) - vel(i-1,j-1,k  ,2)) * idx;
+    Real wxmp = (vel(i,j  ,k-1,2) - vel(i-1,j  ,k-1,2)) * idx;
     Real wxmm = (vel(i,j-1,k-1,2) - vel(i-1,j-1,k-1,2)) * idx;
 
-    Real uypp = (vel(i,j,k,0) - vel(i,j-1,k,0)) * idy;
-    Real uypm = (vel(i-1,j,k,0) - vel(i-1,j-1,k,0)) * idy;
-    Real uymp = (vel(i,j,k-1,0) - vel(i,j-1,k-1,0)) * idy;
+    Real uypp = (vel(i  ,j,k  ,0) - vel(i  ,j-1,k  ,0)) * idy;
+    Real uypm = (vel(i-1,j,k  ,0) - vel(i-1,j-1,k  ,0)) * idy;
+    Real uymp = (vel(i  ,j,k-1,0) - vel(i  ,j-1,k-1,0)) * idy;
     Real uymm = (vel(i-1,j,k-1,0) - vel(i-1,j-1,k-1,0)) * idy;
-    Real vypp = (vel(i,j,k,1) - vel(i,j-1,k,1)) * idy;
-    Real vypm = (vel(i-1,j,k,1) - vel(i-1,j-1,k,1)) * idy;
-    Real vymp = (vel(i,j,k-1,1) - vel(i,j-1,k-1,1)) * idy;
+    Real vypp = (vel(i  ,j,k  ,1) - vel(i  ,j-1,k  ,1)) * idy;
+    Real vypm = (vel(i-1,j,k  ,1) - vel(i-1,j-1,k  ,1)) * idy;
+    Real vymp = (vel(i  ,j,k-1,1) - vel(i  ,j-1,k-1,1)) * idy;
     Real vymm = (vel(i-1,j,k-1,1) - vel(i-1,j-1,k-1,1)) * idy;
-    Real wypp = (vel(i,j,k,2) - vel(i,j-1,k,2)) * idy;
-    Real wypm = (vel(i-1,j,k,2) - vel(i-1,j-1,k,2)) * idy;
-    Real wymp = (vel(i,j,k-1,2) - vel(i,j-1,k-1,2)) * idy;
+    Real wypp = (vel(i  ,j,k  ,2) - vel(i  ,j-1,k  ,2)) * idy;
+    Real wypm = (vel(i-1,j,k  ,2) - vel(i-1,j-1,k  ,2)) * idy;
+    Real wymp = (vel(i  ,j,k-1,2) - vel(i  ,j-1,k-1,2)) * idy;
     Real wymm = (vel(i-1,j,k-1,2) - vel(i-1,j-1,k-1,2)) * idy;
 
-    Real uzpp = (vel(i,j,k,0) - vel(i,j,k-1,0)) * idz;
-    Real uzpm = (vel(i-1,j,k,0) - vel(i-1,j,k-1,0)) * idz;
-    Real uzmp = (vel(i,j-1,k,0) - vel(i,j-1,k-1,0)) * idz;
+    Real uzpp = (vel(i  ,j  ,k,0) - vel(i  ,j  ,k-1,0)) * idz;
+    Real uzpm = (vel(i-1,j  ,k,0) - vel(i-1,j  ,k-1,0)) * idz;
+    Real uzmp = (vel(i  ,j-1,k,0) - vel(i  ,j-1,k-1,0)) * idz;
     Real uzmm = (vel(i-1,j-1,k,0) - vel(i-1,j-1,k-1,0)) * idz;
-    Real vzpp = (vel(i,j,k,1) - vel(i,j,k-1,1)) * idz;
-    Real vzpm = (vel(i-1,j,k,1) - vel(i-1,j,k-1,1)) * idz;
-    Real vzmp = (vel(i,j-1,k,1) - vel(i,j-1,k-1,1)) * idz;
+    Real vzpp = (vel(i  ,j  ,k,1) - vel(i  ,j  ,k-1,1)) * idz;
+    Real vzpm = (vel(i-1,j  ,k,1) - vel(i-1,j  ,k-1,1)) * idz;
+    Real vzmp = (vel(i  ,j-1,k,1) - vel(i  ,j-1,k-1,1)) * idz;
     Real vzmm = (vel(i-1,j-1,k,1) - vel(i-1,j-1,k-1,1)) * idz;
-    Real wzpp = (vel(i,j,k,2) - vel(i,j,k-1,2)) * idz;
-    Real wzpm = (vel(i-1,j,k,2) - vel(i-1,j,k-1,2)) * idz;
-    Real wzmp = (vel(i,j-1,k,2) - vel(i,j-1,k-1,2)) * idz;
+    Real wzpp = (vel(i  ,j  ,k,2) - vel(i  ,j  ,k-1,2)) * idz;
+    Real wzpm = (vel(i-1,j  ,k,2) - vel(i-1,j  ,k-1,2)) * idz;
+    Real wzmp = (vel(i  ,j-1,k,2) - vel(i  ,j-1,k-1,2)) * idz;
     Real wzmm = (vel(i-1,j-1,k,2) - vel(i-1,j-1,k-1,2)) * idz;
 
     // Applying Boundary Conditions
@@ -294,14 +294,14 @@ amrex::Real incflo_strainrate_nd (int i, int j, int k,
     return std::sqrt(Real(2.0) * ux*ux + Real(2.0) * vy*vy + Real(2.0) * wz*wz
                      + (uy+vx)*(uy+vx) + (vz+wy)*(vz+wy) + (wx+uz)*(wx+uz));
 #else
-    Real uxp = (vel(i,j,k,0) - vel(i-1,j,k,0)) * idx;
+    Real uxp = (vel(i,j  ,k,0) - vel(i-1,j  ,k,0)) * idx;
     Real uxm = (vel(i,j-1,k,0) - vel(i-1,j-1,k,0)) * idx;
-    Real vxp = (vel(i,j,k,1) - vel(i-1,j,k,1)) * idx;
+    Real vxp = (vel(i,j  ,k,1) - vel(i-1,j  ,k,1)) * idx;
     Real vxm = (vel(i,j-1,k,1) - vel(i-1,j-1,k,1)) * idx;
 
-    Real uyp = (vel(i,j,k,0) - vel(i,j-1,k,0)) * idy;
+    Real uyp = (vel(i  ,j,k,0) - vel(i  ,j-1,k,0)) * idy;
     Real uym = (vel(i-1,j,k,0) - vel(i-1,j-1,k,0)) * idy;
-    Real vyp = (vel(i,j,k,1) - vel(i,j-1,k,1)) * idy;
+    Real vyp = (vel(i  ,j,k,1) - vel(i  ,j-1,k,1)) * idy;
     Real vym = (vel(i-1,j,k,1) - vel(i-1,j-1,k,1)) * idy;
 
     // Applying Boundary Conditions

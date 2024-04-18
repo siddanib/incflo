@@ -285,7 +285,7 @@ incflo::average_velocity_eta_to_faces (int lev, MultiFab const& cc_eta) const
 }
 
 Array<MultiFab,AMREX_SPACEDIM>
-incflo::average_nodal_velocity_eta_to_faces (int lev, MultiFab const& nd_eta) const
+incflo::average_nodal_velocity_eta_to_faces (int lev, MultiFab const& nd_eta, bool use_harmonic_averaging) const
 {
     const auto& ba = nd_eta.boxArray();
     const auto& dm = nd_eta.DistributionMap();
@@ -313,15 +313,28 @@ incflo::average_nodal_velocity_eta_to_faces (int lev, MultiFab const& nd_eta) co
         const Box& ybx = mfi.tilebox(r[1].ixType().toIntVect());
         const Box& zbx = mfi.tilebox(r[2].ixType().toIntVect());
 
+        // Regular average
         amrex::ParallelFor(xbx, ybx, zbx,
         [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            facex(i,j,k) = amrex::Real(0.25)*(nd_arr(i,j,k) + nd_arr(i,j+1,k) + nd_arr(i,j,k+1) + nd_arr(i,j+1,k+1));
+            if (use_harmonic_averaging)
+                facex(i,j,k) = amrex::Real(4.0)/((amrex::Real(1.0)/nd_arr(i,j,k)) + (amrex::Real(1.0)/nd_arr(i,j+1,k))
+                                             + (amrex::Real(1.0)/nd_arr(i,j,k+1)) + (amrex::Real(1.0)/nd_arr(i,j+1,k+1)));
+            else
+               facex(i,j,k) = amrex::Real(0.25)*(nd_arr(i,j,k) + nd_arr(i,j+1,k) + nd_arr(i,j,k+1) + nd_arr(i,j+1,k+1));
         },
         [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            facey(i,j,k) = amrex::Real(0.25)*(nd_arr(i,j,k) + nd_arr(i+1,j,k) + nd_arr(i,j,k+1) + nd_arr(i+1,j,k+1));
+            if (use_harmonic_averaging)
+                facey(i,j,k) = amrex::Real(4.0)/((amrex::Real(1.0)/nd_arr(i,j,k)) + (amrex::Real(1.0)/nd_arr(i+1,j,k))
+                                             + (amrex::Real(1.0)/nd_arr(i,j,k+1)) + (amrex::Real(1.0)/nd_arr(i+1,j,k+1)));
+            else
+                facey(i,j,k) = amrex::Real(0.25)*(nd_arr(i,j,k) + nd_arr(i+1,j,k) + nd_arr(i,j,k+1) + nd_arr(i+1,j,k+1));
         },
         [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            facez(i,j,k) = amrex::Real(0.25)*(nd_arr(i,j,k) + nd_arr(i+1,j,k) + nd_arr(i,j+1,k) + nd_arr(i+1,j+1,k));
+            if (use_harmonic_averaging)
+                facez(i,j,k) = amrex::Real(4.0)/((amrex::Real(1.0)/nd_arr(i,j,k)) + (amrex::Real(1.0)/nd_arr(i+1,j,k))
+                                             + (amrex::Real(1.0)/nd_arr(i,j+1,k)) + (amrex::Real(1.0)/nd_arr(i+1,j+1,k)));
+            else
+                facez(i,j,k) = amrex::Real(0.25)*(nd_arr(i,j,k) + nd_arr(i+1,j,k) + nd_arr(i,j+1,k) + nd_arr(i+1,j+1,k));
         });
     }
 #else
@@ -334,10 +347,16 @@ incflo::average_nodal_velocity_eta_to_faces (int lev, MultiFab const& nd_eta) co
 
         amrex::ParallelFor(xbx, ybx,
         [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            facex(i,j,k) = amrex::Real(0.5)*(nd_arr(i,j,k) + nd_arr(i,j+1,k));
+            if (use_harmonic_averaging)
+                facex(i,j,k) = amrex::Real(2.0)/((amrex::Real(1.0)/nd_arr(i,j,k)) + (amrex::Real(1.0)/nd_arr(i,j+1,k)));
+            else
+                facex(i,j,k) = amrex::Real(0.5)*(nd_arr(i,j,k) + nd_arr(i,j+1,k));
         },
         [=] AMREX_GPU_DEVICE (int i, int j, int k) {
-            facey(i,j,k) = amrex::Real(0.5)*(nd_arr(i,j,k) + nd_arr(i+1,j,k));
+            if (use_harmonic_averaging)
+                facey(i,j,k) = amrex::Real(2.0)/((amrex::Real(1.0)/nd_arr(i,j,k)) + (amrex::Real(1.0)/nd_arr(i+1,j,k)));
+            else
+                facey(i,j,k) = amrex::Real(0.5)*(nd_arr(i,j,k) + nd_arr(i+1,j,k));
         });
     }
 #endif
