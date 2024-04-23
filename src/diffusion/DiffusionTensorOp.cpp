@@ -149,7 +149,7 @@ DiffusionTensorOp::diffuse_velocity (Vector<MultiFab*> const& velocity,
             m_reg_solve_op->setACoeffs(lev, *density[lev]);
             if (eta[lev]->boxArray().ixType().nodeCentered()) {
                 Array<MultiFab,AMREX_SPACEDIM> b =
-                    m_incflo->average_nodal_velocity_eta_to_faces(lev, *eta[lev],true);
+                    m_incflo->average_nodal_velocity_eta_to_faces(lev, *eta[lev],false);
                 m_reg_solve_op->setShearViscosity(lev, GetArrOfConstPtrs(b));
             }
             else {
@@ -292,7 +292,7 @@ void DiffusionTensorOp::compute_divtau (Vector<MultiFab*> const& a_divtau,
             m_reg_apply_op->setACoeffs(lev, *a_density[lev]);
             if (a_eta[lev]->boxArray().ixType().nodeCentered()) {
                 Array<MultiFab,AMREX_SPACEDIM> b =
-                    m_incflo->average_nodal_velocity_eta_to_faces(lev, *a_eta[lev],true);
+                    m_incflo->average_nodal_velocity_eta_to_faces(lev, *a_eta[lev],false);
                 m_reg_apply_op->setShearViscosity(lev, GetArrOfConstPtrs(b));
             }
             else {
