@@ -61,12 +61,7 @@ void incflo::compute_viscosity (Vector<MultiFab*> const& vel_eta,
     }
 }
 
-#ifdef AMREX_USE_EB
-void incflo::compute_viscosity_at_level (int lev,
-#else
-void incflo::compute_viscosity_at_level (int /*lev*/,
-#endif
-                                         MultiFab* vel_eta,
+void incflo::compute_viscosity_at_level (int lev, MultiFab* vel_eta,
 #ifdef USE_AMREX_MPMD
                                          MultiFab* rho,
 #else
@@ -207,6 +202,7 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
             }
         }
     }
+    vel->FillBoundary(lev_geom.periodicity());
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
