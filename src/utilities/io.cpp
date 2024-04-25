@@ -562,7 +562,7 @@ void incflo::WritePlotFile()
 
     if (m_plt_eta) {
         for (int lev = 0; lev <= finest_level; ++lev) {
-            if (m_fluid_model == FluidModel::DataDrivenMPMD) {
+            if (m_nodal_vel_eta) {
                 MultiFab vel_eta(amrex::convert(mf[lev].boxArray(),
                                  IndexType::TheNodeType().ixType()),
                                  mf[lev].DistributionMap(),1,0);
@@ -613,7 +613,7 @@ void incflo::WritePlotFile()
     if (m_plt_strainrate) {
 
         for (int lev = 0; lev <= finest_level; ++lev) {
-            if (m_fluid_model == FluidModel::DataDrivenMPMD) {
+            if (m_nodal_vel_eta) {
                 MultiFab strainrate(amrex::convert(mf[lev].boxArray(),
                                     IndexType::TheNodeType().ixType()),
                                     mf[lev].DistributionMap(),1,0);

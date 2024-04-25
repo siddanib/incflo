@@ -116,7 +116,7 @@ void incflo::ApplyPredictor (bool incremental_projection)
             tra_forces.emplace_back(grids[lev], dmap[lev], m_ntrac, nghost_force(),
                                     MFInfo(), Factory(lev));
         }
-        if (m_fluid_model == FluidModel::DataDrivenMPMD) {
+        if (m_nodal_vel_eta) {
             vel_eta.emplace_back(amrex::convert(grids[lev],
                     IndexType::TheNodeType().ixType()),
                     dmap[lev], 1, 0, MFInfo(), Factory(lev));

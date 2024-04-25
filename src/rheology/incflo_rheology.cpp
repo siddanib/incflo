@@ -62,32 +62,25 @@ void incflo::compute_viscosity (Vector<MultiFab*> const& vel_eta,
 }
 
 void incflo::compute_viscosity_at_level (int lev, MultiFab* vel_eta,
-#ifdef USE_AMREX_MPMD
                                          MultiFab* rho,
-#else
-                                         MultiFab* /*rho*/,
-#endif
                                          MultiFab* vel,
                                          Geometry& lev_geom,
-#ifdef USE_AMREX_MPMD
                                          Real time,
-#else
-                                         Real /*time*/,
-#endif
                                          int nghost)
 {
     if (m_fluid_model == FluidModel::Newtonian)
     {
-        vel_eta->setVal(m_mu, 0, 1, nghost);
+        if (m_nodal_vel_eta) {
+            vel_eta->setVal(m_mu, 0, 1, 0);
+        } else {
+            vel_eta->setVal(m_mu, 0, 1, nghost);
+        }
     }
-#ifdef USE_AMREX_MPMD
-    else if (m_fluid_model == FluidModel::DataDrivenMPMD)
+    else if (m_nodal_vel_eta)
     {
-        // MPMD based vel_eta is nodal, nghost = 0
-        compute_viscosity_at_level_mpmd(lev, vel_eta,
+        compute_nodal_viscosity_at_level(lev, vel_eta,
                 rho, vel, lev_geom, time, 0);
     }
-#endif
     else
     {
         NonNewtonianViscosity non_newtonian_viscosity;
@@ -149,8 +142,7 @@ void incflo::compute_viscosity_at_level (int lev, MultiFab* vel_eta,
     }
 }
 
-#ifdef USE_AMREX_MPMD
-void incflo::compute_viscosity_at_level_mpmd (int lev,
+void incflo::compute_nodal_viscosity_at_level (int lev,
                                          MultiFab* vel_eta,
                                          MultiFab* /*rho*/,
                                          MultiFab* vel,
@@ -216,11 +208,11 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
         auto typ = flag_fab.getType(bx);
         if (typ == FabType::covered)
         {
-            amrex::Abort("MPMD-based vel_eta is not implemented for EB\n");
+            amrex::Abort("Node-based vel_eta is not implemented for EB\n");
         }
         else if (typ == FabType::singlevalued)
         {
-            amrex::Abort("MPMD-based vel_eta is not implemented for EB\n");
+            amrex::Abort("Node-based vel_eta is not implemented for EB\n");
         }
         else
 #endif
@@ -232,11 +224,36 @@ void incflo::compute_viscosity_at_level_mpmd (int lev,
             });
         }
     }
-    // Copier send of sr_mf and Copier recv of *vel_eta
-    mpmd_copiers_send_lev(sr_mf,0,1,lev);
-    mpmd_copiers_recv_lev(*vel_eta,0,1,lev);
-}
+#ifdef USE_AMREX_MPMD
+    if (m_fluid_model == FluidModel::DataDrivenMPMD) {
+        // Copier send of sr_mf and Copier recv of *vel_eta
+        mpmd_copiers_send_lev(sr_mf,0,1,lev);
+        mpmd_copiers_recv_lev(*vel_eta,0,1,lev);
+    } else
 #endif
+    {
+        NonNewtonianViscosity non_newtonian_viscosity;
+        non_newtonian_viscosity.fluid_model = m_fluid_model;
+        non_newtonian_viscosity.mu = m_mu;
+        non_newtonian_viscosity.n_flow = m_n_0;
+        non_newtonian_viscosity.tau_0 = m_tau_0;
+        non_newtonian_viscosity.eta_0 = m_eta_0;
+        non_newtonian_viscosity.papa_reg = m_papa_reg;
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.growntilebox(nghost);
+            Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
+            Array4<Real> const& eta_arr = vel_eta->array(mfi);
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                eta_arr(i,j,k) = non_newtonian_viscosity(sr_arr(i,j,k));
+            });
+        }
+    }
+}
 
 void incflo::compute_tracer_diff_coeff (Vector<MultiFab*> const& tra_eta, int nghost)
 {

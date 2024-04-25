@@ -286,14 +286,12 @@ public:
                                      amrex::MultiFab* vel,
                                      amrex::Geometry& lev_geom,
                                      amrex::Real time, int nghost);
-#ifdef USE_AMREX_MPMD
-    void compute_viscosity_at_level_mpmd (int lev,
+    void compute_nodal_viscosity_at_level (int lev,
                                      amrex::MultiFab* eta,
                                      amrex::MultiFab* rho,
                                      amrex::MultiFab* vel,
                                      amrex::Geometry& lev_geom,
                                      amrex::Real time, int nghost);
-#endif
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
 
 #ifdef AMREX_USE_EB
@@ -654,6 +652,7 @@ private:
     std::unique_ptr<DiffusionTensorOp> m_diffusion_tensor_op;
     std::unique_ptr<DiffusionScalarOp> m_diffusion_scalar_op;
 
+    int m_nodal_vel_eta = 0;
 #ifdef USE_AMREX_MPMD
     // Create a vector of MPMD::Copiers
     amrex::Vector<std::unique_ptr<amrex::MPMD::Copier>> m_mpmd_copiers;
