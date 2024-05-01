@@ -1,6 +1,11 @@
 #include <incflo.H>
 #include <AMReX_buildInfo.H>
 
+#ifdef USE_AMREX_MPMD
+#include <mpi.h>
+#include <AMReX_MPMD.H>
+#endif
+
 void writeBuildInfo();
 
 using namespace amrex;
@@ -25,7 +30,12 @@ int main(int argc, char* argv[])
         }
     }
 
+#if USE_AMREX_MPMD
+    MPI_Comm app_comm = amrex::MPMD::Initialize(argc,argv);
+    amrex::Initialize(argc, argv, true, app_comm, add_par);
+#else
     amrex::Initialize(argc, argv, true, MPI_COMM_WORLD, add_par);
+#endif
     { /* These braces are necessary to ensure amrex::Finalize() can be called without explicitly
         deleting all the incflo member MultiFabs */
 
@@ -64,4 +74,7 @@ int main(int argc, char* argv[])
         amrex::Print() << "Time spent in Evolve():      " << end_time - init_time << std::endl;
     }
     amrex::Finalize();
+#if USE_AMREX_MPMD
+    amrex::MPMD::Finalize();
+#endif
 }
