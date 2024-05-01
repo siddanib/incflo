@@ -97,6 +97,67 @@ void incflo::compute_strainrate_at_level (int /*lev*/,
         }
 }
 
+void incflo::compute_nodal_strainrate_at_level (int /*lev*/,
+                                          MultiFab* strainrate,
+                                          MultiFab* vel,
+                                          Geometry& lev_geom,
+                                          Real /*time*/, int nghost)
+{
+    AMREX_D_TERM(Real idx = Real(1.0) / lev_geom.CellSize(0);,
+                 Real idy = Real(1.0) / lev_geom.CellSize(1);,
+                 Real idz = Real(1.0) / lev_geom.CellSize(2););
+    const Dim3 dlo = amrex::lbound(lev_geom.Domain());
+    const Dim3 dhi = amrex::ubound(lev_geom.Domain());
+    GpuArray<GpuArray<int,2>,AMREX_SPACEDIM> bc_type;
+    for (OrientationIter oit; oit; ++oit) {
+        Orientation ori = oit();
+        int dir = ori.coordDir();
+        Orientation::Side side = ori.faceDir();
+        auto const bct = m_bc_type[ori];
+        if (bct == BC::no_slip_wall) {
+            if (side == Orientation::low) {
+                bc_type[dir][0] = 2;
+            }
+            if (side == Orientation::high) {
+                bc_type[dir][1] = 2;
+            }
+        }
+        else if (bct == BC::slip_wall) {
+            if (side == Orientation::low) {
+                bc_type[dir][0] = 1;
+            }
+            if (side == Orientation::high) {
+                bc_type[dir][1] = 1;
+            }
+        }
+        else {
+            if (side == Orientation::low) {
+                bc_type[dir][0] = 0;
+            }
+            if (side == Orientation::high) {
+                bc_type[dir][1] = 0;
+            }
+        }
+    }
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(*strainrate,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+                Box const& bx = mfi.growntilebox(nghost);
+                Array4<Real> const& sr_arr = strainrate->array(mfi);
+                Array4<Real const> const& vel_arr = vel->const_array(mfi);
+                {
+                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                    {
+                        sr_arr(i,j,k) = incflo_strainrate_nodal(i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                                             vel_arr,dlo,dhi,bc_type);
+                    });
+                }
+        }
+}
+
 Real incflo::ComputeKineticEnergy ()
 {
 #if 0

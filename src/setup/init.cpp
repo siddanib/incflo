@@ -131,6 +131,12 @@ void incflo::ReadParameters ()
             amrex::Abort("We currently require at least one tracer");
         }
 
+        // vel_eta is nodal or cell-centered
+        pp.query("nodal_vel_eta",m_nodal_vel_eta);
+        if (m_nodal_vel_eta) {
+            amrex::Print() << "Leveraging Node-based vel_eta" << std::endl;
+        }
+
         // Initial conditions
         pp.query("probtype", m_probtype);
         pp.query("ic_u", m_ic_u);

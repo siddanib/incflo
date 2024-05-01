@@ -18,6 +18,10 @@
 #include "ParticleData.H"
 #endif
 
+#ifdef USE_AMREX_MPMD
+#include <AMReX_MPMD.H>
+#endif
+
 #include <DiffusionTensorOp.H>
 #include <DiffusionScalarOp.H>
 
@@ -33,7 +37,8 @@ public:
     friend DiffusionScalarOp;
 
     enum struct FluidModel {
-        Newtonian, powerlaw, Bingham, HerschelBulkley, deSouzaMendesDutra
+        Newtonian, powerlaw, Bingham, HerschelBulkley, deSouzaMendesDutra,
+        DataDrivenMPMD
     };
 
     incflo ();
@@ -61,6 +66,13 @@ public:
 
 #ifdef AMREX_USE_EB
     void WriteMyEBSurface ();
+#endif
+
+#ifdef USE_AMREX_MPMD
+    void mpmd_copiers_send_lev (amrex::MultiFab& send_mf,
+            int icomp, int ncomp, int lev);
+    void mpmd_copiers_recv_lev (amrex::MultiFab& recv_mf,
+           int icomp, int ncomp, int lev);
 #endif
 
     // Evolve solution to final time through repeated calls to Advance()
@@ -192,6 +204,12 @@ public:
                                               amrex::Geometry& lev_geom,
                                               amrex::Real time, int nghost);
 
+    virtual void compute_nodal_strainrate_at_level (int lev,
+                                              amrex::MultiFab* strainrate,
+                                              amrex::MultiFab* vel,
+                                              amrex::Geometry& lev_geom,
+                                              amrex::Real time, int nghost);
+
     ///////////////////////////////////////////////////////////////////////////
     //
     // diffusion
@@ -200,6 +218,10 @@ public:
 
     [[nodiscard]] amrex::Array<amrex::MultiFab,AMREX_SPACEDIM>
     average_velocity_eta_to_faces (int lev, amrex::MultiFab const& cc_eta) const;
+
+    [[nodiscard]] amrex::Array<amrex::MultiFab,AMREX_SPACEDIM>
+    average_nodal_velocity_eta_to_faces (int lev, amrex::MultiFab const& nd_eta,
+                                         bool use_harmonic_averaging=true) const;
 
     void compute_divtau  (amrex::Vector<amrex::MultiFab      *> const& divtau,
                           amrex::Vector<amrex::MultiFab const*> const& velocity,
@@ -279,6 +301,12 @@ public:
                             amrex::Vector<amrex::MultiFab*> const& vel,
                             amrex::Real time, int nghost);
     void compute_viscosity_at_level (int lev,
+                                     amrex::MultiFab* eta,
+                                     amrex::MultiFab* rho,
+                                     amrex::MultiFab* vel,
+                                     amrex::Geometry& lev_geom,
+                                     amrex::Real time, int nghost);
+    void compute_nodal_viscosity_at_level (int lev,
                                      amrex::MultiFab* eta,
                                      amrex::MultiFab* rho,
                                      amrex::MultiFab* vel,
@@ -675,6 +703,12 @@ private:
 
     std::unique_ptr<DiffusionTensorOp> m_diffusion_tensor_op;
     std::unique_ptr<DiffusionScalarOp> m_diffusion_scalar_op;
+
+    int m_nodal_vel_eta = 0;
+#ifdef USE_AMREX_MPMD
+    // Create a vector of MPMD::Copiers
+    amrex::Vector<std::unique_ptr<amrex::MPMD::Copier>> m_mpmd_copiers;
+#endif
 
     //
     // end of member variables
