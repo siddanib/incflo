@@ -284,6 +284,84 @@ incflo::average_velocity_eta_to_faces (int lev, MultiFab const& cc_eta) const
 }
 
 Array<MultiFab,AMREX_SPACEDIM>
+incflo::average_nodal_velocity_eta_to_faces (int lev, MultiFab const& nd_eta, bool use_harmonic_averaging) const
+{
+    const auto& ba = nd_eta.boxArray();
+    const auto& dm = nd_eta.DistributionMap();
+    const auto& fact = nd_eta.Factory();
+    Array<MultiFab,AMREX_SPACEDIM> r{AMREX_D_DECL(MultiFab(amrex::convert(ba,IntVect::TheDimensionVector(0)),
+                                              dm, 1, 0, MFInfo(), fact),
+                                     MultiFab(amrex::convert(ba,IntVect::TheDimensionVector(1)),
+                                              dm, 1, 0, MFInfo(), fact),
+                                     MultiFab(amrex::convert(ba,IntVect::TheDimensionVector(2)),
+                                              dm, 1, 0, MFInfo(), fact))};
+    // Not considering EB scenario for now
+    MFItInfo mfi_info{};
+    if (Gpu::notInLaunchRegion()) mfi_info.SetDynamic(true);
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+#if (AMREX_SPACEDIM == 3)
+    for (MFIter mfi(nd_eta,mfi_info); mfi.isValid(); ++mfi) {
+        const auto& nd_arr = nd_eta.const_array(mfi);
+        const auto& facex = r[0].array(mfi);
+        const auto& facey = r[1].array(mfi);
+        const auto& facez = r[2].array(mfi);
+        const Box& xbx = mfi.tilebox(r[0].ixType().toIntVect());
+        const Box& ybx = mfi.tilebox(r[1].ixType().toIntVect());
+        const Box& zbx = mfi.tilebox(r[2].ixType().toIntVect());
+
+        amrex::ParallelFor(xbx, ybx, zbx,
+        [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            if (use_harmonic_averaging)
+                facex(i,j,k) = amrex::Real(4.0)/((amrex::Real(1.0)/nd_arr(i,j,k)) + (amrex::Real(1.0)/nd_arr(i,j+1,k))
+                                             + (amrex::Real(1.0)/nd_arr(i,j,k+1)) + (amrex::Real(1.0)/nd_arr(i,j+1,k+1)));
+            else
+               facex(i,j,k) = amrex::Real(0.25)*(nd_arr(i,j,k) + nd_arr(i,j+1,k) + nd_arr(i,j,k+1) + nd_arr(i,j+1,k+1));
+        },
+        [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            if (use_harmonic_averaging)
+                facey(i,j,k) = amrex::Real(4.0)/((amrex::Real(1.0)/nd_arr(i,j,k)) + (amrex::Real(1.0)/nd_arr(i+1,j,k))
+                                             + (amrex::Real(1.0)/nd_arr(i,j,k+1)) + (amrex::Real(1.0)/nd_arr(i+1,j,k+1)));
+            else
+                facey(i,j,k) = amrex::Real(0.25)*(nd_arr(i,j,k) + nd_arr(i+1,j,k) + nd_arr(i,j,k+1) + nd_arr(i+1,j,k+1));
+        },
+        [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            if (use_harmonic_averaging)
+                facez(i,j,k) = amrex::Real(4.0)/((amrex::Real(1.0)/nd_arr(i,j,k)) + (amrex::Real(1.0)/nd_arr(i+1,j,k))
+                                             + (amrex::Real(1.0)/nd_arr(i,j+1,k)) + (amrex::Real(1.0)/nd_arr(i+1,j+1,k)));
+            else
+                facez(i,j,k) = amrex::Real(0.25)*(nd_arr(i,j,k) + nd_arr(i+1,j,k) + nd_arr(i,j+1,k) + nd_arr(i+1,j+1,k));
+        });
+    }
+#else
+    for (MFIter mfi(nd_eta,mfi_info); mfi.isValid(); ++mfi) {
+        const auto& nd_arr = nd_eta.const_array(mfi);
+        const auto& facex = r[0].array(mfi);
+        const auto& facey = r[1].array(mfi);
+        const Box& xbx = mfi.tilebox(r[0].ixType().toIntVect());
+        const Box& ybx = mfi.tilebox(r[1].ixType().toIntVect());
+
+        amrex::ParallelFor(xbx, ybx,
+        [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            if (use_harmonic_averaging)
+                facex(i,j,k) = amrex::Real(2.0)/((amrex::Real(1.0)/nd_arr(i,j,k)) + (amrex::Real(1.0)/nd_arr(i,j+1,k)));
+            else
+                facex(i,j,k) = amrex::Real(0.5)*(nd_arr(i,j,k) + nd_arr(i,j+1,k));
+        },
+        [=] AMREX_GPU_DEVICE (int i, int j, int k) {
+            if (use_harmonic_averaging)
+                facey(i,j,k) = amrex::Real(2.0)/((amrex::Real(1.0)/nd_arr(i,j,k)) + (amrex::Real(1.0)/nd_arr(i+1,j,k)));
+            else
+                facey(i,j,k) = amrex::Real(0.5)*(nd_arr(i,j,k) + nd_arr(i+1,j,k));
+        });
+    }
+#endif
+    return r;
+}
+
+Array<MultiFab,AMREX_SPACEDIM>
 incflo::average_scalar_eta_to_faces (int lev, int comp, MultiFab const& cc_eta) const
 {
     const auto& ba = cc_eta.boxArray();

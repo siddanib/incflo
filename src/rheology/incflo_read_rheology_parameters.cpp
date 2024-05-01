@@ -83,6 +83,13 @@ void incflo::ReadRheologyParameters()
                         << ", tau_0 = " << m_tau_0
                         << ", eta_0 = " << m_eta_0 << std::endl;
      }
+#ifdef USE_AMREX_MPMD
+     else if(fluid_model_s == "mpmd")
+     {
+         m_fluid_model = FluidModel::DataDrivenMPMD;
+         amrex::Print() << "Data-driven model through AMReX-MPMD."<<std::endl;
+     }
+#endif
      else
      {
          amrex::Abort("Unknown fluid_model! Choose either newtonian, powerlaw, bingham, hb, smd");

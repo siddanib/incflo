@@ -105,7 +105,13 @@ void incflo::ApplyCorrector()
             tra_forces.emplace_back(grids[lev], dmap[lev], m_ntrac, nghost_force(),
                                     MFInfo(), Factory(lev));
         }
-        vel_eta.emplace_back(grids[lev], dmap[lev], 1, 1, MFInfo(), Factory(lev));
+        if (m_nodal_vel_eta) {
+            vel_eta.emplace_back(amrex::convert(grids[lev],
+                    IndexType::TheNodeType().ixType()),
+                    dmap[lev], 1, 0, MFInfo(), Factory(lev));
+        } else {
+            vel_eta.emplace_back(grids[lev], dmap[lev], 1, 1, MFInfo(), Factory(lev));
+        }
         if (m_advect_tracer) {
             tra_eta.emplace_back(grids[lev], dmap[lev], m_ntrac, 1, MFInfo(), Factory(lev));
         }
