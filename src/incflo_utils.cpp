@@ -363,3 +363,15 @@ void incflo::copy_from_old_to_new_tracer (int lev, IntVect const& ng)
                        m_leveldata[lev]->tracer_o, 0, 0, m_ntrac, ng);
     }
 }
+
+#ifdef USE_AMREX_MPMD
+void incflo::mpmd_copiers_send_lev (amrex::MultiFab& send_mf,
+        int icomp, int ncomp, int lev){
+    m_mpmd_copiers[lev]->send(send_mf, icomp, ncomp);
+}
+
+void incflo::mpmd_copiers_recv_lev (amrex::MultiFab& recv_mf,
+           int icomp, int ncomp, int lev){
+    m_mpmd_copiers[lev]->recv(recv_mf, icomp, ncomp);
+}
+#endif
