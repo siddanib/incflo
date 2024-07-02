@@ -302,15 +302,3 @@ incflo::writeNow()
 
     return write_now;
 }
-
-#ifdef USE_AMREX_MPMD
-void incflo::mpmd_copiers_send_lev (amrex::MultiFab& send_mf,
-        int icomp, int ncomp, int lev){
-    m_mpmd_copiers[lev]->send(send_mf, icomp, ncomp);
-}
-
-void incflo::mpmd_copiers_recv_lev (amrex::MultiFab& recv_mf,
-           int icomp, int ncomp, int lev){
-    m_mpmd_copiers[lev]->recv(recv_mf, icomp, ncomp);
-}
-#endif
