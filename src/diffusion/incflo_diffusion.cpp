@@ -360,6 +360,7 @@ incflo::average_nodal_velocity_eta_to_faces (int lev, MultiFab const& nd_eta, bo
         });
     }
 #endif
+    amrex::ignore_unused(lev);
     return r;
 }
 
