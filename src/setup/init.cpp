@@ -150,6 +150,9 @@ void incflo::ReadParameters ()
         // Viscosity (if constant)
         pp.query("mu", m_mu);
 
+        // Check if there is a second fluid
+        pp.query("two_fluid", m_two_fluid);
+
         // Density (if constant)
         pp.query("ro_0", m_ro_0);
         AMREX_ALWAYS_ASSERT(m_ro_0 >= 0.0);

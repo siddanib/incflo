@@ -94,4 +94,101 @@ void incflo::ReadRheologyParameters()
      {
          amrex::Abort("Unknown fluid_model! Choose either newtonian, powerlaw, bingham, hb, smd");
      }
+
+     if (m_two_fluid) {
+        amrex::ParmParse pp_scnd("incflo.second_fluid");
+        pp_scnd.query("ro_0", m_ro_0_second);
+        AMREX_ALWAYS_ASSERT(m_ro_0_second >= 0.0);
+        pp_scnd.query("mu", m_mu_second);
+
+        std::string fluid_model_s = "newtonian";
+        pp_scnd.query("fluid_model", fluid_model_s);
+        amrex::Print() << "Second fluid properties : " << std::endl;
+        if(fluid_model_s == "newtonian")
+        {
+            m_fluid_model_second = FluidModel::Newtonian;
+            amrex::Print() << "Newtonian fluid with"
+                           << " mu = " << m_mu_second << std::endl;
+        }
+        else if(fluid_model_s == "powerlaw")
+        {
+            m_fluid_model_second = FluidModel::powerlaw;
+            pp_scnd.query("n", m_n_0_second);
+            AMREX_ALWAYS_ASSERT(m_n_0_second > 0.0);
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_n_0_second != 1.0,
+                    "No point in using power-law rheology with n = 1");
+
+            amrex::Print() << "Power-law fluid with"
+                           << " mu = " << m_mu_second
+                           << ", n = " << m_n_0_second <<  std::endl;
+        }
+        else if(fluid_model_s == "bingham")
+        {
+            m_fluid_model_second = FluidModel::Bingham;
+            pp_scnd.query("tau_0", m_tau_0_second);
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_tau_0_second > 0.0,
+                    "No point in using Bingham rheology with tau_0 = 0");
+
+            pp_scnd.query("papa_reg", m_papa_reg_second);
+               AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_papa_reg_second > 0.0,
+                       "Papanastasiou regularisation parameter must be positive");
+
+            amrex::Print() << "Bingham fluid with"
+                           << " mu = " << m_mu_second
+                           << ", tau_0 = " << m_tau_0_second
+                           << ", papa_reg = " << m_papa_reg_second << std::endl;
+        }
+        else if(fluid_model_s == "hb")
+        {
+            m_fluid_model_second = FluidModel::HerschelBulkley;
+            pp_scnd.query("n", m_n_0_second);
+            AMREX_ALWAYS_ASSERT(m_n_0_second > 0.0);
+               AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_n_0_second != 1.0,
+                    "No point in using Herschel-Bulkley rheology with n = 1");
+
+            pp_scnd.query("tau_0", m_tau_0_second);
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_tau_0_second > 0.0,
+                    "No point in using Herschel-Bulkley rheology with tau_0 = 0");
+
+            pp_scnd.query("papa_reg", m_papa_reg_second);
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_papa_reg_second > 0.0,
+                    "Papanastasiou regularisation parameter must be positive");
+
+            amrex::Print() << "Herschel-Bulkley fluid with"
+                           << " mu = " << m_mu_second
+                           << ", n = " << m_n_0_second
+                           << ", tau_0 = " << m_tau_0_second
+                           << ", papa_reg = " << m_papa_reg_second << std::endl;
+        }
+        else if(fluid_model_s == "smd")
+        {
+            m_fluid_model_second = FluidModel::deSouzaMendesDutra;
+            pp_scnd.query("n", m_n_0_second);
+            AMREX_ALWAYS_ASSERT(m_n_0_second > 0.0);
+
+            pp_scnd.query("tau_0", m_tau_0_second);
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_tau_0_second > 0.0,
+                    "No point in using de Souza Mendes-Dutra rheology with tau_0 = 0");
+
+            pp_scnd.query("eta_0", m_eta_0_second);
+            AMREX_ALWAYS_ASSERT(m_eta_0_second > 0.0);
+
+            amrex::Print() << "de Souza Mendes-Dutra fluid with"
+                           << " mu = " << m_mu_second
+                           << ", n = " << m_n_0_second
+                           << ", tau_0 = " << m_tau_0_second
+                           << ", eta_0 = " << m_eta_0_second << std::endl;
+        }
+#ifdef USE_AMREX_MPMD
+        else if(fluid_model_s == "mpmd")
+        {
+            m_fluid_model_second = FluidModel::DataDrivenMPMD;
+            amrex::Print() << "Data-driven model through AMReX-MPMD."<<std::endl;
+        }
+#endif
+        else
+        {
+            amrex::Abort("Unknown fluid_model! Choose either newtonian, powerlaw, bingham, hb, smd");
+        }
+     }
 }

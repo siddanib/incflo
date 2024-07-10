@@ -146,7 +146,7 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
 void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
 #endif
                                          MultiFab* vel_eta,
-                                         MultiFab* /*rho*/,
+                                         MultiFab* rho,
                                          MultiFab* vel,
                                          Geometry& lev_geom,
                                          Real /*time*/, int nghost)
@@ -259,6 +259,145 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                 });
             }
         }
+    }
+
+    if (m_two_fluid) {
+       // Create a nodal viscosity MultiFab for the second fluid, nghost is already set to 0
+       MultiFab vel_eta_second(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+       const Dim3 dlo = amrex::lbound(lev_geom.Domain());
+       const Dim3 dhi = amrex::ubound(lev_geom.Domain());
+       GpuArray<GpuArray<int,2>,AMREX_SPACEDIM> bc_type;
+       for (OrientationIter oit; oit; ++oit) {
+           Orientation ori = oit();
+           int dir = ori.coordDir();
+           Orientation::Side side = ori.faceDir();
+           auto const bct = m_bc_type[ori];
+           if (bct == BC::no_slip_wall) {
+               if (side == Orientation::low) {
+                   bc_type[dir][0] = 2;
+               }
+               if (side == Orientation::high) {
+                   bc_type[dir][1] = 2;
+               }
+           }
+           else if (bct == BC::slip_wall) {
+               if (side == Orientation::low) {
+                   bc_type[dir][0] = 1;
+               }
+               if (side == Orientation::high) {
+                   bc_type[dir][1] = 1;
+               }
+           }
+           else {
+               if (side == Orientation::low) {
+                   bc_type[dir][0] = 0;
+               }
+               if (side == Orientation::high) {
+                   bc_type[dir][1] = 0;
+               }
+           }
+       }
+
+       if (m_fluid_model_second == FluidModel::Newtonian)
+       {
+           vel_eta_second.setVal(m_mu_second, 0, 1, nghost);
+       }
+       else {
+           // Create a nodal strain-rate MultiFab, nghost is already set to 0
+           MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+#ifdef AMREX_USE_EB
+           auto const& fact = EBFactory(lev);
+           auto const& flags = fact.getMultiEBCellFlagFab();
+#endif
+           Real idx = Real(1.0) / lev_geom.CellSize(0);
+           Real idy = Real(1.0) / lev_geom.CellSize(1);
+#if (AMREX_SPACEDIM == 3)
+           Real idz = Real(1.0) / lev_geom.CellSize(2);
+#endif
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+           for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+           {
+               Box const& bx = mfi.growntilebox(nghost);
+               Array4<Real> const& sr_arr = sr_mf.array(mfi);
+               Array4<Real const> const& vel_arr = vel->const_array(mfi);
+#ifdef AMREX_USE_EB
+               auto const& flag_fab = flags[mfi];
+               auto typ = flag_fab.getType(bx);
+               if (typ == FabType::covered)
+               {
+                   amrex::Abort("Node-based vel_eta_second is not implemented for EB\n");
+               }
+               else if (typ == FabType::singlevalued)
+               {
+                   amrex::Abort("Node-based vel_eta_second is not implemented for EB\n");
+               }
+               else
+#endif
+               {
+                   amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                   {
+                       sr_arr(i,j,k) = incflo_strainrate_nodal(i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                                      vel_arr,dlo,dhi,bc_type);
+                   });
+               }
+           }
+#ifdef USE_AMREX_MPMD
+           if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
+               // Copier send of sr_mf and Copier recv of *vel_eta
+               mpmd_copiers_send_lev(sr_mf,0,1,lev);
+               mpmd_copiers_recv_lev(vel_eta_second,0,1,lev);
+           } else
+#endif
+           {
+               NonNewtonianViscosity non_newtonian_viscosity;
+               non_newtonian_viscosity.fluid_model = m_fluid_model_second;
+               non_newtonian_viscosity.mu = m_mu_second;
+               non_newtonian_viscosity.n_flow = m_n_0_second;
+               non_newtonian_viscosity.tau_0 = m_tau_0_second;
+               non_newtonian_viscosity.eta_0 = m_eta_0_second;
+               non_newtonian_viscosity.papa_reg = m_papa_reg_second;
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+               for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+               {
+                   Box const& bx = mfi.growntilebox(nghost);
+                   Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
+                   Array4<Real> const& eta_arr = vel_eta_second.array(mfi);
+                   amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                   {
+                       eta_arr(i,j,k) = non_newtonian_viscosity(sr_arr(i,j,k));
+                   });
+               }
+           }
+       }
+       // Obtain concentration of the second fluid
+       MultiFab conc_second(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+       for (MFIter mfi(conc_second,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+       {
+           Box const& bx = mfi.growntilebox(nghost);
+           Array4<Real const> const& rho_arr = rho->const_array(mfi);
+           Array4<Real> const& conc_second_arr = conc_second.array(mfi);
+           Array4<Real const> const& eta_arr_second = vel_eta_second.const_array(mfi);
+           Array4<Real> const& eta_arr = vel_eta->array(mfi);
+           amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+           {
+              // Based on weighted harmonic mean for density
+              conc_second_arr(i,j,k) = incflo_conc_second_fluid(i,j,k,
+                                         m_ro_0,m_ro_0_second,rho_arr,
+                                         dlo,dhi,bc_type);
+              // Using weighted harmonic mean for vel_eta
+              eta_arr(i,j,k) = ((Real(1.0)-conc_second_arr(i,j,k))/eta_arr(i,j,k)) 
+                                + (conc_second_arr(i,j,k)/eta_arr_second(i,j,k));
+              eta_arr(i,j,k) = Real(1.0)/eta_arr(i,j,k);
+           });
+       }
     }
 }
 
