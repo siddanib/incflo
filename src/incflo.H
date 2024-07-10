@@ -548,6 +548,15 @@ private:
     amrex::Real m_tau_0 = 0.0;
     amrex::Real m_papa_reg = 0.0;
     amrex::Real m_eta_0 = 0.0;
+    // Adding properties for a second fluid
+    bool m_two_fluid = false;
+    amrex::Real m_ro_0_second = 1.0;
+    FluidModel m_fluid_model_second;
+    amrex::Real m_mu_second = 1.0;
+    amrex::Real m_n_0_second = 0.0;
+    amrex::Real m_tau_0_second = 0.0;
+    amrex::Real m_papa_reg_second = 0.0;
+    amrex::Real m_eta_0_second = 0.0;
 
     int m_plot_int = -1;
 

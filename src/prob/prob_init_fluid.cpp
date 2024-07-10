@@ -187,6 +187,11 @@ void incflo::prob_init_fluid (int lev)
                                domain, dx, problo, probhi);
 
         }
+        else if (531 == m_probtype)
+        {
+            column_collapse_granular(vbx, ld.density.array(mfi),
+                                     domain, dx, problo, probhi);
+        }
         else
         {
             amrex::Abort("prob_init_fluid: unknown m_probtype");
@@ -1132,4 +1137,58 @@ void incflo::init_burggraf (Box const& vbx, Box const& /*gbx*/,
         vel(i,j,k,2) = 0.0;
 #endif
     });
+}
+
+void incflo::column_collapse_granular (Box const& vbx,
+                                 Array4<Real> const& density,
+                                 Box const& /*domain*/,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& dx,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& problo,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& probhi)
+{
+    // Ensure it is set to two_fluid
+    if (!m_two_fluid) amrex::Abort("probtype 531 involves two fluids");
+    // Use m_gp0 through m_delp instead of gravity
+    // This will ensure p_nd has both static and dynamic contributions
+    if (m_gravity[0]*m_gravity[0] + m_gravity[1]*m_gravity[1]
+        + m_gravity[2]*m_gravity[2] > Real(0.0)) 
+        amrex::Abort("Use delp instead of gravity for probtype 531");
+
+    if (m_gp0[0]*m_gp0[0] + m_gp0[1]*m_gp0[1] + m_gp0[2]*m_gp0[2] 
+        == Real(0.0)) amrex::Abort("Use delp for probtype 531");
+
+    Vector<Real> granlen_vec{AMREX_D_DECL(Real(0.),Real(0.),Real(0.))};
+    ParmParse pp;
+    pp.getarr("granular_length",granlen_vec,0,AMREX_SPACEDIM);
+    GpuArray<Real,AMREX_SPACEDIM> granLen{AMREX_D_DECL(
+        granlen_vec[0],granlen_vec[1],granlen_vec[2])};
+    granLen[0] += problo[0];
+    granLen[1] += problo[1];
+    granLen[2] += problo[2];
+    if (granLen[0] > probhi[0]) 
+        amrex::Abort("Granular length along x is larger than setup");
+    if (granLen[1] > probhi[1]) 
+        amrex::Abort("Granular length along y is larger than setup");
+    if (granLen[2] > probhi[2]) 
+        amrex::Abort("Granular length along z is larger than setup");
+    if (m_initial_iterations < 10) 
+        amrex::Abort("Set large value for m_initial_iterations as pressure is NOT initialized");
+    Real rho_1 = m_ro_0; Real rho_2 = m_ro_0_second;
+    amrex::ParallelFor(vbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+    {
+        Real x = problo[0] + (Real(i)+Real(0.5))*dx[0];
+        Real y = problo[1] + (Real(j)+Real(0.5))*dx[1];
+#if (AMREX_SPACEDIM == 3)
+        Real z = problo[2] + (Real(k)+Real(0.5))*dx[2];
+#endif
+        if ( x <= granLen[0] and y <= granLen[1]
+#if (AMREX_SPACEDIM == 3)
+            and z <= granLen[3]
+#endif
+           ) {
+            density(i,j,k) = rho_2;
+        } else {
+            density(i,j,k) = rho_1;
+        }
+    });  
 }
