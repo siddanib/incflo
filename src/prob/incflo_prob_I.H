@@ -165,8 +165,9 @@
                     amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo,
                     amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& probhi) const;
 
-    void column_collapse_granular (amrex::Box const& vbx,
+    void column_collapse_granular (amrex::Box const& vbx, amrex::Box const& nbx,
                                    amrex::Array4<amrex::Real> const& density,
+                                   amrex::Array4<amrex::Real> const& pressure,
                                    amrex::Box const& domain,
                                    amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& dx,
                                    amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo,
