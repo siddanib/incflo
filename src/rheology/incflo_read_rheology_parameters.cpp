@@ -8,6 +8,9 @@ void incflo::ReadRheologyParameters()
 
      std::string fluid_model_s = "newtonian";
      pp.query("fluid_model", fluid_model_s);
+     pp.query("min_eta", m_eta_min);
+     pp.query("max_eta", m_eta_max);
+
      if(fluid_model_s == "newtonian")
      {
          m_fluid_model = FluidModel::Newtonian;
@@ -95,22 +98,34 @@ void incflo::ReadRheologyParameters()
          amrex::Abort("Unknown fluid_model! Choose either newtonian, powerlaw, bingham, hb, smd");
      }
 
+     if (fluid_model_s != "newtonian") {
+         amrex::Print() << "Clamps for the fluid eta are = [ " << m_eta_min
+             <<" , " << m_eta_max << " ]" << std::endl;
+     }
+
      if (m_two_fluid) {
         amrex::ParmParse pp_scnd("incflo.second_fluid");
         pp_scnd.query("ro_0", m_ro_0_second);
         AMREX_ALWAYS_ASSERT(m_ro_0_second >= 0.0);
         pp_scnd.query("mu", m_mu_second);
+        std::string fluid_model_s_snd = "newtonian";
+        pp_scnd.query("fluid_model", fluid_model_s_snd);
 
-        std::string fluid_model_s = "newtonian";
-        pp_scnd.query("fluid_model", fluid_model_s);
+        if (fluid_model_s_snd != "newtonian") {
+            pp_scnd.get("min_eta", m_eta_min_second);
+            pp_scnd.get("max_eta", m_eta_max_second);
+            pp_scnd.get("diameter", m_diam_second);
+            pp_scnd.get("min_conc", m_min_conc_second);
+        }
+
         amrex::Print() << "Second fluid properties : " << std::endl;
-        if(fluid_model_s == "newtonian")
+        if(fluid_model_s_snd == "newtonian")
         {
             m_fluid_model_second = FluidModel::Newtonian;
             amrex::Print() << "Newtonian fluid with"
                            << " mu = " << m_mu_second << std::endl;
         }
-        else if(fluid_model_s == "powerlaw")
+        else if(fluid_model_s_snd == "powerlaw")
         {
             m_fluid_model_second = FluidModel::powerlaw;
             pp_scnd.query("n", m_n_0_second);
@@ -122,7 +137,7 @@ void incflo::ReadRheologyParameters()
                            << " mu = " << m_mu_second
                            << ", n = " << m_n_0_second <<  std::endl;
         }
-        else if(fluid_model_s == "bingham")
+        else if(fluid_model_s_snd == "bingham")
         {
             m_fluid_model_second = FluidModel::Bingham;
             pp_scnd.query("tau_0", m_tau_0_second);
@@ -138,7 +153,7 @@ void incflo::ReadRheologyParameters()
                            << ", tau_0 = " << m_tau_0_second
                            << ", papa_reg = " << m_papa_reg_second << std::endl;
         }
-        else if(fluid_model_s == "hb")
+        else if(fluid_model_s_snd == "hb")
         {
             m_fluid_model_second = FluidModel::HerschelBulkley;
             pp_scnd.query("n", m_n_0_second);
@@ -160,7 +175,7 @@ void incflo::ReadRheologyParameters()
                            << ", tau_0 = " << m_tau_0_second
                            << ", papa_reg = " << m_papa_reg_second << std::endl;
         }
-        else if(fluid_model_s == "smd")
+        else if(fluid_model_s_snd == "smd")
         {
             m_fluid_model_second = FluidModel::deSouzaMendesDutra;
             pp_scnd.query("n", m_n_0_second);
@@ -180,7 +195,7 @@ void incflo::ReadRheologyParameters()
                            << ", eta_0 = " << m_eta_0_second << std::endl;
         }
 #ifdef USE_AMREX_MPMD
-        else if(fluid_model_s == "mpmd")
+        else if(fluid_model_s_snd == "mpmd")
         {
             m_fluid_model_second = FluidModel::DataDrivenMPMD;
             amrex::Print() << "Data-driven model through AMReX-MPMD."<<std::endl;
@@ -189,6 +204,10 @@ void incflo::ReadRheologyParameters()
         else
         {
             amrex::Abort("Unknown fluid_model! Choose either newtonian, powerlaw, bingham, hb, smd");
+        }
+        if (fluid_model_s_snd != "newtonian") {
+            amrex::Print() << "Clamps for the fluid eta are = [ " << m_eta_min_second
+                <<" , " << m_eta_max_second << " ]" << std::endl;
         }
      }
 }

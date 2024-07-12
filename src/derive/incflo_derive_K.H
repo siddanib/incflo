@@ -674,8 +674,8 @@ amrex::Real incflo_strainrate_eb (int i, int j, int k,
 
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-amrex::Real incflo_conc_second_fluid (int i, int j, int k,
-             amrex::Real rho_first, amrex::Real rho_second,
+amrex::Real incflo_nodal_density (int i, int j, int k,
+             const amrex::Real rho_first, const amrex::Real rho_second,
              amrex::Array4<amrex::Real const> const& rho,
              const amrex::Dim3& dlo, const amrex::Dim3& dhi,
              amrex::GpuArray<amrex::GpuArray<int,2>,AMREX_SPACEDIM> bc_type) noexcept
@@ -689,9 +689,9 @@ amrex::Real incflo_conc_second_fluid (int i, int j, int k,
     int k_p = k;
     int k_m = k-1;
 #endif
-    // Special treatment for wall adjacent cells 
+    // Special treatment for wall adjacent cells
     if (i == dlo.x) {
-       if (bc_type[0][0] == 2 or bc_type[0][0] == 1) i_m = i_p; 
+       if (bc_type[0][0] == 2 or bc_type[0][0] == 1) i_m = i_p;
     } else if (i == dhi.x+1) {
        if (bc_type[0][1] == 2 or bc_type[0][1] == 1) i_p = i_m;
     }
@@ -702,7 +702,7 @@ amrex::Real incflo_conc_second_fluid (int i, int j, int k,
        if (bc_type[1][1] == 2 or bc_type[1][1] == 1)j_p = j_m;
     }
 #if (AMREX_SPACEDIM == 3)
-    if (k == dlo.z) { 
+    if (k == dlo.z) {
        if (bc_type[2][0] == 2 or bc_type[2][0] == 1) k_m = k_p;
     } else if (k == dhi.z+1) {
        if (bc_type[2][1] == 2 or bc_type[2][1] == 1) k_p = k_m;
@@ -716,10 +716,32 @@ amrex::Real incflo_conc_second_fluid (int i, int j, int k,
     rho_nd += rho(i,j,k_p) + rho(i,j,k_m);
     rho_nd /= Real(6.0);
 #endif
-    // Get second fluid concentration based on Harmonic mean
-    Real conc_second = ((rho_first*rho_second)/rho_nd) - rho_second;
-    conc_second /= (rho_first-rho_second);
-    // Put guards
-    return amrex::min(Real(1.0),amrex::max(Real(0.0),conc_second));
+    return rho_nd;
+}
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real incflo_local_hydrostatic_pressure_nodal (int i, int j, int k,
+             AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
+             const amrex::Real grav, amrex::Array4<amrex::Real const> const& rho_nd,
+             const amrex::Dim3& v_bxlo, const amrex::Dim3& v_bxhi) noexcept
+{
+    using namespace amrex;
+    // NOTE THAT INVERSE CELL SIZES ARE BEING PASSED
+    // Assuming gravity along the last dimension
+    int h_start = j;
+    int h_end   = v_bxhi.y - 1;
+#if (AMREX_SPACEDIM == 3)
+    h_start = k;
+    h_end   = v_bxhi.z - 1;
+#endif
+    Real p_st = Real(0.);
+    for (int h=h_start; h <= h_end; ++h) {
+#if (AMREX_SPACEDIM == 2)
+        p_st += (rho_nd(i,h,k)/idy);
+#else
+        p_st += (rho_nd(i,j,h)/idz);
+#endif
+    }
+    return p_st*grav;
 }
 #endif
