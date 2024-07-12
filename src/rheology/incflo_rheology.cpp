@@ -259,6 +259,19 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                 });
             }
         }
+        // Clamp vel_eta if it is NOT-NEWTONIAN
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(*vel_eta,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.growntilebox(nghost);
+            Array4<Real> const& eta_arr = vel_eta->array(mfi);
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                eta_arr(i,j,k) = amrex::Clamp(eta_arr(i,j,k),m_eta_min,m_eta_max);
+            });
+        }
     }
 
     if (m_two_fluid) {
@@ -297,6 +310,34 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                }
            }
        }
+       // Obtain concentration of the second fluid, based on nodal density
+       MultiFab rho_nodal(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+       MultiFab conc_second(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+       for (MFIter mfi(conc_second,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+       {
+           Box const& bx = mfi.growntilebox(nghost);
+           Array4<Real const> const& rho_arr = rho->const_array(mfi);
+           Array4<Real> const& rho_nodal_arr = rho_nodal.array(mfi);
+           Array4<Real> const& conc_second_arr = conc_second.array(mfi);
+           const Real rho_first = m_ro_0;
+           const Real rho_second = m_ro_0_second;
+           amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+           {
+              rho_nodal_arr(i,j,k) = incflo_nodal_density(i,j,k,
+                                         rho_first,rho_second,rho_arr,
+                                         dlo,dhi,bc_type);
+              // Based on weighted harmonic mean for density
+              Real conc_second =
+                ((rho_first*rho_second)/rho_nodal_arr(i,j,k)) - rho_second;
+              conc_second /= (rho_first-rho_second);
+              // Put guards
+              conc_second_arr(i,j,k) =
+                amrex::min(Real(1.0),amrex::max(Real(0.0),conc_second));
+           });
+       }
 
        if (m_fluid_model_second == FluidModel::Newtonian)
        {
@@ -305,6 +346,8 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
        else {
            // Create a nodal strain-rate MultiFab, nghost is already set to 0
            MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+           // nodal MultiFab for hydrostatic pressure
+           MultiFab p_static(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
 #ifdef AMREX_USE_EB
            auto const& fact = EBFactory(lev);
            auto const& flags = fact.getMultiEBCellFlagFab();
@@ -323,6 +366,14 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                Box const& bx = mfi.growntilebox(nghost);
                Array4<Real> const& sr_arr = sr_mf.array(mfi);
                Array4<Real const> const& vel_arr = vel->const_array(mfi);
+
+               // Ensure that static pressure is calculated based on validbox
+               Box const& v_bx = mfi.validbox();
+               const Dim3 v_bxlo = amrex::lbound(v_bx);
+               const Dim3 v_bxhi = amrex::ubound(v_bx);
+               Array4<Real> const& p_static_arr = p_static.array(mfi);
+               Array4<Real const> const& rho_nodal_arr = rho_nodal.const_array(mfi);
+               const Real gravity = std::abs(m_gravity[AMREX_SPACEDIM-1]);
 #ifdef AMREX_USE_EB
                auto const& flag_fab = flags[mfi];
                auto typ = flag_fab.getType(bx);
@@ -341,14 +392,64 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                    {
                        sr_arr(i,j,k) = incflo_strainrate_nodal(i,j,k,AMREX_D_DECL(idx,idy,idz),
                                                       vel_arr,dlo,dhi,bc_type);
+
+                       p_static_arr(i,j,k) = incflo_local_hydrostatic_pressure_nodal(
+                                                      i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                                      gravity,rho_nodal_arr,v_bxlo,v_bxhi);
                    });
                }
            }
+           // NOTE: HYDROSTATIC PRESSURE IS INCORRECT IF THERE ARE
+           // MULTIPLE BOXES/GRIDS ALONG GRAVITY DIRECTION
+
+           // Inertial Number
+           // NOTE: Strain-rate calculated is TWO TIMES the actual value
+           // The second component will carry concentration
+           MultiFab inertial_num(vel_eta->boxArray(),vel_eta->DistributionMap(),2,nghost);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+           for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+           {
+               Box const& bx = mfi.growntilebox(nghost);
+               Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
+               Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
+               Array4<Real> const& inrt_num_arr = inertial_num.array(mfi);
+               const Real eps = Real(1.0e-20);
+               amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+               {
+                    inrt_num_arr(i,j,k,0) =
+                       std::sqrt(m_ro_0_second/(p_static_arr(i,j,k)+eps))*
+                       m_diam_second*Real(0.5)*sr_arr(i,j,k);
+               });
+           }
+           // Copy concentration
+           MultiFab::Copy(inertial_num,conc_second,0,1,1,nghost);
+
 #ifdef USE_AMREX_MPMD
            if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
-               // Copier send of sr_mf and Copier recv of *vel_eta
-               mpmd_copiers_send_lev(sr_mf,0,1,lev);
+               // Copier send inertial_num
+               mpmd_copiers_send_lev(inertial_num,0,2,lev);
+               // NOTE: Actual received quantity is stress ratio
                mpmd_copiers_recv_lev(vel_eta_second,0,1,lev);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+               for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+               {
+                   Box const& bx = mfi.growntilebox(nghost);
+                   Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
+                   Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
+                   Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
+                   const Real eps = Real(1.0e-20);
+                   // Note: sr_mf contains TWO TIMES strain rate
+                   amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                   {
+                        vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
+                        vel_eta_snd_arr(i,j,k) /= (sr_arr(i,j,k)+eps);
+                   });
+               }
+
            } else
 #endif
            {
@@ -373,29 +474,39 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                    });
                }
            }
+           // Clamp vel_eta_second if it is NOT-NEWTONIAN
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+          for (MFIter mfi(vel_eta_second,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+          {
+              Box const& bx = mfi.growntilebox(nghost);
+              Array4<Real> const& eta_arr = vel_eta_second.array(mfi);
+              amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+              {
+                  eta_arr(i,j,k) = amrex::Clamp(eta_arr(i,j,k),m_eta_min_second,
+                                                m_eta_max_second);
+              });
+          }
        }
-       // Obtain concentration of the second fluid
-       MultiFab conc_second(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+       // Calculate weighted viscosity
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
        for (MFIter mfi(conc_second,TilingIfNotGPU()); mfi.isValid(); ++mfi)
        {
            Box const& bx = mfi.growntilebox(nghost);
-           Array4<Real const> const& rho_arr = rho->const_array(mfi);
-           Array4<Real> const& conc_second_arr = conc_second.array(mfi);
+           Array4<Real const> const& conc_second_arr = conc_second.array(mfi);
            Array4<Real const> const& eta_arr_second = vel_eta_second.const_array(mfi);
            Array4<Real> const& eta_arr = vel_eta->array(mfi);
            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
            {
-              // Based on weighted harmonic mean for density
-              conc_second_arr(i,j,k) = incflo_conc_second_fluid(i,j,k,
-                                         m_ro_0,m_ro_0_second,rho_arr,
-                                         dlo,dhi,bc_type);
-              // Using weighted harmonic mean for vel_eta
-              eta_arr(i,j,k) = ((Real(1.0)-conc_second_arr(i,j,k))/eta_arr(i,j,k)) 
-                                + (conc_second_arr(i,j,k)/eta_arr_second(i,j,k));
-              eta_arr(i,j,k) = Real(1.0)/eta_arr(i,j,k);
+              if (conc_second_arr(i,j,k) > m_min_conc_second) {
+                // Using weighted harmonic mean for vel_eta
+                eta_arr(i,j,k) = ((Real(1.0)-conc_second_arr(i,j,k))/eta_arr(i,j,k))
+                                  + (conc_second_arr(i,j,k)/eta_arr_second(i,j,k));
+                eta_arr(i,j,k) = Real(1.0)/eta_arr(i,j,k);
+              }
            });
        }
     }

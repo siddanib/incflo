@@ -1170,6 +1170,8 @@ void incflo::column_collapse_granular (Box const& vbx, Box const& nbx,
         amrex::Abort("Granular length along z is larger than setup");
 #endif
     Real rho_1 = m_ro_0; Real rho_2 = m_ro_0_second;
+    if (rho_1 > rho_2)
+        amrex::Abort("Primary fluid must be lighter than second fluid");
     // Density
     amrex::ParallelFor(vbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
     {

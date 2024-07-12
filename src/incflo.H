@@ -548,6 +548,8 @@ private:
     amrex::Real m_tau_0 = 0.0;
     amrex::Real m_papa_reg = 0.0;
     amrex::Real m_eta_0 = 0.0;
+    amrex::Real m_eta_min = amrex::Real(0.0);
+    amrex::Real m_eta_max = amrex::Real(1.0e+20);
     // Adding properties for a second fluid
     bool m_two_fluid = false;
     amrex::Real m_ro_0_second = 1.0;
@@ -557,6 +559,10 @@ private:
     amrex::Real m_tau_0_second = 0.0;
     amrex::Real m_papa_reg_second = 0.0;
     amrex::Real m_eta_0_second = 0.0;
+    amrex::Real m_eta_min_second = amrex::Real(0.);
+    amrex::Real m_eta_max_second = amrex::Real(1.0e+20);
+    amrex::Real m_diam_second = amrex::Real(0.);
+    amrex::Real m_min_conc_second = amrex::Real(0.); // Used to limit expensive particle-sims
 
     int m_plot_int = -1;
 
