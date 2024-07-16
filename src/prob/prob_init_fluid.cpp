@@ -1191,7 +1191,7 @@ void incflo::column_collapse_granular (Box const& vbx, Box const& nbx,
         }
     });
     // Pressure
-    GpuArray<Real,AMREX_SPACEDIM> grav{0.,0.,0.};
+    GpuArray<Real,3> grav{0.,0.,0.};
     if (m_gravity[0]*m_gravity[0] + m_gravity[1]*m_gravity[1]+
         m_gravity[2]*m_gravity[2] > Real(0.)) {
         grav[0] = std::abs(m_gravity[0]);

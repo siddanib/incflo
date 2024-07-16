@@ -286,7 +286,7 @@ incflo::average_velocity_eta_to_faces (int lev, MultiFab const& cc_eta) const
 }
 
 Array<MultiFab,AMREX_SPACEDIM>
-incflo::average_nodal_velocity_eta_to_faces (int lev, MultiFab const& nd_eta, bool use_harmonic_averaging) const
+incflo::average_nodal_velocity_eta_to_faces (int lev, MultiFab const& nd_eta, bool use_harmonic_averaging)
 {
     const auto& ba = nd_eta.boxArray();
     const auto& dm = nd_eta.DistributionMap();

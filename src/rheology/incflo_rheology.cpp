@@ -267,9 +267,11 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
         {
             Box const& bx = mfi.growntilebox(nghost);
             Array4<Real> const& eta_arr = vel_eta->array(mfi);
+            const Real eta_min = m_eta_min;
+            const Real eta_max = m_eta_max;
             amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
-                eta_arr(i,j,k) = amrex::Clamp(eta_arr(i,j,k),m_eta_min,m_eta_max);
+                eta_arr(i,j,k) = amrex::Clamp(eta_arr(i,j,k),eta_min,eta_max);
             });
         }
     }
@@ -330,12 +332,12 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                                          rho_first,rho_second,rho_arr,
                                          dlo,dhi,bc_type);
               // Based on weighted harmonic mean for density
-              Real conc_second =
+              Real conc_scnd =
                 ((rho_first*rho_second)/rho_nodal_arr(i,j,k)) - rho_second;
-              conc_second /= (rho_first-rho_second);
+              conc_scnd /= (rho_first-rho_second);
               // Put guards
               conc_second_arr(i,j,k) =
-                amrex::min(Real(1.0),amrex::max(Real(0.0),conc_second));
+                amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
            });
        }
 
@@ -416,11 +418,13 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
                Array4<Real> const& inrt_num_arr = inertial_num.array(mfi);
                const Real eps = Real(1.0e-20);
+               const Real diam_scnd = m_diam_second;
+               const Real ro_0_scnd = m_ro_0_second;
                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                {
                     inrt_num_arr(i,j,k,0) =
-                       std::sqrt(m_ro_0_second/(p_static_arr(i,j,k)+eps))*
-                       m_diam_second*Real(0.5)*sr_arr(i,j,k);
+                       std::sqrt(ro_0_scnd/(p_static_arr(i,j,k)+eps))*
+                       diam_scnd*Real(0.5)*sr_arr(i,j,k);
                });
            }
            // Copy concentration
@@ -482,10 +486,12 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
           {
               Box const& bx = mfi.growntilebox(nghost);
               Array4<Real> const& eta_arr = vel_eta_second.array(mfi);
+              const Real eta_min_scnd = m_eta_min_second;
+              const Real eta_max_scnd = m_eta_max_second;
               amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
               {
-                  eta_arr(i,j,k) = amrex::Clamp(eta_arr(i,j,k),m_eta_min_second,
-                                                m_eta_max_second);
+                  eta_arr(i,j,k) = amrex::Clamp(eta_arr(i,j,k),eta_min_scnd,
+                                                eta_max_scnd);
               });
           }
        }
@@ -499,9 +505,10 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
            Array4<Real const> const& conc_second_arr = conc_second.array(mfi);
            Array4<Real const> const& eta_arr_second = vel_eta_second.const_array(mfi);
            Array4<Real> const& eta_arr = vel_eta->array(mfi);
+           const Real min_conc_scnd = m_min_conc_second;
            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
            {
-              if (conc_second_arr(i,j,k) > m_min_conc_second) {
+              if (conc_second_arr(i,j,k) > min_conc_scnd) {
                 // Using weighted harmonic mean for vel_eta
                 eta_arr(i,j,k) = ((Real(1.0)-conc_second_arr(i,j,k))/eta_arr(i,j,k))
                                   + (conc_second_arr(i,j,k)/eta_arr_second(i,j,k));
