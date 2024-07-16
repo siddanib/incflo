@@ -552,6 +552,7 @@ private:
     amrex::Real m_eta_max = amrex::Real(1.0e+20);
     // Adding properties for a second fluid
     bool m_two_fluid = false;
+    bool m_two_fluid_eta_harmonic = true;
     amrex::Real m_ro_0_second = 1.0;
     FluidModel m_fluid_model_second;
     amrex::Real m_mu_second = 1.0;
