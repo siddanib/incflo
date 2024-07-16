@@ -506,13 +506,20 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
            Array4<Real const> const& eta_arr_second = vel_eta_second.const_array(mfi);
            Array4<Real> const& eta_arr = vel_eta->array(mfi);
            const Real min_conc_scnd = m_min_conc_second;
+           const bool eta_harmonic = m_two_fluid_eta_harmonic;
            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
            {
               if (conc_second_arr(i,j,k) > min_conc_scnd) {
                 // Using weighted harmonic mean for vel_eta
-                eta_arr(i,j,k) = ((Real(1.0)-conc_second_arr(i,j,k))/eta_arr(i,j,k))
+                if (eta_harmonic) {
+                    eta_arr(i,j,k) = ((Real(1.0)-conc_second_arr(i,j,k))/eta_arr(i,j,k))
                                   + (conc_second_arr(i,j,k)/eta_arr_second(i,j,k));
-                eta_arr(i,j,k) = Real(1.0)/eta_arr(i,j,k);
+                    eta_arr(i,j,k) = Real(1.0)/eta_arr(i,j,k);
+                }
+                else {
+                    eta_arr(i,j,k) = (Real(1.0)-conc_second_arr(i,j,k))*eta_arr(i,j,k) +
+                                     conc_second_arr(i,j,k)*eta_arr_second(i,j,k);
+                }
               }
            });
        }
