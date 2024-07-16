@@ -681,6 +681,8 @@ amrex::Real incflo_nodal_density (int i, int j, int k,
              amrex::GpuArray<amrex::GpuArray<int,2>,AMREX_SPACEDIM> bc_type) noexcept
 {
     using namespace amrex;
+    amrex::ignore_unused<Real>(rho_first);
+    amrex::ignore_unused<Real>(rho_second);
     int i_p = i;
     int i_m = i-1;
     int j_p = j;
@@ -726,13 +728,17 @@ amrex::Real incflo_local_hydrostatic_pressure_nodal (int i, int j, int k,
              const amrex::Dim3& v_bxlo, const amrex::Dim3& v_bxhi) noexcept
 {
     using namespace amrex;
+    amrex::ignore_unused<Real>(idx);
+    amrex::ignore_unused<Dim3>(v_bxlo);
     // NOTE THAT INVERSE CELL SIZES ARE BEING PASSED
     // Assuming gravity along the last dimension
+#if (AMREX_SPACEDIM == 2)
     int h_start = j;
     int h_end   = v_bxhi.y - 1;
-#if (AMREX_SPACEDIM == 3)
-    h_start = k;
-    h_end   = v_bxhi.z - 1;
+#else
+    amrex::ignore_unused<Real>(idy);
+    int h_start = k;
+    int h_end   = v_bxhi.z - 1;
 #endif
     Real p_st = Real(0.);
     for (int h=h_start; h <= h_end; ++h) {

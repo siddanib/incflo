@@ -219,9 +219,9 @@ public:
     [[nodiscard]] amrex::Array<amrex::MultiFab,AMREX_SPACEDIM>
     average_velocity_eta_to_faces (int lev, amrex::MultiFab const& cc_eta) const;
 
-    [[nodiscard]] amrex::Array<amrex::MultiFab,AMREX_SPACEDIM>
+    [[nodiscard]] static amrex::Array<amrex::MultiFab,AMREX_SPACEDIM>
     average_nodal_velocity_eta_to_faces (int lev, amrex::MultiFab const& nd_eta,
-                                         bool use_harmonic_averaging=false) const;
+                                         bool use_harmonic_averaging=false);
 
     void compute_divtau  (amrex::Vector<amrex::MultiFab      *> const& divtau,
                           amrex::Vector<amrex::MultiFab const*> const& velocity,

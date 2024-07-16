@@ -152,7 +152,7 @@ DiffusionTensorOp::diffuse_velocity (Vector<MultiFab*> const& velocity,
             m_reg_solve_op->setACoeffs(lev, *density[lev]);
             Array<MultiFab,AMREX_SPACEDIM> b;
             if (eta[lev]->boxArray().ixType().nodeCentered()) {
-                b = m_incflo->average_nodal_velocity_eta_to_faces(lev, *eta[lev]);
+                b = incflo::average_nodal_velocity_eta_to_faces(lev, *eta[lev]);
             }
             else {
                 b = m_incflo->average_velocity_eta_to_faces(lev, *eta[lev]);
@@ -293,7 +293,7 @@ void DiffusionTensorOp::compute_divtau (Vector<MultiFab*> const& a_divtau,
             m_reg_apply_op->setACoeffs(lev, *a_density[lev]);
             Array<MultiFab,AMREX_SPACEDIM> b;
             if (a_eta[lev]->boxArray().ixType().nodeCentered()) {
-                b = m_incflo->average_nodal_velocity_eta_to_faces(lev, *a_eta[lev]);
+                b = incflo::average_nodal_velocity_eta_to_faces(lev, *a_eta[lev]);
             }
             else {
                 b = m_incflo->average_velocity_eta_to_faces(lev, *a_eta[lev]);
