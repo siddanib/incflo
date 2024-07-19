@@ -404,7 +404,7 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
            // NOTE: HYDROSTATIC PRESSURE IS INCORRECT IF THERE ARE
            // MULTIPLE BOXES/GRIDS ALONG GRAVITY DIRECTION
 
-           // Inertial Number
+           // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
            // NOTE: Strain-rate calculated is TWO TIMES the actual value
            // The second component will carry concentration
            MultiFab inertial_num(vel_eta->boxArray(),vel_eta->DistributionMap(),2,nghost);
@@ -419,11 +419,11 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                Array4<Real> const& inrt_num_arr = inertial_num.array(mfi);
                const Real eps = Real(1.0e-20);
                const Real diam_scnd = m_diam_second;
-               const Real ro_0_scnd = m_ro_0_second;
+               const Real ro_scnd = m_ro_grain_second;
                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                {
                     inrt_num_arr(i,j,k,0) =
-                       std::sqrt(ro_0_scnd/(p_static_arr(i,j,k)+eps))*
+                       std::sqrt(ro_scnd/(p_static_arr(i,j,k)+eps))*
                        diam_scnd*Real(0.5)*sr_arr(i,j,k);
                });
            }
@@ -456,6 +456,37 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
 
            } else
 #endif
+           if (m_fluid_model_second == FluidModel::Rauter) {
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+               for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+               {
+                   Box const& bx = mfi.growntilebox(nghost);
+                   Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
+                   Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
+                   Array4<Real const> const& inrt_num_arr = inertial_num.const_array(mfi);
+                   Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
+                   const Real mu_1_scnd = m_mu_1_second;
+                   const Real mu_2_scnd = m_mu_2_second;
+                   const Real I_0_scnd = m_I_0_second;
+                   const Real eps = Real(1.0e-20);
+                   // Note: sr_mf contains TWO TIMES strain rate
+                   // Note: Inertial number in Rauter 2021 (Eq. 2.29)
+                   // has an extra factor of 2
+                   amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                   {
+                        vel_eta_snd_arr(i,j,k) = inrt_num_arr(i,j,k,0);
+                        vel_eta_snd_arr(i,j,k) /= (I_0_scnd + inrt_num_arr(i,j,k,0));
+                        vel_eta_snd_arr(i,j,k) *= (mu_2_scnd-mu_1_scnd);
+                        vel_eta_snd_arr(i,j,k) += mu_1_scnd;
+                        // The above value is stress ratio
+                        vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
+                        vel_eta_snd_arr(i,j,k) /= (sr_arr(i,j,k)+eps);
+                   });
+               }
+
+           } else
            {
                NonNewtonianViscosity non_newtonian_viscosity;
                non_newtonian_viscosity.fluid_model = m_fluid_model_second;

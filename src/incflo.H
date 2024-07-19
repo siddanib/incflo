@@ -38,7 +38,7 @@ public:
 
     enum struct FluidModel {
         Newtonian, powerlaw, Bingham, HerschelBulkley, deSouzaMendesDutra,
-        DataDrivenMPMD
+        DataDrivenMPMD, Rauter
     };
 
     incflo ();
@@ -554,6 +554,7 @@ private:
     bool m_two_fluid = false;
     bool m_two_fluid_eta_harmonic = true;
     amrex::Real m_ro_0_second = 1.0;
+    amrex::Real m_ro_grain_second = 1.0; // Will be used to calculate Inertial number
     FluidModel m_fluid_model_second;
     amrex::Real m_mu_second = 1.0;
     amrex::Real m_n_0_second = 0.0;
@@ -564,6 +565,10 @@ private:
     amrex::Real m_eta_max_second = amrex::Real(1.0e+20);
     amrex::Real m_diam_second = amrex::Real(0.);
     amrex::Real m_min_conc_second = amrex::Real(0.); // Used to limit expensive particle-sims
+    // These are specifically for Rauter_2021
+    amrex::Real m_mu_1_second = amrex::Real(0.);
+    amrex::Real m_mu_2_second = amrex::Real(0.);
+    amrex::Real m_I_0_second = amrex::Real(0.);
 
     int m_plot_int = -1;
 
