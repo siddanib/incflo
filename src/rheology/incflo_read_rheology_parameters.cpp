@@ -107,6 +107,9 @@ void incflo::ReadRheologyParameters()
         amrex::ParmParse pp_scnd("incflo.second_fluid");
         pp_scnd.query("ro_0", m_ro_0_second);
         AMREX_ALWAYS_ASSERT(m_ro_0_second >= 0.0);
+        // Initially setting ro_grain the same as ro_0
+        m_ro_grain_second = m_ro_0_second;
+        pp_scnd.query("ro_grain",m_ro_grain_second);
         pp_scnd.query("mu", m_mu_second);
         std::string fluid_model_s_snd = "newtonian";
         pp_scnd.query("fluid_model", fluid_model_s_snd);
@@ -201,6 +204,14 @@ void incflo::ReadRheologyParameters()
             amrex::Print() << "Data-driven model through AMReX-MPMD."<<std::endl;
         }
 #endif
+        else if(fluid_model_s_snd == "rauter")
+        {
+            m_fluid_model_second = FluidModel::Rauter;
+            pp_scnd.get("mu_1", m_mu_1_second);
+            pp_scnd.get("mu_2", m_mu_2_second);
+            pp_scnd.get("I_0", m_I_0_second);
+            amrex::Print() << "Using mu(I) defined Rauter 2021 (Eq. 2.30)"<<std::endl;
+        }
         else
         {
             amrex::Abort("Unknown fluid_model! Choose either newtonian, powerlaw, bingham, hb, smd");
