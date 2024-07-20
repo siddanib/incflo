@@ -314,16 +314,17 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
        }
        // Obtain concentration of the second fluid, based on nodal density
        MultiFab rho_nodal(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-       MultiFab conc_second(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+       // Nodal second fluid concentration MultiFab
+       MultiFab conc_second_nd(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-       for (MFIter mfi(conc_second,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+       for (MFIter mfi(conc_second_nd,TilingIfNotGPU()); mfi.isValid(); ++mfi)
        {
            Box const& bx = mfi.growntilebox(nghost);
            Array4<Real const> const& rho_arr = rho->const_array(mfi);
            Array4<Real> const& rho_nodal_arr = rho_nodal.array(mfi);
-           Array4<Real> const& conc_second_arr = conc_second.array(mfi);
+           Array4<Real> const& conc_second_arr = conc_second_nd.array(mfi);
            const Real rho_first = m_ro_0;
            const Real rho_second = m_ro_0_second;
            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -428,7 +429,7 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                });
            }
            // Copy concentration
-           MultiFab::Copy(inertial_num,conc_second,0,1,1,nghost);
+           MultiFab::Copy(inertial_num,conc_second_nd,0,1,1,nghost);
 
 #ifdef USE_AMREX_MPMD
            if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
@@ -530,10 +531,10 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-       for (MFIter mfi(conc_second,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+       for (MFIter mfi(conc_second_nd,TilingIfNotGPU()); mfi.isValid(); ++mfi)
        {
            Box const& bx = mfi.growntilebox(nghost);
-           Array4<Real const> const& conc_second_arr = conc_second.array(mfi);
+           Array4<Real const> const& conc_second_arr = conc_second_nd.array(mfi);
            Array4<Real const> const& eta_arr_second = vel_eta_second.const_array(mfi);
            Array4<Real> const& eta_arr = vel_eta->array(mfi);
            const Real min_conc_scnd = m_min_conc_second;
