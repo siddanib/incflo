@@ -553,6 +553,9 @@ private:
     // Adding properties for a second fluid
     bool m_two_fluid = false;
     bool m_two_fluid_eta_harmonic = true;
+    // This boolean decides if second fluid concentration is calculated
+    // based on nodal or cell-centered density
+    bool m_two_fluid_cc_rho_conc = true;
     amrex::Real m_ro_0_second = 1.0;
     amrex::Real m_ro_grain_second = 1.0; // Will be used to calculate Inertial number
     FluidModel m_fluid_model_second;
