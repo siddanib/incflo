@@ -552,6 +552,7 @@ private:
     amrex::Real m_eta_max = amrex::Real(1.0e+20);
     // Adding properties for a second fluid
     bool m_two_fluid = false;
+    bool m_two_fluid_rho_harmonic = true;
     bool m_two_fluid_eta_harmonic = true;
     // This boolean decides if second fluid concentration is calculated
     // based on nodal or cell-centered density

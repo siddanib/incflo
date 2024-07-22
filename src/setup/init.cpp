@@ -152,6 +152,7 @@ void incflo::ReadParameters ()
 
         // Check if there is a second fluid
         pp.query("two_fluid", m_two_fluid);
+        pp.query("two_fluid_rho_harmonic",m_two_fluid_rho_harmonic);
         pp.query("two_fluid_eta_harmonic",m_two_fluid_eta_harmonic);
         pp.query("two_fluid_cc_rho_conc",m_two_fluid_cc_rho_conc);
 

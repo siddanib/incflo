@@ -327,12 +327,20 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
               Array4<Real> const& conc_second_arr = conc_second_cc.array(mfi);
               const Real rho_first = m_ro_0;
               const Real rho_second = m_ro_0_second;
+              const bool rho_harmonic = m_two_fluid_rho_harmonic;
               amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
               {
-                 // Based on weighted harmonic mean for cell-centered density
-                 Real conc_scnd =
-                   ((rho_first*rho_second)/rho_arr(i,j,k)) - rho_second;
-                 conc_scnd /= (rho_first-rho_second);
+                 Real conc_scnd = Real(-1.0);
+                 if (rho_harmonic) {
+                    // Based on weighted harmonic mean for cell-centered density
+                    conc_scnd =
+                      ((rho_first*rho_second)/rho_arr(i,j,k)) - rho_second;
+                    conc_scnd /= (rho_first-rho_second);
+                 }
+                 else {
+                    // Based on weighted arithmetic mean for cell-centered density
+                    conc_scnd = (rho_arr(i,j,k)-rho_first)/(rho_second-rho_first);
+                 }
                  // Put guards
                  conc_second_arr(i,j,k) =
                    amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
@@ -357,6 +365,7 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
            Array4<Real> const& conc_second_nd_arr = conc_second_nd.array(mfi);
            const Real rho_first = m_ro_0;
            const Real rho_second = m_ro_0_second;
+           const bool rho_harmonic = m_two_fluid_rho_harmonic;
            // This boolean represents if concentration is calculated based on
            // nodal or cell-centered density
            const bool cc_rho_conc = m_two_fluid_cc_rho_conc;
@@ -371,14 +380,21 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                                                     dlo,dhi,bc_type);
               }
               else {
-                // Based on weighted harmonic mean for nodal density
-                Real conc_scnd =
-                  ((rho_first*rho_second)/rho_nodal_arr(i,j,k)) - rho_second;
-                conc_scnd /= (rho_first-rho_second);
-                // Put guards
-                conc_second_nd_arr(i,j,k) =
-                  amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
+                Real conc_scnd = Real(-1.0);
+                if (rho_harmonic) {
+                    // Based on weighted harmonic mean for nodal density
+                    conc_scnd =
+                      ((rho_first*rho_second)/rho_nodal_arr(i,j,k)) - rho_second;
+                    conc_scnd /= (rho_first-rho_second);
                 }
+                else {
+                    // Based on weighted arithmetic mean for nodal density
+                    conc_scnd = (rho_nodal_arr(i,j,k)-rho_first)/(rho_second-rho_first);
+                }
+                    // Put guards
+                    conc_second_nd_arr(i,j,k) =
+                        amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
+              }
            });
        }
 
