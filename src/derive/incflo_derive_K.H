@@ -672,7 +672,7 @@ amrex::Real incflo_strainrate_eb (int i, int j, int k,
 }
 #endif
 
-
+// This function averages cell-centered density to nodes
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real incflo_nodal_density (int i, int j, int k,
              const amrex::Real rho_first, const amrex::Real rho_second,
@@ -719,6 +719,53 @@ amrex::Real incflo_nodal_density (int i, int j, int k,
     rho_nd /= Real(6.0);
 #endif
     return rho_nd;
+}
+
+// This function averages cell-centered concentration to nodes
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real incflo_nodal_second_conc (int i, int j, int k,
+             amrex::Array4<amrex::Real const> const& cc_second_conc,
+             const amrex::Dim3& dlo, const amrex::Dim3& dhi,
+             amrex::GpuArray<amrex::GpuArray<int,2>,AMREX_SPACEDIM> bc_type) noexcept
+{
+    using namespace amrex;
+    int i_p = i;
+    int i_m = i-1;
+    int j_p = j;
+    int j_m = j-1;
+#if (AMREX_SPACEDIM == 3)
+    int k_p = k;
+    int k_m = k-1;
+#endif
+    // Special treatment for wall adjacent cells
+    if (i == dlo.x) {
+       if (bc_type[0][0] == 2 or bc_type[0][0] == 1) i_m = i_p;
+    } else if (i == dhi.x+1) {
+       if (bc_type[0][1] == 2 or bc_type[0][1] == 1) i_p = i_m;
+    }
+
+    if (j == dlo.y) {
+       if (bc_type[1][0] == 2 or bc_type[1][0] == 1) j_m = j_p;
+    } else if (j == dhi.y+1) {
+       if (bc_type[1][1] == 2 or bc_type[1][1] == 1)j_p = j_m;
+    }
+#if (AMREX_SPACEDIM == 3)
+    if (k == dlo.z) {
+       if (bc_type[2][0] == 2 or bc_type[2][0] == 1) k_m = k_p;
+    } else if (k == dhi.z+1) {
+       if (bc_type[2][1] == 2 or bc_type[2][1] == 1) k_p = k_m;
+    }
+#endif
+
+    Real nd_second_conc = cc_second_conc(i_p,j,k) + cc_second_conc(i_m,j,k)
+                            + cc_second_conc(i,j_p,k) + cc_second_conc(i,j_m,k);
+#if (AMREX_SPACEDIM == 2)
+    nd_second_conc *= Real(0.25);
+#else
+    nd_second_conc += cc_second_conc(i,j,k_p) + cc_second_conc(i,j,k_m);
+    nd_second_conc /= Real(6.0);
+#endif
+    return nd_second_conc;
 }
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
