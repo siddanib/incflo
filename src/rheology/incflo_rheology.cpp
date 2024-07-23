@@ -405,8 +405,6 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
        else {
            // Create a nodal strain-rate MultiFab, nghost is already set to 0
            MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-           // nodal MultiFab for hydrostatic pressure
-           MultiFab p_static(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
 #ifdef AMREX_USE_EB
            auto const& fact = EBFactory(lev);
            auto const& flags = fact.getMultiEBCellFlagFab();
@@ -425,14 +423,6 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                Box const& bx = mfi.growntilebox(nghost);
                Array4<Real> const& sr_arr = sr_mf.array(mfi);
                Array4<Real const> const& vel_arr = vel->const_array(mfi);
-
-               // Ensure that static pressure is calculated based on validbox
-               Box const& v_bx = mfi.validbox();
-               const Dim3 v_bxlo = amrex::lbound(v_bx);
-               const Dim3 v_bxhi = amrex::ubound(v_bx);
-               Array4<Real> const& p_static_arr = p_static.array(mfi);
-               Array4<Real const> const& rho_nodal_arr = rho_nodal.const_array(mfi);
-               const Real gravity = std::abs(m_gravity[AMREX_SPACEDIM-1]);
 #ifdef AMREX_USE_EB
                auto const& flag_fab = flags[mfi];
                auto typ = flag_fab.getType(bx);
@@ -451,16 +441,43 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                    {
                        sr_arr(i,j,k) = incflo_strainrate_nodal(i,j,k,AMREX_D_DECL(idx,idy,idz),
                                                       vel_arr,dlo,dhi,bc_type);
-
-                       p_static_arr(i,j,k) = incflo_local_hydrostatic_pressure_nodal(
-                                                      i,j,k,AMREX_D_DECL(idx,idy,idz),
-                                                      gravity,rho_nodal_arr,v_bxlo,v_bxhi);
                    });
                }
            }
-           // NOTE: HYDROSTATIC PRESSURE IS INCORRECT IF THERE ARE
-           // MULTIPLE BOXES/GRIDS ALONG GRAVITY DIRECTION
 
+           BoxArray pencil_ba(surroundingNodes(lev_geom.Domain()));
+#if (AMREX_SPACEDIM==2)
+           IntVect pencil_iv(8,1048576);
+#else
+           IntVect pencil_iv(8,8,1048576);
+#endif
+           pencil_ba.maxSize(pencil_iv);
+           DistributionMapping pencil_dm{pencil_ba};
+           MultiFab pencil_rho_nodal(pencil_ba,pencil_dm,1,nghost);
+           pencil_rho_nodal.ParallelCopy(rho_nodal,lev_geom.periodicity());
+           MultiFab pencil_p_static(pencil_ba,pencil_dm,1,nghost);
+
+           // This loop can be improved through tiling?
+           for (MFIter mfi(pencil_rho_nodal); mfi.isValid(); ++mfi)
+           {
+               // Ensure that static pressure is calculated based on validbox
+               Box const& v_bx = mfi.validbox();
+               Array4<Real> const& p_static_arr = pencil_p_static.array(mfi);
+               Array4<Real const> const& rho_nodal_arr = pencil_rho_nodal.const_array(mfi);
+               const Real gravity = std::abs(m_gravity[AMREX_SPACEDIM-1]);
+
+               amrex::ParallelFor(v_bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+               {
+
+                   p_static_arr(i,j,k) = incflo_local_hydrostatic_pressure_nodal(
+                                                  i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                                  gravity,rho_nodal_arr,dlo,dhi);
+               });
+
+           }
+           // nodal MultiFab for hydrostatic pressure
+           MultiFab p_static(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+           p_static.ParallelCopy(pencil_p_static,lev_geom.periodicity());
            // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
            // NOTE: Strain-rate calculated is TWO TIMES the actual value
            // The second component will carry concentration
