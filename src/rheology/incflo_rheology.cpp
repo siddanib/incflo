@@ -457,16 +457,18 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
            pencil_rho_nodal.ParallelCopy(rho_nodal,lev_geom.periodicity());
            MultiFab pencil_p_static(pencil_ba,pencil_dm,1,nghost);
 
-           // This loop can be improved through tiling?
-           for (MFIter mfi(pencil_rho_nodal); mfi.isValid(); ++mfi)
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+           for (MFIter mfi(pencil_rho_nodal,TilingIfNotGPU()); mfi.isValid(); ++mfi)
            {
                // Ensure that static pressure is calculated based on validbox
-               Box const& v_bx = mfi.validbox();
+               Box const& bx = mfi.tilebox();
                Array4<Real> const& p_static_arr = pencil_p_static.array(mfi);
                Array4<Real const> const& rho_nodal_arr = pencil_rho_nodal.const_array(mfi);
                const Real gravity = std::abs(m_gravity[AMREX_SPACEDIM-1]);
 
-               amrex::ParallelFor(v_bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+               amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                {
 
                    p_static_arr(i,j,k) = incflo_local_hydrostatic_pressure_nodal(
