@@ -245,31 +245,14 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
     }
 
     // Corner cases
-    // Slip walls are opposite of no-slip walls
+    // Slip and no-slip walls need special treatment
+    // Nearest cell-center strain rate is attributed
+    // to the corner node at intersection of walls
     if ((i == dlo.x) or (i == dhi.x+1)) {
         idim = 0;
         jdim = (i == dlo.x)? 0:1;
-        if (bc_type[idim][jdim] == 2) {
-            if (jdim == 0) {
-                uypp = uypm; uymp = uymm;
-                vypp = vypm; vymp = vymm;
-                wypp = wypm; wymp = wymm;
-
-                uzpp = uzpm; uzmp = uzmm;
-                vzpp = vzpm; vzmp = vzmm;
-                wzpp = wzpm; wzmp = wzmm;
-            }
-            else {
-                uypm = uypp; uymm = uymp;
-                vypm = vypp; vymm = vymp;
-                wypm = wypp; wymm = wymp;
-
-                uzpm = uzpp; uzmm = uzmp;
-                vzpm = vzpp; vzmm = vzmp;
-                wzpm = wzpp; wzmm = wzmp;
-            }
-        }
-        else if (bc_type[idim][jdim] == 1) {
+        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1))
+        {
             if (jdim == 0) {
                 uypm = uypp; uymm = uymp;
                 vypm = vypp; vymm = vymp;
@@ -294,27 +277,8 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
     if ((j == dlo.y) or (j == dhi.y+1)) {
         idim = 1;
         jdim = (j == dlo.y)? 0:1;
-        if (bc_type[idim][jdim] == 2) {
-            if (jdim == 0) {
-                uxpp = uxpm; uxmp = uxmm;
-                vxpp = vxpm; vxmp = vxmm;
-                wxpp = wxpm; wxmp = wxmm;
-
-                uzpp = uzmp; uzpm = uzmm;
-                vzpp = vzmp; vzpm = vzmm;
-                wzpp = wzmp; wzpm = wzmm;
-            }
-            else {
-                uxpm = uxpp; uxmm = uxmp;
-                vxpm = vxpp; vxmm = vxmp;
-                wxpm = wxpp; wxmm = wxmp;
-
-                uzmp = uzpp; uzmm = uzpm;
-                vzmp = vzpp; vzmm = vzpm;
-                wzmp = wzpp; wzmm = wzpm;
-            }
-        }
-        else if (bc_type[idim][jdim] == 1) {
+        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1))
+        {
             if (jdim == 0) {
                 uxpm = uxpp; uxmm = uxmp;
                 vxpm = vxpp; vxmm = vxmp;
@@ -339,27 +303,8 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
     if ((k == dlo.z) or (k == dhi.z+1)) {
         idim = 2;
         jdim = (k == dlo.z)? 0:1;
-        if (bc_type[idim][jdim] == 2) {
-            if (jdim == 0) {
-                uxpp = uxmp; uxpm = uxmm;
-                vxpp = vxmp; vxpm = vxmm;
-                wxpp = wxmp; wxpm = wxmm;
-
-                uypp = uymp; uypm = uymm;
-                vypp = vymp; vypm = vymm;
-                wypp = wymp; wypm = wymm;
-            }
-            else {
-                uxmp = uxpp; uxmm = uxpm;
-                vxmp = vxpp; vxmm = vxpm;
-                wxmp = wxpp; wxmm = wxpm;
-
-                uymp = uypp; uymm = uypm;
-                vymp = vypp; vymm = vypm;
-                wymp = wypp; wymm = wypm;
-            }
-        }
-        else if(bc_type[idim][jdim] == 1) {
+        if ((bc_type[idim][jdim] == 2) or(bc_type[idim][jdim] == 1))
+        {
             if (jdim == 0) {
                 uxmp = uxpp; uxmm = uxpm;
                 vxmp = vxpp; vxmm = vxpm;
@@ -470,21 +415,14 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
         }
     }
     // Corner cases
-    // Slip walls are opposite of no-slip walls
+    // Slip and no-slip walls need special treatment
+    // Nearest cell-center strain rate is attributed
+    // to the corner node at intersection of walls
     if ((i == dlo.x) or (i == dhi.x+1)) {
         idim = 0;
         jdim = (i == dlo.x)? 0:1;
-        if (bc_type[idim][jdim] == 2) {
-            if (jdim == 0) {
-                uyp = uym;
-                vyp = vym;
-            }
-            else {
-                uym = uyp;
-                vym = vyp;
-            }
-        }
-        else if (bc_type[idim][jdim] == 1) {
+        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1))
+        {
             if (jdim == 0) {
                 uym = uyp;
                 vym = vyp;
@@ -499,17 +437,8 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
     if ((j == dlo.y) or (j == dhi.y+1)) {
         idim = 1;
         jdim = (j == dlo.y)? 0:1;
-        if (bc_type[idim][jdim] == 2) {
-            if (jdim == 0) {
-                uxp = uxm;
-                vxp = vxm;
-            }
-            else {
-                uxm = uxp;
-                vxm = vxp;
-            }
-        }
-        else if (bc_type[idim][jdim] == 1) {
+        if ((bc_type[idim][jdim] == 2) or (bc_type[idim][jdim] == 1))
+        {
             if (jdim == 0) {
                 uxm = uxp;
                 vxm = vxp;
