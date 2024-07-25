@@ -8,8 +8,10 @@ void incflo::column_collapse_granular (Box const& vbx, Box const& nbx,
                                  Box const& /*domain*/,
                                  GpuArray<Real, AMREX_SPACEDIM> const& dx,
                                  GpuArray<Real, AMREX_SPACEDIM> const& problo,
-                                 GpuArray<Real, AMREX_SPACEDIM> const& probhi)
+                                 GpuArray<Real, AMREX_SPACEDIM> const& probhi) const
 {
+    amrex::ignore_unused<Box>(nbx);
+    amrex::ignore_unused<Array4<Real>>(pressure);
     // Ensure it is set to two_fluid
     if (!m_two_fluid) amrex::Abort("probtype 531 involves two fluids");
 
@@ -103,8 +105,10 @@ void incflo::smooth_column_collapse_granular (Box const& vbx, Box const& nbx,
                                  GpuArray<Real, AMREX_SPACEDIM> const& dx,
                                  GpuArray<Real, AMREX_SPACEDIM> const& problo,
                                  GpuArray<Real, AMREX_SPACEDIM> const& probhi,
-                                 Real smoothing_factor)
+                                 Real smoothing_factor) const
 {
+    amrex::ignore_unused<Box>(nbx);
+    amrex::ignore_unused<Array4<Real>>(pressure);
     // Ensure it is set to two_fluid
     if (!m_two_fluid) amrex::Abort("probtype 532 involves two fluids");
 

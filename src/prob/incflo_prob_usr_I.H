@@ -138,7 +138,7 @@
                                    amrex::Box const& domain,
                                    amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& dx,
                                    amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo,
-                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& probhi);
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& probhi) const;
 
     void smooth_column_collapse_granular (amrex::Box const& vbx, amrex::Box const& nbx,
                                    amrex::Array4<amrex::Real> const& density,
@@ -147,5 +147,5 @@
                                    amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& dx,
                                    amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo,
                                    amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& probhi,
-                                   amrex::Real smoothing_factor);
+                                   amrex::Real smoothing_factor) const;
 #endif
