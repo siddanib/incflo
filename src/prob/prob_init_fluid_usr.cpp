@@ -50,6 +50,10 @@ void incflo::column_collapse_granular (Box const& vbx, Box const& nbx,
             density(i,j,k) = rho_1;
         }
     });
+
+    if (m_initial_iterations == 0 )
+        amrex::Abort("Include non-zero initial_iterations as pressure is not set");
+    /*
     // Pressure
     GpuArray<Real,3> grav{0.,0.,0.};
     if (m_gravity[0]*m_gravity[0] + m_gravity[1]*m_gravity[1]+
@@ -89,6 +93,7 @@ void incflo::column_collapse_granular (Box const& vbx, Box const& nbx,
             pressure(i,j,k) = rho_1*grav[p_dim]*(probhi[p_dim]-p_h);
         }
     });
+    */
 }
 
 void incflo::smooth_column_collapse_granular (Box const& vbx, Box const& nbx,
@@ -101,7 +106,7 @@ void incflo::smooth_column_collapse_granular (Box const& vbx, Box const& nbx,
                                  Real smoothing_factor)
 {
     // Ensure it is set to two_fluid
-    if (!m_two_fluid) amrex::Abort("probtype 531 involves two fluids");
+    if (!m_two_fluid) amrex::Abort("probtype 532 involves two fluids");
 
     Vector<Real> granlen_vec{AMREX_D_DECL(Real(0.),Real(0.),Real(0.))};
     ParmParse pp;
@@ -144,6 +149,10 @@ void incflo::smooth_column_collapse_granular (Box const& vbx, Box const& nbx,
         density(i,j,k) *= Real(0.25)*(rho_2-rho_1);
         density(i,j,k) += rho_1;
     });
+
+    if (m_initial_iterations == 0 )
+        amrex::Abort("Include non-zero initial_iterations as pressure is not set");
+    /*
     // Pressure
     GpuArray<Real,3> grav{0.,0.,0.};
     if (m_gravity[0]*m_gravity[0] + m_gravity[1]*m_gravity[1]+
@@ -191,4 +200,5 @@ void incflo::smooth_column_collapse_granular (Box const& vbx, Box const& nbx,
         pressure(i,j,k) += (fctr_x*(p_h_max-p_h));
         pressure(i,j,k) += (rho_1*p_grav*(p_h_max-p_h));
     });
+    */
 }
