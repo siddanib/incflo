@@ -206,3 +206,72 @@ void incflo::smooth_column_collapse_granular (Box const& vbx, Box const& nbx,
     });
     */
 }
+
+#if (AMREX_SPACEDIM == 3)
+void incflo::cylinder_collapse_granular (Box const& vbx, Box const& nbx,
+                                 Array4<Real> const& density,
+                                 Array4<Real> const& pressure,
+                                 Box const& /*domain*/,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& dx,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& problo,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& probhi) const
+{
+    amrex::ignore_unused<Box>(nbx);
+    amrex::ignore_unused<Array4<Real>>(pressure);
+    amrex::ignore_unused<GpuArray<Real,AMREX_SPACEDIM>>(probhi);
+    // Ensure it is set to two_fluid
+    if (!m_two_fluid) amrex::Abort("probtype 533 involves two fluids");
+
+    Real cyl_rad, cyl_h;
+    Vector<Real> cyl_center{Real(0.),Real(0.),Real(0.)};
+    Vector<Real> cyl_axis{Real(0.),Real(0.),Real(0.)};
+    ParmParse pp;
+    pp.get("cylinder_radius",cyl_rad);
+    pp.get("cylinder_height",cyl_h);
+    pp.getarr("cylinder_center",cyl_center,0,3);
+    pp.getarr("cylinder_axis",cyl_axis,0,3);
+
+    Real axis_mag = cyl_axis[0]*cyl_axis[0] + cyl_axis[1]*cyl_axis[1] +
+                    cyl_axis[2]*cyl_axis[2];
+    axis_mag = std::sqrt(axis_mag);
+    AMREX_ALWAYS_ASSERT(axis_mag > Real(0.));
+
+    GpuArray<Real,3> cyl_ctr{cyl_center[0],cyl_center[1],cyl_center[2]};
+    GpuArray<Real,3> cyl_axs{cyl_axis[0]/axis_mag, cyl_axis[1]/axis_mag,
+                             cyl_axis[2]/axis_mag};
+
+    Real rho_1 = m_ro_0; Real rho_2 = m_ro_0_second;
+    // Density
+    amrex::ParallelFor(vbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+    {
+        Real x = problo[0] + (Real(i)+Real(0.5))*dx[0];
+        x -= cyl_ctr[0];
+        Real y = problo[1] + (Real(j)+Real(0.5))*dx[1];
+        y -= cyl_ctr[1];
+        Real z = problo[2] + (Real(k)+Real(0.5))*dx[2];
+        z -= cyl_ctr[2];
+
+        // Distance along axial direction
+        Real r_nrml = x*cyl_axs[0] + y*cyl_axs[1]+ z*cyl_axs[2];
+        x -= (r_nrml*cyl_axs[0]);
+        y -= (r_nrml*cyl_axs[1]);
+        z -= (r_nrml*cyl_axs[2]);
+        // Transverse distance
+        Real r_trns = x*x + y*y + z*z;
+        r_trns = std::sqrt(r_trns);
+        r_nrml = std::abs(r_nrml);
+
+        if ((r_nrml <= Real(0.5)*cyl_h) and (r_trns <= cyl_rad))
+        {
+            density(i,j,k) = rho_2;
+        }
+        else {
+            density(i,j,k) = rho_1;
+        }
+
+    });
+
+    if (m_initial_iterations == 0 )
+        amrex::Abort("Include non-zero initial_iterations as pressure is not set");
+}
+#endif

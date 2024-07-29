@@ -207,6 +207,15 @@ void incflo::prob_init_fluid (int lev)
                                      domain, dx, problo, probhi,
                                      smoothing_factor);
         }
+#if (AMREX_SPACEDIM == 3)
+        else if (533 == m_probtype)
+        {
+            cylinder_collapse_granular(vbx, nbx,
+                                       ld.density.array(mfi),
+                                       ld.p_nd.array(mfi),
+                                       domain, dx, problo, probhi);
+        }
+#endif
         else
         {
             amrex::Abort("prob_init_fluid: unknown m_probtype");
