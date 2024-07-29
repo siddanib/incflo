@@ -148,4 +148,13 @@
                                    amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo,
                                    amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& probhi,
                                    amrex::Real smoothing_factor) const;
+#if (AMREX_SPACEDIM == 3)
+    void cylinder_collapse_granular (amrex::Box const& vbx, amrex::Box const& nbx,
+                                   amrex::Array4<amrex::Real> const& density,
+                                   amrex::Array4<amrex::Real> const& pressure,
+                                   amrex::Box const& domain,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& dx,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& probhi) const;
+#endif
 #endif
