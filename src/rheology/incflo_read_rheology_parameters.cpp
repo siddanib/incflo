@@ -113,12 +113,12 @@ void incflo::ReadRheologyParameters()
         pp_scnd.query("mu", m_mu_second);
         std::string fluid_model_s_snd = "newtonian";
         pp_scnd.query("fluid_model", fluid_model_s_snd);
+        pp_scnd.get("min_conc", m_min_conc_second);
 
         if (fluid_model_s_snd != "newtonian") {
             pp_scnd.get("min_eta", m_eta_min_second);
             pp_scnd.get("max_eta", m_eta_max_second);
             pp_scnd.get("diameter", m_diam_second);
-            pp_scnd.get("min_conc", m_min_conc_second);
         }
 
         amrex::Print() << "Second fluid properties : " << std::endl;
