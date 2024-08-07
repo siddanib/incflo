@@ -322,7 +322,7 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
 #endif
           for (MFIter mfi(conc_second_cc,TilingIfNotGPU()); mfi.isValid(); ++mfi)
           {
-              Box const& bx = mfi.tilebox();
+              Box const& bx = mfi.growntilebox(1);
               Array4<Real const> const& rho_arr = rho->const_array(mfi);
               Array4<Real> const& conc_second_arr = conc_second_cc.array(mfi);
               const Real rho_first = m_ro_0;
@@ -346,9 +346,7 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                    amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
               });
           }
-          conc_second_cc.FillBoundary(lev_geom.periodicity());
        }
-
        // Obtain concentration of the second fluid, based on nodal density
        MultiFab rho_nodal(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
        // Nodal second fluid concentration MultiFab
@@ -358,7 +356,7 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
 #endif
        for (MFIter mfi(conc_second_nd,TilingIfNotGPU()); mfi.isValid(); ++mfi)
        {
-           Box const& bx = mfi.growntilebox(nghost);
+           Box const& bx = mfi.tilebox();
            Array4<Real const> const& rho_arr = rho->const_array(mfi);
            Array4<Real const> const& conc_second_cc_arr = conc_second_cc.const_array(mfi);
            Array4<Real> const& rho_nodal_arr = rho_nodal.array(mfi);
@@ -371,13 +369,10 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
            const bool cc_rho_conc = m_two_fluid_cc_rho_conc;
            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
            {
-              rho_nodal_arr(i,j,k) = incflo_nodal_density(i,j,k,
-                                         rho_first,rho_second,rho_arr,
-                                         dlo,dhi,bc_type);
+              rho_nodal_arr(i,j,k) = incflo_nodal_density(i,j,k,rho_arr);
               if (cc_rho_conc) {
                 conc_second_nd_arr(i,j,k) = incflo_nodal_second_conc(i,j,k,
-                                                    conc_second_cc_arr,
-                                                    dlo,dhi,bc_type);
+                                                    conc_second_cc_arr);
               }
               else {
                 Real conc_scnd = Real(-1.0);
@@ -391,8 +386,8 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                     // Based on weighted arithmetic mean for nodal density
                     conc_scnd = (rho_nodal_arr(i,j,k)-rho_first)/(rho_second-rho_first);
                 }
-                    // Put guards
-                    conc_second_nd_arr(i,j,k) =
+                // Put guards
+                conc_second_nd_arr(i,j,k) =
                         amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
               }
            });
