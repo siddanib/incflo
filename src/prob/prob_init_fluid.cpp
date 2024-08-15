@@ -192,6 +192,7 @@ void incflo::prob_init_fluid (int lev)
         {
             column_collapse_granular(vbx, nbx,
                                      ld.density.array(mfi),
+                                     ld.tracer.array(mfi),
                                      ld.p_nd.array(mfi),
                                      domain, dx, problo, probhi);
         }
@@ -203,6 +204,7 @@ void incflo::prob_init_fluid (int lev)
 
             smooth_column_collapse_granular(vbx, nbx,
                                      ld.density.array(mfi),
+                                     ld.tracer.array(mfi),
                                      ld.p_nd.array(mfi),
                                      domain, dx, problo, probhi,
                                      smoothing_factor);

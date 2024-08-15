@@ -4,6 +4,7 @@ using namespace amrex;
 
 void incflo::column_collapse_granular (Box const& vbx, Box const& nbx,
                                  Array4<Real> const& density,
+                                 Array4<Real> const& tracer,
                                  Array4<Real> const& pressure,
                                  Box const& /*domain*/,
                                  GpuArray<Real, AMREX_SPACEDIM> const& dx,
@@ -48,8 +49,10 @@ void incflo::column_collapse_granular (Box const& vbx, Box const& nbx,
 #endif
            ) {
             density(i,j,k) = rho_2;
+            tracer(i,j,k,0) = Real(1.0);
         } else {
             density(i,j,k) = rho_1;
+            tracer(i,j,k,0) = Real(0.0);
         }
     });
 
@@ -100,6 +103,7 @@ void incflo::column_collapse_granular (Box const& vbx, Box const& nbx,
 
 void incflo::smooth_column_collapse_granular (Box const& vbx, Box const& nbx,
                                  Array4<Real> const& density,
+                                 Array4<Real> const& tracer,
                                  Array4<Real> const& pressure,
                                  Box const& /*domain*/,
                                  GpuArray<Real, AMREX_SPACEDIM> const& dx,
@@ -150,6 +154,8 @@ void incflo::smooth_column_collapse_granular (Box const& vbx, Box const& nbx,
 #endif
         density(i,j,k) *= (std::tanh((granLen[0]-x)/(smoothing_factor*dx[0]))
                             + Real(1.0));
+        // Tracer is 1 in heavier fluid
+        tracer(i,j,k) = density(i,j,k)*Real(0.25);
         density(i,j,k) *= Real(0.25)*(rho_2-rho_1);
         density(i,j,k) += rho_1;
     });

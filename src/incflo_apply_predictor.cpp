@@ -185,7 +185,7 @@ void incflo::ApplyPredictor (bool incremental_projection)
     // *************************************************************************************
     // Update density
     // *************************************************************************************
-    update_density(StepType::Predictor);
+    if (!m_two_fluid) update_density(StepType::Predictor);
 
     // **********************************************************************************************
     // Update tracer

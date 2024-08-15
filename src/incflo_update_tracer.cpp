@@ -67,4 +67,61 @@ void incflo::update_tracer (StepType step_type, Vector<MultiFab>& tra_eta, Vecto
             }
         }
     } // advect tracer
+
+    int ng = (step_type == StepType::Corrector) ? 0 : 1;
+
+    Real l_dt = m_dt;
+
+    if (m_two_fluid)
+    {
+        for (int lev = 0; lev <= finest_level; lev++)
+        {
+            auto& ld = *m_leveldata[lev];
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+            for (MFIter mfi(ld.velocity,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+            {
+                Box const& bx = mfi.tilebox();
+                Array4<Real      > const& rho_new  = ld.density.array(mfi);
+                Array4<Real const> const& tracer  = ld.tracer.const_array(mfi);
+                Real rho_1 = m_ro_0;
+                Real rho_2 = m_ro_0_second;
+                if (step_type == StepType::Predictor) {
+                    ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                    {
+                        rho_new(i,j,k) = rho_1 + (rho_2-rho_1)*tracer(i,j,k,0);
+                    });
+
+                } else if (step_type == StepType::Corrector) {
+                    amrex::Abort("Two_fluid not yet implemented for Corrector step\n");
+                }
+            } // mfi
+        } // lev
+
+        // Average down solution
+        for (int lev = finest_level-1; lev >= 0; --lev) {
+#ifdef AMREX_USE_EB
+            amrex::EB_average_down(m_leveldata[lev+1]->density, m_leveldata[lev]->density,
+                                   0, 1, refRatio(lev));
+#else
+            amrex::average_down(m_leveldata[lev+1]->density, m_leveldata[lev]->density,
+                                0, 1, refRatio(lev));
+#endif
+        }
+
+        for (int lev = 0; lev <= finest_level; lev++)
+        {
+            auto& ld = *m_leveldata[lev];
+
+            // Fill ghost cells of new-time density if needed (we assume ghost cells of old density are already filled)
+            if (ng > 0) {
+                fillpatch_density(lev, m_t_new[lev], ld.density, ng);
+            }
+
+            // Define half-time density after the average down
+            MultiFab::LinComb(ld.density_nph, Real(0.5), ld.density, 0, Real(0.5), ld.density_o, 0, 0, 1, ng);
+        }
+
+    }
 }
