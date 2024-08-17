@@ -573,6 +573,9 @@ private:
     amrex::Real m_mu_1_second = amrex::Real(0.);
     amrex::Real m_mu_2_second = amrex::Real(0.);
     amrex::Real m_I_0_second = amrex::Real(0.);
+    // These are related to level set method
+    // Coefficient d that is used in level set
+    amrex::Real m_level_set_d = amrex::Real(0.1);
 
     int m_plot_int = -1;
 

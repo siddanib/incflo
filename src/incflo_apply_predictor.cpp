@@ -221,4 +221,152 @@ void incflo::ApplyPredictor (bool incremental_projection)
                                    AMREX_D_DECL(GetVecOfConstPtrs(u_mac), GetVecOfConstPtrs(v_mac),
                                    GetVecOfConstPtrs(w_mac)));
 #endif
+
+
+    // Apply re-initialization of Level Set Method
+    if (m_two_fluid and m_advection_type != "MOL") {
+        // Copy from new to old tracer
+        copy_from_new_to_old_tracer();
+        int ng = nghost_state();
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            fillpatch_tracer(lev, m_t_old[lev], m_leveldata[lev]->tracer_o, ng);
+            m_leveldata[lev]->tracer_o.FillBoundary(geom[lev].periodicity());
+        }
+        Real lvl_set_d = m_level_set_d;
+        for (int pseudo_t=0; pseudo_t < 1; ++pseudo_t) {
+        const Vector<MultiFab const*> trac_old = get_tracer_old_const();
+
+        // Evaluate the new tra_eta at each level
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            const Real dx_lev = geom[lev].CellSize(0);
+            const Real inv_dx = Real(1.0)/dx_lev;
+            const Real dy_lev = geom[lev].CellSize(1);
+            const Real inv_dy = Real(1.0)/dy_lev;
+            Real lvl_set_eps = amrex::max(dx_lev,dy_lev);
+#if (AMREX_SPACEDIM == 3)
+            const Real dz_lev = geom[lev].CellSize(2);
+            const Real inv_dz = Real(1.0)/dz_lev;
+            lvl_set_eps = amrex::max(lvl_set_eps,dz_lev);
+#endif
+            lvl_set_eps = std::pow(lvl_set_eps,Real(1.0)-lvl_set_d)*Real(0.5);
+            // Set to lvl_set_eps initially
+            tra_eta[lev].setVal(lvl_set_eps,1);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+            for (MFIter mfi(tra_eta[lev],TilingIfNotGPU()); mfi.isValid(); ++mfi)
+            {
+                Box const& bx = mfi.tilebox();
+                Array4<Real      > const& eta_tracer = tra_eta[lev].array(mfi);
+                Array4<Real const> const& old_tracer = trac_old[lev]->const_array(mfi);
+                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    Real grad_x = Real(0.5)*inv_dx*(old_tracer(i+1,j  ,k  )-old_tracer(i-1,j  ,k  ));
+                    Real grad_y = Real(0.5)*inv_dy*(old_tracer(i  ,j+1,k  )-old_tracer(i  ,j-1,k  ));
+#if (AMREX_SPACEDIM == 3)
+                    Real grad_z = Real(0.5)*inv_dz*(old_tracer(i  ,j  ,k+1)-old_tracer(i  ,j  ,k-1));
+#endif
+                    Real grad_mag = AMREX_D_TERM(grad_x*grad_x,+grad_y*grad_y,+grad_z*grad_z);
+                    grad_mag = std::sqrt(grad_mag) + Real(1.0e-18);
+                    eta_tracer(i,j,k) -= (old_tracer(i,j,k)*(Real(1.0)-old_tracer(i,j,k))/grad_mag);
+                });
+            }
+
+            tra_eta[lev].FillBoundary(geom[lev].periodicity());
+        }
+        // Compute div (tra_eta grad) phi (Here phi is level set value)
+        compute_laps(get_laps_old(), get_tracer_old_const(), GetVecOfConstPtrs(tra_eta));
+        // Use laps_o to update tracer values
+        // Single Time step based on the lev=0 is used
+        Real lvl_set_dt = geom[0].CellSize(0);
+        lvl_set_dt = amrex::max(lvl_set_dt,geom[0].CellSize(1));
+#if (AMREX_SPACEDIM == 3)
+        lvl_set_dt = amrex::max(lvl_set_dt,geom[0].CellSize(2));
+#endif
+        lvl_set_dt = Real(0.5)*std::pow(lvl_set_dt,Real(1.0)+lvl_set_d);
+        for (int lev = 0; lev <= finest_level; lev++)
+        {
+            auto& ld = *m_leveldata[lev];
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+            for (MFIter mfi(ld.tracer,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+            {
+                Box const& bx = mfi.tilebox();
+                Array4<Real const> const& tra_o   = ld.tracer_o.const_array(mfi);
+                Array4<Real const> const& laps_o = ld.laps_o.const_array(mfi);
+                Array4<Real> const& tra           = ld.tracer.array(mfi);
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    tra(i,j,k) = tra_o(i,j,k)+lvl_set_dt*laps_o(i,j,k);
+                });
+            }
+
+            ld.tracer.FillBoundary(geom[lev].periodicity());
+        }
+        // Copy from new to old
+        copy_from_new_to_old_tracer();
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            fillpatch_tracer(lev, m_t_old[lev], m_leveldata[lev]->tracer_o, ng);
+            m_leveldata[lev]->tracer_o.FillBoundary(geom[lev].periodicity());
+        }
+        } // pseudo-t
+        // Initialize tra_eta to its original value
+        compute_tracer_diff_coeff(GetVecOfPtrs(tra_eta),1);
+
+        // Update density again at the end
+        ng = 1;
+        for (int lev = 0; lev <= finest_level; lev++)
+        {
+            auto& ld = *m_leveldata[lev];
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+            for (MFIter mfi(ld.velocity,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+            {
+                Box const& bx = mfi.tilebox();
+                Array4<Real> const& rho_new  = ld.density.array(mfi);
+                Array4<Real> const& tracer   = ld.tracer.array(mfi);
+                Real rho_1 = m_ro_0;
+                Real rho_2 = m_ro_0_second;
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    // Clipping for tracer
+                    if (tracer(i,j,k) < Real(0.0)) {
+                        tracer(i,j,k) = Real(0.0);
+                    }
+                    if (tracer(i,j,k) > Real(1.0)) {
+                        tracer(i,j,k) = Real(1.0);
+                    }
+                    rho_new(i,j,k) = rho_1 + (rho_2-rho_1)*tracer(i,j,k,0);
+                });
+
+            } // mfi
+        } // lev
+
+        // Average down solution
+        for (int lev = finest_level-1; lev >= 0; --lev) {
+#ifdef AMREX_USE_EB
+            amrex::EB_average_down(m_leveldata[lev+1]->density, m_leveldata[lev]->density,
+                                   0, 1, refRatio(lev));
+#else
+            amrex::average_down(m_leveldata[lev+1]->density, m_leveldata[lev]->density,
+                                0, 1, refRatio(lev));
+#endif
+        }
+
+        for (int lev = 0; lev <= finest_level; lev++)
+        {
+            auto& ld = *m_leveldata[lev];
+
+            // Fill ghost cells of new-time density if needed (we assume ghost cells of old density are already filled)
+            if (ng > 0) {
+                fillpatch_density(lev, m_t_new[lev], ld.density, ng);
+            }
+
+            // Define half-time density after the average down
+            MultiFab::LinComb(ld.density_nph, Real(0.5), ld.density, 0, Real(0.5), ld.density_o, 0, 0, 1, ng);
+        }
+
+    }
 }

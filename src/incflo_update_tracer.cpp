@@ -70,8 +70,6 @@ void incflo::update_tracer (StepType step_type, Vector<MultiFab>& tra_eta, Vecto
 
     int ng = (step_type == StepType::Corrector) ? 0 : 1;
 
-    Real l_dt = m_dt;
-
     if (m_two_fluid)
     {
         for (int lev = 0; lev <= finest_level; lev++)
@@ -83,13 +81,20 @@ void incflo::update_tracer (StepType step_type, Vector<MultiFab>& tra_eta, Vecto
             for (MFIter mfi(ld.velocity,TilingIfNotGPU()); mfi.isValid(); ++mfi)
             {
                 Box const& bx = mfi.tilebox();
-                Array4<Real      > const& rho_new  = ld.density.array(mfi);
-                Array4<Real const> const& tracer  = ld.tracer.const_array(mfi);
+                Array4<Real> const& rho_new  = ld.density.array(mfi);
+                Array4<Real> const& tracer   = ld.tracer.array(mfi);
                 Real rho_1 = m_ro_0;
                 Real rho_2 = m_ro_0_second;
                 if (step_type == StepType::Predictor) {
                     ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                     {
+                        // Clipping for tracer
+                        if (tracer(i,j,k) < Real(0.0)) {
+                            tracer(i,j,k) = Real(0.0);
+                        }
+                        if (tracer(i,j,k) > Real(1.0)) {
+                            tracer(i,j,k) = Real(1.0);
+                        }
                         rho_new(i,j,k) = rho_1 + (rho_2-rho_1)*tracer(i,j,k,0);
                     });
 
