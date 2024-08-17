@@ -125,7 +125,33 @@ void incflo::update_tracer (StepType step_type, Vector<MultiFab>& tra_eta, Vecto
             }
 
             // Define half-time density after the average down
-            MultiFab::LinComb(ld.density_nph, Real(0.5), ld.density, 0, Real(0.5), ld.density_o, 0, 0, 1, ng);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+            for (MFIter mfi(ld.velocity,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+            {
+                Box const& bx = mfi.tilebox();
+                Array4<Real      > const& rho_nph  = ld.density_nph.array(mfi);
+                Array4<Real const> const& tracer   = ld.tracer.const_array(mfi);
+                Array4<Real const> const& tracer_o   = ld.tracer_o.const_array(mfi);
+                Real rho_1 = m_ro_0;
+                Real rho_2 = m_ro_0_second;
+                if (step_type == StepType::Predictor) {
+                    ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                    {
+                        Real tracer_nph = Real(0.5)*(tracer(i,j,k,0)+tracer_o(i,j,k,0));
+                        rho_nph(i,j,k) = rho_1 + (rho_2-rho_1)*tracer_nph;
+                    });
+
+                } else if (step_type == StepType::Corrector) {
+                    amrex::Abort("Two_fluid not yet implemented for Corrector step\n");
+                }
+            } // mfi
+            if (ng > 0) {
+                fillpatch_density(lev, m_t_new[lev], ld.density_nph, ng);
+                ld.density_nph.FillBoundary(IntVectND<AMREX_SPACEDIM>::TheUnitVector(),
+                                            geom[lev].periodicity());
+            }
         }
 
     }
