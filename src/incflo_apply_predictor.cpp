@@ -224,6 +224,7 @@ void incflo::ApplyPredictor (bool incremental_projection)
 
 
     // Apply re-initialization of Level Set Method
+    /*
     if (m_two_fluid and m_advection_type != "MOL") {
         // Copy from new to old tracer
         copy_from_new_to_old_tracer();
@@ -390,4 +391,5 @@ void incflo::ApplyPredictor (bool incremental_projection)
         }
 
     }
+    */
 }
