@@ -584,6 +584,14 @@ void incflo::WritePlotFile()
     }
 
     if (m_plt_eta) {
+#ifdef USE_AMREX_MPMD
+    // Call to indicate this is not final data-transfer
+    if (ParallelDescriptor::MyProc() == 0) {
+        Vector<int> last_call;
+        last_call.push_back(0);
+        MPI_Send(last_call.data(), last_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
+    }
+#endif
         for (int lev = 0; lev <= finest_level; ++lev) {
             if (m_nodal_vel_eta) {
                 MultiFab vel_eta(amrex::convert(mf[lev].boxArray(),

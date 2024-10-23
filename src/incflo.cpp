@@ -196,8 +196,9 @@ void incflo::Evolve()
 #if USE_AMREX_MPMD
     // Call to indicate data-transfer is done
     if (ParallelDescriptor::MyProc() == 0) {
-        int last_call = 1;
-        MPI_Send(&last_call, 1, MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
+        Vector<int> last_call;
+        last_call.push_back(1);
+        MPI_Send(last_call.data(), last_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
     }
 #endif
 }

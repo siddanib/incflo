@@ -55,8 +55,9 @@ void incflo::compute_viscosity (Vector<MultiFab*> const& vel_eta,
 #ifdef USE_AMREX_MPMD
     // Call to indicate this is not final data-transfer
     if (ParallelDescriptor::MyProc() == 0) {
-        int last_call = 0;
-        MPI_Send(&last_call, 1, MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
+        Vector<int> last_call;
+        last_call.push_back(0);
+        MPI_Send(last_call.data(), last_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
     }
 #endif
 
