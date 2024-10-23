@@ -736,6 +736,8 @@ private:
 #ifdef USE_AMREX_MPMD
     // Create a vector of MPMD::Copiers
     amrex::Vector<std::unique_ptr<amrex::MPMD::Copier>> m_mpmd_copiers;
+    // Global rank of the other root
+    int m_mpmd_other_root = 0;
 #endif
 
     //

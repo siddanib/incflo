@@ -193,6 +193,13 @@ void incflo::Evolve()
     {
         WritePlotFile();
     }
+#if USE_AMREX_MPMD
+    // Call to indicate data-transfer is done
+    if (ParallelDescriptor::MyProc() == 0) {
+        int last_call = 1;
+        MPI_Send(&last_call, 1, MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
+    }
+#endif
 }
 
 void
@@ -257,6 +264,12 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
                                amrex::convert(grids[lev],
                                IndexType::TheNodeType().ixType()),
                                dmap[lev],true);
+    int rank_offset = MPMD::MyProc()- ParallelDescriptor::MyProc();
+    if (rank_offset == 0) { // First program
+      m_mpmd_other_root = ParallelDescriptor::NProcs();
+    } else { // Second program
+      m_mpmd_other_root = 0;
+    }
 #endif
 }
 

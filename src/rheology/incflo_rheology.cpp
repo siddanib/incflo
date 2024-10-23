@@ -52,6 +52,14 @@ void incflo::compute_viscosity (Vector<MultiFab*> const& vel_eta,
                                 Vector<MultiFab*> const& vel,
                                 Real time, int nghost)
 {
+#ifdef USE_AMREX_MPMD
+    // Call to indicate this is not final data-transfer
+    if (ParallelDescriptor::MyProc() == 0) {
+        int last_call = 0;
+        MPI_Send(&last_call, 1, MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
+    }
+#endif
+
     for (int lev = 0; lev <= finest_level; ++lev)
     {
         if (m_nodal_vel_eta) {
