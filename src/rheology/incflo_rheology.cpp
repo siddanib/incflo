@@ -502,8 +502,13 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                const Real ro_scnd = m_ro_grain_second;
                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                {
+                    // Regularized Pressure
+                    Real p_reg = std::sqrt(p_static_arr(i,j,k)*p_static_arr(i,j,k)
+                                           + eps*eps);
+                    p_reg += p_static_arr(i,j,k);
+                    p_reg *= Real(0.5);
                     inrt_num_arr(i,j,k,0) =
-                       std::sqrt(ro_scnd/(p_static_arr(i,j,k)+eps))*
+                       std::sqrt(ro_scnd/p_reg)*
                        diam_scnd*Real(0.5)*sr_arr(i,j,k);
                });
            }
@@ -529,8 +534,11 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                    // Note: sr_mf contains TWO TIMES strain rate
                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                    {
+                        // Regularized strain rate
+                        Real sr_reg = std::sqrt(Real(0.25)*sr_arr(i,j,k)*sr_arr(i,j,k)
+                                                + eps*eps);
                         vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
-                        vel_eta_snd_arr(i,j,k) /= (sr_arr(i,j,k)+eps);
+                        vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
                    });
                }
 
@@ -561,8 +569,11 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                         vel_eta_snd_arr(i,j,k) *= (mu_2_scnd-mu_1_scnd);
                         vel_eta_snd_arr(i,j,k) += mu_1_scnd;
                         // The above value is stress ratio
+                        // Regularized strain rate
+                        Real sr_reg = std::sqrt(Real(0.25)*sr_arr(i,j,k)*sr_arr(i,j,k)
+                                                + eps*eps);
                         vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
-                        vel_eta_snd_arr(i,j,k) /= (sr_arr(i,j,k)+eps);
+                        vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
                    });
                }
 
