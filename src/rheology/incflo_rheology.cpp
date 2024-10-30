@@ -497,7 +497,7 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
                Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
                Array4<Real> const& inrt_num_arr = inertial_num.array(mfi);
-               const Real eps = Real(1.0e-20);
+               const Real eps = m_mu_p_eps_second;
                const Real diam_scnd = m_diam_second;
                const Real ro_scnd = m_ro_grain_second;
                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -525,7 +525,7 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                    Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
                    Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
                    Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
-                   const Real eps = Real(1.0e-20);
+                   const Real eps = m_mu_sr_eps_second;
                    // Note: sr_mf contains TWO TIMES strain rate
                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                    {
@@ -550,7 +550,7 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                    const Real mu_1_scnd = m_mu_1_second;
                    const Real mu_2_scnd = m_mu_2_second;
                    const Real I_0_scnd = m_I_0_second;
-                   const Real eps = Real(1.0e-20);
+                   const Real eps = m_mu_sr_eps_second;
                    // Note: sr_mf contains TWO TIMES strain rate
                    // Note: Inertial number in Rauter 2021 (Eq. 2.29)
                    // has an extra factor of 2
