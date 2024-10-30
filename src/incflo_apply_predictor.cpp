@@ -130,6 +130,7 @@ void incflo::ApplyPredictor (bool incremental_projection)
     // *************************************************************************************
     compute_viscosity(GetVecOfPtrs(vel_eta),
                       get_density_old(), get_velocity_old(),
+                      get_pressure(),
                       m_cur_time, 1);
 
     // *************************************************************************************

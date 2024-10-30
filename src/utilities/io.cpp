@@ -611,6 +611,7 @@ void incflo::WritePlotFile()
                                            &vel_eta,
                                            &m_leveldata[lev]->density,
                                            &m_leveldata[lev]->velocity,
+                                           &m_leveldata[lev]->p_nd,
                                            Geom(lev),
                                            m_cur_time, 0);
                 amrex::average_node_to_cellcenter(mf[lev],icomp,vel_eta,0,1);

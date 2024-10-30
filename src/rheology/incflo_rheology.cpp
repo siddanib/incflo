@@ -50,6 +50,7 @@ struct NonNewtonianViscosity
 void incflo::compute_viscosity (Vector<MultiFab*> const& vel_eta,
                                 Vector<MultiFab*> const& rho,
                                 Vector<MultiFab*> const& vel,
+                                Vector<MultiFab*> const& press,
                                 Real time, int nghost)
 {
 #ifdef USE_AMREX_MPMD
@@ -65,11 +66,15 @@ void incflo::compute_viscosity (Vector<MultiFab*> const& vel_eta,
     {
         if (m_nodal_vel_eta) {
             compute_nodal_viscosity_at_level(lev, vel_eta[lev], rho[lev],
-                    vel[lev], geom[lev], time, 0);
+                    vel[lev],press[lev], geom[lev], time, 0);
         } else {
             compute_viscosity_at_level(lev, vel_eta[lev], rho[lev],
                     vel[lev], geom[lev], time, nghost);
         }
+    }
+
+    if (m_nodal_vel_eta == 0) {
+        amrex::ignore_unused<Vector<MultiFab*>>(press);
     }
 }
 
@@ -157,6 +162,7 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                                          MultiFab* vel_eta,
                                          MultiFab* rho,
                                          MultiFab* vel,
+                                         MultiFab* press,
                                          Geometry& lev_geom,
                                          Real /*time*/, int nghost)
 {
@@ -449,41 +455,6 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                }
            }
 
-           BoxArray pencil_ba(surroundingNodes(lev_geom.Domain()));
-#if (AMREX_SPACEDIM==2)
-           IntVect pencil_iv(8,1048576);
-#else
-           IntVect pencil_iv(8,8,1048576);
-#endif
-           pencil_ba.maxSize(pencil_iv);
-           DistributionMapping pencil_dm{pencil_ba};
-           MultiFab pencil_rho_nodal(pencil_ba,pencil_dm,1,nghost);
-           pencil_rho_nodal.ParallelCopy(rho_nodal,lev_geom.periodicity());
-           MultiFab pencil_p_static(pencil_ba,pencil_dm,1,nghost);
-
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-           for (MFIter mfi(pencil_rho_nodal,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-           {
-               // Ensure that static pressure is calculated based on validbox
-               Box const& bx = mfi.tilebox();
-               Array4<Real> const& p_static_arr = pencil_p_static.array(mfi);
-               Array4<Real const> const& rho_nodal_arr = pencil_rho_nodal.const_array(mfi);
-               const Real gravity = std::abs(m_gravity[AMREX_SPACEDIM-1]);
-
-               amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-               {
-
-                   p_static_arr(i,j,k) = incflo_local_hydrostatic_pressure_nodal(
-                                                  i,j,k,AMREX_D_DECL(idx,idy,idz),
-                                                  gravity,rho_nodal_arr,dlo,dhi);
-               });
-
-           }
-           // nodal MultiFab for hydrostatic pressure
-           MultiFab p_static(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-           p_static.ParallelCopy(pencil_p_static,lev_geom.periodicity());
            // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
            // NOTE: Strain-rate calculated is TWO TIMES the actual value
            // The second component will carry concentration
@@ -495,7 +466,7 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
            {
                Box const& bx = mfi.growntilebox(nghost);
                Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
-               Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
+               Array4<Real const> const& p_nd_arr = press->const_array(mfi);
                Array4<Real> const& inrt_num_arr = inertial_num.array(mfi);
                const Real eps = m_mu_p_eps_second;
                const Real diam_scnd = m_diam_second;
@@ -503,9 +474,9 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                {
                     // Regularized Pressure
-                    Real p_reg = std::sqrt(p_static_arr(i,j,k)*p_static_arr(i,j,k)
+                    Real p_reg = std::sqrt(p_nd_arr(i,j,k)*p_nd_arr(i,j,k)
                                            + eps*eps);
-                    p_reg += p_static_arr(i,j,k);
+                    p_reg += p_nd_arr(i,j,k);
                     p_reg *= Real(0.5);
                     inrt_num_arr(i,j,k,0) =
                        std::sqrt(ro_scnd/p_reg)*
@@ -528,16 +499,22 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                {
                    Box const& bx = mfi.growntilebox(nghost);
                    Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
-                   Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
+                   Array4<Real const> const& p_nd_arr = press->const_array(mfi);
                    Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
-                   const Real eps = m_mu_sr_eps_second;
+                   const Real eps_p = m_mu_p_eps_second;
+                   const Real eps_sr = m_mu_sr_eps_second;
                    // Note: sr_mf contains TWO TIMES strain rate
                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                    {
+                        // Regularized Pressure
+                        Real p_reg = std::sqrt(p_nd_arr(i,j,k)*p_nd_arr(i,j,k)
+                                               + eps_p*eps_p);
+                        p_reg += p_nd_arr(i,j,k);
+                        p_reg *= Real(0.5);
                         // Regularized strain rate
                         Real sr_reg = std::sqrt(Real(0.25)*sr_arr(i,j,k)*sr_arr(i,j,k)
-                                                + eps*eps);
-                        vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
+                                                + eps_sr*eps_sr);
+                        vel_eta_snd_arr(i,j,k) *= p_reg;
                         vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
                    });
                }
@@ -552,13 +529,14 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                {
                    Box const& bx = mfi.growntilebox(nghost);
                    Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
-                   Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
+                   Array4<Real const> const& p_nd_arr = press->const_array(mfi);
                    Array4<Real const> const& inrt_num_arr = inertial_num.const_array(mfi);
                    Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
                    const Real mu_1_scnd = m_mu_1_second;
                    const Real mu_2_scnd = m_mu_2_second;
                    const Real I_0_scnd = m_I_0_second;
-                   const Real eps = m_mu_sr_eps_second;
+                   const Real eps_p = m_mu_p_eps_second;
+                   const Real eps_sr = m_mu_sr_eps_second;
                    // Note: sr_mf contains TWO TIMES strain rate
                    // Note: Inertial number in Rauter 2021 (Eq. 2.29)
                    // has an extra factor of 2
@@ -569,10 +547,15 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                         vel_eta_snd_arr(i,j,k) *= (mu_2_scnd-mu_1_scnd);
                         vel_eta_snd_arr(i,j,k) += mu_1_scnd;
                         // The above value is stress ratio
+                        // Regularized Pressure
+                        Real p_reg = std::sqrt(p_nd_arr(i,j,k)*p_nd_arr(i,j,k)
+                                               + eps_p*eps_p);
+                        p_reg += p_nd_arr(i,j,k);
+                        p_reg *= Real(0.5);
                         // Regularized strain rate
                         Real sr_reg = std::sqrt(Real(0.25)*sr_arr(i,j,k)*sr_arr(i,j,k)
-                                                + eps*eps);
-                        vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
+                                                + eps_sr*eps_sr);
+                        vel_eta_snd_arr(i,j,k) *= p_reg;
                         vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
                    });
                }

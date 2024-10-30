@@ -364,6 +364,16 @@ void incflo::copy_from_old_to_new_tracer (int lev, IntVect const& ng)
     }
 }
 
+Vector<MultiFab*> incflo::get_pressure () noexcept
+{
+    Vector<MultiFab*> r;
+    r.reserve(finest_level+1);
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        r.push_back(&(m_leveldata[lev]->p_nd));
+    }
+    return r;
+}
+
 #ifdef USE_AMREX_MPMD
 void incflo::mpmd_copiers_send_lev (amrex::MultiFab& send_mf,
         int icomp, int ncomp, int lev){
