@@ -299,6 +299,7 @@ public:
     void compute_viscosity (amrex::Vector<amrex::MultiFab*> const& eta,
                             amrex::Vector<amrex::MultiFab*> const& rho,
                             amrex::Vector<amrex::MultiFab*> const& vel,
+                            amrex::Vector<amrex::MultiFab*> const& press,
                             amrex::Real time, int nghost);
     void compute_viscosity_at_level (int lev,
                                      amrex::MultiFab* eta,
@@ -310,6 +311,7 @@ public:
                                      amrex::MultiFab* eta,
                                      amrex::MultiFab* rho,
                                      amrex::MultiFab* vel,
+                                     amrex::MultiFab* press,
                                      amrex::Geometry& lev_geom,
                                      amrex::Real time, int nghost);
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
