@@ -201,6 +201,8 @@ void incflo::ReadRheologyParameters()
         else if(fluid_model_s_snd == "mpmd")
         {
             m_fluid_model_second = FluidModel::DataDrivenMPMD;
+            pp_scnd.query("mu_p_eps_second",m_mu_p_eps_second);
+            pp_scnd.query("mu_sr_eps_second",m_mu_sr_eps_second);
             amrex::Print() << "Data-driven model through AMReX-MPMD."<<std::endl;
         }
 #endif
