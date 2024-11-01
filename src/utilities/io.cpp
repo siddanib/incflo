@@ -420,10 +420,13 @@ void incflo::WritePlotFile()
 
     // Nodal Inertial Number in mu(I)
     if (m_nodal_vel_eta && m_plt_inertial_num
-        && (m_fluid_model == FluidModel::DataDrivenMPMD
-            || m_fluid_model == FluidModel::Rauter
-            || m_fluid_model_second == FluidModel::DataDrivenMPMD
+        && (m_fluid_model_second == FluidModel::DataDrivenMPMD
             || m_fluid_model_second == FluidModel::Rauter)) ++ncomp;
+
+#ifdef USE_AMREX_MPMD
+    if (m_nodal_vel_eta && m_plt_mu_I
+        && m_fluid_model_second == FluidModel::DataDrivenMPMD) ++ncomp;
+#endif
 
     Vector<MultiFab> mf(finest_level + 1);
     for (int lev = 0; lev <= finest_level; ++lev) {
@@ -592,10 +595,10 @@ void incflo::WritePlotFile()
 
     if (m_plt_eta) {
 #ifdef USE_AMREX_MPMD
-    // Call to indicate this is not final data-transfer
+    // Call to indicate this is from incflo::WritePlotFile
     if (ParallelDescriptor::MyProc() == 0) {
         Vector<int> last_call;
-        last_call.push_back(0);
+        last_call.push_back(-1);
         MPI_Send(last_call.data(), last_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
     }
 #endif
@@ -714,9 +717,7 @@ void incflo::WritePlotFile()
 #endif
 
     if (m_nodal_vel_eta && m_plt_inertial_num
-        && (m_fluid_model == FluidModel::DataDrivenMPMD
-            || m_fluid_model == FluidModel::Rauter
-            || m_fluid_model_second == FluidModel::DataDrivenMPMD
+        && (m_fluid_model_second == FluidModel::DataDrivenMPMD
             || m_fluid_model_second == FluidModel::Rauter)) {
         for (int lev = 0; lev <= finest_level; ++lev) {
             MultiFab inertial_num(amrex::convert(mf[lev].boxArray(),
@@ -736,6 +737,39 @@ void incflo::WritePlotFile()
         pltscaVarsName.push_back("inertial_num");
         ++icomp;
     }
+
+#ifdef USE_AMREX_MPMD
+    if (m_nodal_vel_eta && m_plt_mu_I
+        && m_fluid_model_second == FluidModel::DataDrivenMPMD) {
+        // Call to indicate this is from incflo::WritePlotFile
+        if (ParallelDescriptor::MyProc() == 0) {
+            Vector<int> last_call;
+            last_call.push_back(-1);
+            MPI_Send(last_call.data(), last_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
+        }
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            MultiFab mu_I(amrex::convert(mf[lev].boxArray(),
+                                IndexType::TheNodeType().ixType()),
+                                mf[lev].DistributionMap(),1,0);
+            compute_nodal_inertial_num_at_level(lev,
+                                           &mu_I,
+                                           &m_leveldata[lev]->velocity,
+                                           &m_leveldata[lev]->p_nd,
+                                           m_mu_p_eps_second,
+                                           m_ro_grain_second,
+                                           m_diam_second,
+                                           Geom(lev),
+                                           m_cur_time, 0);
+            // Copier send inertial_num
+            mpmd_copiers_send_lev(mu_I,0,1,lev);
+            // Receive mu(I) = stress ratio
+            mpmd_copiers_recv_lev(mu_I,0,1,lev);
+            amrex::average_node_to_cellcenter(mf[lev],icomp,mu_I,0,1);
+        }
+        pltscaVarsName.push_back("mu_I");
+        ++icomp;
+    }
+#endif
 
 #ifdef AMREX_USE_EB
     for (int lev = 0; lev <= finest_level; ++lev) {

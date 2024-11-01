@@ -637,6 +637,9 @@ private:
     int m_plt_error_p      = 0;
     int m_plt_error_mac_p  = 0;
     int m_plt_inertial_num = 0;
+#ifdef USE_AMREX_MPMD
+    int m_plt_mu_I         = 0;
+#endif
 
 #ifdef INCFLO_USE_PARTICLES
     int m_plt_particle_count = 0;

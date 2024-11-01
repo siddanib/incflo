@@ -53,7 +53,7 @@ void incflo::compute_viscosity (Vector<MultiFab*> const& vel_eta,
                                 Real time, int nghost)
 {
 #ifdef USE_AMREX_MPMD
-    // Call to indicate this is not final data-transfer
+    // Call to indicate this is from incflo::compute_viscosity
     if (ParallelDescriptor::MyProc() == 0) {
         Vector<int> last_call;
         last_call.push_back(0);
