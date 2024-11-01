@@ -158,6 +158,43 @@ void incflo::compute_nodal_strainrate_at_level (int /*lev*/,
         }
 }
 
+void incflo::compute_nodal_inertial_num_at_level (int lev,
+                                          MultiFab* inertial_num,
+                                          MultiFab* vel,
+                                          MultiFab* press,
+                                          Real p_eps, Real ro_grain,
+                                          Real diam_grain,
+                                          Geometry& lev_geom,
+                                          Real time, int nghost)
+{
+    // Get strainrate in inertial_num
+    // Strainrate calculated is two times the actual value
+    compute_nodal_strainrate_at_level(lev,inertial_num,vel,lev_geom,time,nghost);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+           for (MFIter mfi(*inertial_num,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+           {
+               Box const& bx = mfi.growntilebox(nghost);
+               Array4<Real const> const& p_nd_arr = press->const_array(mfi);
+               Array4<Real> const& inrt_num_arr = inertial_num->array(mfi);
+               const Real eps = p_eps;
+               const Real diam_scnd = diam_grain;
+               const Real ro_scnd = ro_grain;
+               amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+               {
+                    // Regularized Pressure
+                    Real p_reg = std::sqrt(p_nd_arr(i,j,k)*p_nd_arr(i,j,k)
+                                           + eps*eps);
+                    p_reg += p_nd_arr(i,j,k);
+                    p_reg *= Real(0.5);
+                    inrt_num_arr(i,j,k) *=
+                       std::sqrt(ro_scnd/p_reg)*
+                       diam_scnd*Real(0.5);
+               });
+           }
+}
+
 Real incflo::ComputeKineticEnergy ()
 {
 #if 0

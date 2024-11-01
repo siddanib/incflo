@@ -418,6 +418,13 @@ void incflo::WritePlotFile()
     if(m_plt_particle_count) ++ncomp;
 #endif
 
+    // Nodal Inertial Number in mu(I)
+    if (m_nodal_vel_eta && m_plt_inertial_num
+        && (m_fluid_model == FluidModel::DataDrivenMPMD
+            || m_fluid_model == FluidModel::Rauter
+            || m_fluid_model_second == FluidModel::DataDrivenMPMD
+            || m_fluid_model_second == FluidModel::Rauter)) ++ncomp;
+
     Vector<MultiFab> mf(finest_level + 1);
     for (int lev = 0; lev <= finest_level; ++lev) {
         mf[lev].define(grids[lev], dmap[lev], ncomp, 0, MFInfo(), Factory(lev));
@@ -705,6 +712,30 @@ void incflo::WritePlotFile()
         ++icomp;
     }
 #endif
+
+    if (m_nodal_vel_eta && m_plt_inertial_num
+        && (m_fluid_model == FluidModel::DataDrivenMPMD
+            || m_fluid_model == FluidModel::Rauter
+            || m_fluid_model_second == FluidModel::DataDrivenMPMD
+            || m_fluid_model_second == FluidModel::Rauter)) {
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            MultiFab inertial_num(amrex::convert(mf[lev].boxArray(),
+                                IndexType::TheNodeType().ixType()),
+                                mf[lev].DistributionMap(),1,0);
+            compute_nodal_inertial_num_at_level(lev,
+                                           &inertial_num,
+                                           &m_leveldata[lev]->velocity,
+                                           &m_leveldata[lev]->p_nd,
+                                           m_mu_p_eps_second,
+                                           m_ro_grain_second,
+                                           m_diam_second,
+                                           Geom(lev),
+                                           m_cur_time, 0);
+            amrex::average_node_to_cellcenter(mf[lev],icomp,inertial_num,0,1);
+        }
+        pltscaVarsName.push_back("inertial_num");
+        ++icomp;
+    }
 
 #ifdef AMREX_USE_EB
     for (int lev = 0; lev <= finest_level; ++lev) {

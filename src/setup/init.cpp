@@ -299,6 +299,7 @@ void incflo::ReadIOParameters()
     pp.query("plt_error_w",    m_plt_error_w );
     pp.query("plt_error_p",    m_plt_error_p );
     pp.query("plt_error_mac_p",m_plt_error_mac_p );
+    pp.query("plt_inertial_num", m_plt_inertial_num);
 
 #ifdef INCFLO_USE_PARTICLES
     pp.query("plt_particle_count", m_plt_particle_count );

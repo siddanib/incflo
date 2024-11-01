@@ -313,6 +313,14 @@ public:
                                      amrex::Geometry& lev_geom,
                                      amrex::Real time, int nghost);
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
+    virtual void compute_nodal_inertial_num_at_level (int lev,
+                                    amrex::MultiFab* inertial_num,
+                                    amrex::MultiFab* vel,
+                                    amrex::MultiFab* press,
+                                    amrex::Real p_eps, amrex::Real ro_grain,
+                                    amrex::Real diam_grain,
+                                    amrex::Geometry& lev_geom,
+                                    amrex::Real time, int nghost);
 
 #ifdef AMREX_USE_EB
     ///////////////////////////////////////////////////////////////////////////
@@ -606,28 +614,29 @@ private:
     amrex::Vector<amrex::Real> tag_region_hi;
 
     // Flags for saving fluid data in plot files
-    int m_plt_velx        = 1;
-    int m_plt_vely        = 1;
-    int m_plt_velz        = 1;
-    int m_plt_gpx         = 1;
-    int m_plt_gpy         = 1;
-    int m_plt_gpz         = 1;
-    int m_plt_rho         = 1;
-    int m_plt_tracer      = 1;
-    int m_plt_p_nd        = 0;
-    int m_plt_macphi      = 0;
-    int m_plt_eta         = 0;
-    int m_plt_magvel      = 1;
-    int m_plt_vort        = 1;
-    int m_plt_forcing     = 0;
-    int m_plt_strainrate  = 0;
-    int m_plt_divu        = 0;
-    int m_plt_vfrac       = 1;
-    int m_plt_error_u     = 0;
-    int m_plt_error_v     = 0;
-    int m_plt_error_w     = 0;
-    int m_plt_error_p     = 0;
-    int m_plt_error_mac_p = 0;
+    int m_plt_velx         = 1;
+    int m_plt_vely         = 1;
+    int m_plt_velz         = 1;
+    int m_plt_gpx          = 1;
+    int m_plt_gpy          = 1;
+    int m_plt_gpz          = 1;
+    int m_plt_rho          = 1;
+    int m_plt_tracer       = 1;
+    int m_plt_p_nd         = 0;
+    int m_plt_macphi       = 0;
+    int m_plt_eta          = 0;
+    int m_plt_magvel       = 1;
+    int m_plt_vort         = 1;
+    int m_plt_forcing      = 0;
+    int m_plt_strainrate   = 0;
+    int m_plt_divu         = 0;
+    int m_plt_vfrac        = 1;
+    int m_plt_error_u      = 0;
+    int m_plt_error_v      = 0;
+    int m_plt_error_w      = 0;
+    int m_plt_error_p      = 0;
+    int m_plt_error_mac_p  = 0;
+    int m_plt_inertial_num = 0;
 
 #ifdef INCFLO_USE_PARTICLES
     int m_plt_particle_count = 0;
