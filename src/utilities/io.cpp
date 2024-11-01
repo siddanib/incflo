@@ -595,7 +595,7 @@ void incflo::WritePlotFile()
 
     if (m_plt_eta) {
 #ifdef USE_AMREX_MPMD
-    // Call to indicate this is from incflo::WritePlotFile
+    // Call to indicate this is from incflo::WritePlotFile for vel_eta
     if (ParallelDescriptor::MyProc() == 0) {
         Vector<int> last_call;
         last_call.push_back(-1);
@@ -741,10 +741,10 @@ void incflo::WritePlotFile()
 #ifdef USE_AMREX_MPMD
     if (m_nodal_vel_eta && m_plt_mu_I
         && m_fluid_model_second == FluidModel::DataDrivenMPMD) {
-        // Call to indicate this is from incflo::WritePlotFile
+        // Call to indicate this is from incflo::WritePlotFile for mu_I
         if (ParallelDescriptor::MyProc() == 0) {
             Vector<int> last_call;
-            last_call.push_back(-1);
+            last_call.push_back(-2);
             MPI_Send(last_call.data(), last_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
         }
         for (int lev = 0; lev <= finest_level; ++lev) {
