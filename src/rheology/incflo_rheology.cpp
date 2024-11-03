@@ -163,78 +163,7 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
     else {
         // Create a nodal strain-rate MultiFab, nghost is already set to 0
         MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-#ifdef AMREX_USE_EB
-        auto const& fact = EBFactory(lev);
-        auto const& flags = fact.getMultiEBCellFlagFab();
-#endif
-        Real idx = Real(1.0) / lev_geom.CellSize(0);
-        Real idy = Real(1.0) / lev_geom.CellSize(1);
-#if (AMREX_SPACEDIM == 3)
-        Real idz = Real(1.0) / lev_geom.CellSize(2);
-#endif
-        const Dim3 dlo = amrex::lbound(lev_geom.Domain());
-        const Dim3 dhi = amrex::ubound(lev_geom.Domain());
-        GpuArray<GpuArray<int,2>,AMREX_SPACEDIM> bc_type;
-        for (OrientationIter oit; oit; ++oit) {
-            Orientation ori = oit();
-            int dir = ori.coordDir();
-            Orientation::Side side = ori.faceDir();
-            auto const bct = m_bc_type[ori];
-            if (bct == BC::no_slip_wall) {
-                if (side == Orientation::low) {
-                    bc_type[dir][0] = 2;
-                }
-                if (side == Orientation::high) {
-                    bc_type[dir][1] = 2;
-                }
-            }
-            else if (bct == BC::slip_wall) {
-                if (side == Orientation::low) {
-                    bc_type[dir][0] = 1;
-                }
-                if (side == Orientation::high) {
-                    bc_type[dir][1] = 1;
-                }
-            }
-            else {
-                if (side == Orientation::low) {
-                    bc_type[dir][0] = 0;
-                }
-                if (side == Orientation::high) {
-                    bc_type[dir][1] = 0;
-                }
-            }
-        }
-
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-        for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
-            Box const& bx = mfi.growntilebox(nghost);
-            Array4<Real> const& sr_arr = sr_mf.array(mfi);
-            Array4<Real const> const& vel_arr = vel->const_array(mfi);
-#ifdef AMREX_USE_EB
-            auto const& flag_fab = flags[mfi];
-            auto typ = flag_fab.getType(bx);
-            if (typ == FabType::covered)
-            {
-                amrex::Abort("Node-based vel_eta is not implemented for EB\n");
-            }
-            else if (typ == FabType::singlevalued)
-            {
-                amrex::Abort("Node-based vel_eta is not implemented for EB\n");
-            }
-            else
-#endif
-            {
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                {
-                    sr_arr(i,j,k) = incflo_strainrate_nodal(i,j,k,AMREX_D_DECL(idx,idy,idz),
-                                                   vel_arr,dlo,dhi,bc_type);
-                });
-            }
-        }
+        compute_nodal_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost);
 #ifdef USE_AMREX_MPMD
         if (m_fluid_model == FluidModel::DataDrivenMPMD) {
             // Copier send of sr_mf and Copier recv of *vel_eta
@@ -284,8 +213,6 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
     if (m_two_fluid) {
        // Create a nodal viscosity MultiFab for the second fluid, nghost is already set to 0
        MultiFab vel_eta_second(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-       const Dim3 dlo = amrex::lbound(lev_geom.Domain());
-       const Dim3 dhi = amrex::ubound(lev_geom.Domain());
        // A cell-centered MultiFab for concentration of second fluid,
        // needs to have ghost cells
        MultiFab conc_second_cc(rho->boxArray(),rho->DistributionMap(),1,1);
