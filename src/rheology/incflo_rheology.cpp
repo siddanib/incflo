@@ -149,11 +149,7 @@ void incflo::compute_viscosity_at_level (int /*lev*/,
     }
 }
 
-#if defined(USE_AMREX_MPMD) || defined(AMREX_USE_EB)
 void incflo::compute_nodal_viscosity_at_level (int lev,
-#else
-void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
-#endif
                                          MultiFab* vel_eta,
                                          MultiFab* rho,
                                          MultiFab* vel,
