@@ -724,7 +724,7 @@ void incflo::WritePlotFile()
                                 IndexType::TheNodeType().ixType()),
                                 mf[lev].DistributionMap(),1,0);
 
-            compute_nodal_hydrostatic_pressure(lev,&p_static,
+            compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
                                 &m_leveldata[lev]->density,
                                 Geom(lev),0);
 
@@ -764,7 +764,7 @@ void incflo::WritePlotFile()
                                 IndexType::TheNodeType().ixType()),
                                 mf[lev].DistributionMap(),1,0);
 
-            compute_nodal_hydrostatic_pressure(lev,&p_static,
+            compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
                                 &m_leveldata[lev]->density,
                                 Geom(lev),0);
             compute_nodal_inertial_num_at_level(lev,

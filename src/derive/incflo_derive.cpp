@@ -158,7 +158,7 @@ void incflo::compute_nodal_strainrate_at_level (int /*lev*/,
         }
 }
 
-void incflo::compute_nodal_hydrostatic_pressure (int lev,
+void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
                                           MultiFab* p_static,
                                           MultiFab* rho_cc,
                                           Geometry& lev_geom,
@@ -261,6 +261,90 @@ void incflo::compute_nodal_inertial_num_at_level (int lev,
                        diam_scnd*Real(0.5);
                });
            }
+}
+
+void incflo::compute_nodal_second_fluid_conc (MultiFab* conc_second_nd,
+                                              MultiFab* rho, int nghost)
+{
+    // A cell-centered MultiFab for concentration of second fluid,
+    // needs to have ghost cells
+    MultiFab conc_second_cc(rho->boxArray(),rho->DistributionMap(),1,nghost+1);
+    conc_second_cc.setVal(-1.0);
+    if (m_two_fluid_cc_rho_conc) {
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+       for (MFIter mfi(conc_second_cc,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+       {
+           Box const& bx = mfi.growntilebox(nghost+1);
+           Array4<Real const> const& rho_arr = rho->const_array(mfi);
+           Array4<Real> const& conc_second_arr = conc_second_cc.array(mfi);
+           const Real rho_first = m_ro_0;
+           const Real rho_second = m_ro_0_second;
+           const bool rho_harmonic = m_two_fluid_rho_harmonic;
+           amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+           {
+              Real conc_scnd = Real(-1.0);
+              if (rho_harmonic) {
+                 // Based on weighted harmonic mean for cell-centered density
+                 conc_scnd =
+                   ((rho_first*rho_second)/rho_arr(i,j,k)) - rho_second;
+                 conc_scnd /= (rho_first-rho_second);
+              }
+              else {
+                 // Based on weighted arithmetic mean for cell-centered density
+                 conc_scnd = (rho_arr(i,j,k)-rho_first)/(rho_second-rho_first);
+              }
+              // Put guards
+              conc_second_arr(i,j,k) =
+                amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
+           });
+       }
+    }
+    // Obtain concentration of the second fluid, based on nodal density
+    MultiFab rho_nodal(conc_second_nd->boxArray(),
+                       conc_second_nd->DistributionMap(),1,nghost);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(*conc_second_nd,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        Box const& bx = mfi.tilebox();
+        Array4<Real const> const& rho_arr = rho->const_array(mfi);
+        Array4<Real const> const& conc_second_cc_arr = conc_second_cc.const_array(mfi);
+        Array4<Real> const& rho_nodal_arr = rho_nodal.array(mfi);
+        Array4<Real> const& conc_second_nd_arr = conc_second_nd->array(mfi);
+        const Real rho_first = m_ro_0;
+        const Real rho_second = m_ro_0_second;
+        const bool rho_harmonic = m_two_fluid_rho_harmonic;
+        // This boolean represents if concentration is calculated based on
+        // nodal or cell-centered density
+        const bool cc_rho_conc = m_two_fluid_cc_rho_conc;
+        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+           rho_nodal_arr(i,j,k) = incflo_nodal_density(i,j,k,rho_arr);
+           if (cc_rho_conc) {
+             conc_second_nd_arr(i,j,k) = incflo_nodal_second_conc(i,j,k,
+                                                 conc_second_cc_arr);
+           }
+           else {
+             Real conc_scnd = Real(-1.0);
+             if (rho_harmonic) {
+                 // Based on weighted harmonic mean for nodal density
+                 conc_scnd =
+                   ((rho_first*rho_second)/rho_nodal_arr(i,j,k)) - rho_second;
+                 conc_scnd /= (rho_first-rho_second);
+             }
+             else {
+                 // Based on weighted arithmetic mean for nodal density
+                 conc_scnd = (rho_nodal_arr(i,j,k)-rho_first)/(rho_second-rho_first);
+             }
+             // Put guards
+             conc_second_nd_arr(i,j,k) =
+                     amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
+           }
+        });
+    }
 }
 
 Real incflo::ComputeKineticEnergy ()

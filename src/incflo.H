@@ -313,7 +313,7 @@ public:
                                      amrex::Geometry& lev_geom,
                                      amrex::Real time, int nghost);
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
-    void compute_nodal_hydrostatic_pressure (int lev,
+    void compute_nodal_hydrostatic_pressure_at_level (int lev,
                                     amrex::MultiFab* p_static,
                                     amrex::MultiFab* rho_cc,
                                     amrex::Geometry& lev_geom,
@@ -326,6 +326,9 @@ public:
                                     amrex::Real diam_grain,
                                     amrex::Geometry& lev_geom,
                                     amrex::Real time, int nghost);
+    void compute_nodal_second_fluid_conc (amrex::MultiFab* conc_second_nd,
+                                    amrex::MultiFab* rho_cc,
+                                    int nghost);
 
 #ifdef AMREX_USE_EB
     ///////////////////////////////////////////////////////////////////////////
