@@ -328,7 +328,7 @@ public:
                                     amrex::Real time, int nghost);
     void compute_nodal_second_fluid_conc (amrex::MultiFab* conc_second_nd,
                                     amrex::MultiFab* rho_cc,
-                                    int nghost);
+                                    int nghost) const;
 
 #ifdef AMREX_USE_EB
     ///////////////////////////////////////////////////////////////////////////

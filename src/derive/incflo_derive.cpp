@@ -264,7 +264,7 @@ void incflo::compute_nodal_inertial_num_at_level (int lev,
 }
 
 void incflo::compute_nodal_second_fluid_conc (MultiFab* conc_second_nd,
-                                              MultiFab* rho, int nghost)
+                                              MultiFab* rho, int nghost) const
 {
     // A cell-centered MultiFab for concentration of second fluid,
     // needs to have ghost cells
