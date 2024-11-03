@@ -449,41 +449,9 @@ void incflo::compute_nodal_viscosity_at_level (int /*lev*/,
                }
            }
 
-           BoxArray pencil_ba(surroundingNodes(lev_geom.Domain()));
-#if (AMREX_SPACEDIM==2)
-           IntVect pencil_iv(8,1048576);
-#else
-           IntVect pencil_iv(8,8,1048576);
-#endif
-           pencil_ba.maxSize(pencil_iv);
-           DistributionMapping pencil_dm{pencil_ba};
-           MultiFab pencil_rho_nodal(pencil_ba,pencil_dm,1,nghost);
-           pencil_rho_nodal.ParallelCopy(rho_nodal,lev_geom.periodicity());
-           MultiFab pencil_p_static(pencil_ba,pencil_dm,1,nghost);
-
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-           for (MFIter mfi(pencil_rho_nodal,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-           {
-               // Ensure that static pressure is calculated based on validbox
-               Box const& bx = mfi.tilebox();
-               Array4<Real> const& p_static_arr = pencil_p_static.array(mfi);
-               Array4<Real const> const& rho_nodal_arr = pencil_rho_nodal.const_array(mfi);
-               const Real gravity = std::abs(m_gravity[AMREX_SPACEDIM-1]);
-
-               amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-               {
-
-                   p_static_arr(i,j,k) = incflo_local_hydrostatic_pressure_nodal(
-                                                  i,j,k,AMREX_D_DECL(idx,idy,idz),
-                                                  gravity,rho_nodal_arr,dlo,dhi);
-               });
-
-           }
            // nodal MultiFab for hydrostatic pressure
            MultiFab p_static(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-           p_static.ParallelCopy(pencil_p_static,lev_geom.periodicity());
+           compute_nodal_hydrostatic_pressure(lev,&p_static,rho,lev_geom,nghost);
            // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
            // NOTE: Strain-rate calculated is TWO TIMES the actual value
            // The second component will carry concentration

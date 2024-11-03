@@ -720,13 +720,21 @@ void incflo::WritePlotFile()
         && (m_fluid_model_second == FluidModel::DataDrivenMPMD
             || m_fluid_model_second == FluidModel::Rauter)) {
         for (int lev = 0; lev <= finest_level; ++lev) {
+            MultiFab p_static(amrex::convert(mf[lev].boxArray(),
+                                IndexType::TheNodeType().ixType()),
+                                mf[lev].DistributionMap(),1,0);
+
+            compute_nodal_hydrostatic_pressure(lev,&p_static,
+                                &m_leveldata[lev]->density,
+                                Geom(lev),0);
+
             MultiFab inertial_num(amrex::convert(mf[lev].boxArray(),
                                 IndexType::TheNodeType().ixType()),
                                 mf[lev].DistributionMap(),1,0);
             compute_nodal_inertial_num_at_level(lev,
                                            &inertial_num,
                                            &m_leveldata[lev]->velocity,
-                                           &m_leveldata[lev]->p_nd,
+                                           &p_static,
                                            m_mu_p_eps_second,
                                            m_ro_grain_second,
                                            m_diam_second,
@@ -751,10 +759,18 @@ void incflo::WritePlotFile()
             MultiFab mu_I(amrex::convert(mf[lev].boxArray(),
                                 IndexType::TheNodeType().ixType()),
                                 mf[lev].DistributionMap(),1,0);
+
+            MultiFab p_static(amrex::convert(mf[lev].boxArray(),
+                                IndexType::TheNodeType().ixType()),
+                                mf[lev].DistributionMap(),1,0);
+
+            compute_nodal_hydrostatic_pressure(lev,&p_static,
+                                &m_leveldata[lev]->density,
+                                Geom(lev),0);
             compute_nodal_inertial_num_at_level(lev,
                                            &mu_I,
                                            &m_leveldata[lev]->velocity,
-                                           &m_leveldata[lev]->p_nd,
+                                           &p_static,
                                            m_mu_p_eps_second,
                                            m_ro_grain_second,
                                            m_diam_second,

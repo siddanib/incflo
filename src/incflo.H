@@ -313,6 +313,11 @@ public:
                                      amrex::Geometry& lev_geom,
                                      amrex::Real time, int nghost);
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
+    void compute_nodal_hydrostatic_pressure (int lev,
+                                    amrex::MultiFab* p_static,
+                                    amrex::MultiFab* rho_cc,
+                                    amrex::Geometry& lev_geom,
+                                    int nghost);
     virtual void compute_nodal_inertial_num_at_level (int lev,
                                     amrex::MultiFab* inertial_num,
                                     amrex::MultiFab* vel,
