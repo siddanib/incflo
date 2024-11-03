@@ -204,10 +204,14 @@ void incflo::Evolve()
 #if USE_AMREX_MPMD
     // Call to indicate data-transfer is done
     if (ParallelDescriptor::MyProc() == 0) {
-        Vector<int> last_call;
-        last_call.push_back(1);
-        MPI_Send(last_call.data(), last_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
+        Vector<int> mpmd_call;
+        mpmd_call.push_back(10);
+        // Second and third values do not matter for the final call
+        mpmd_call.push_back(0);
+        mpmd_call.push_back(0);
+        MPI_Send(mpmd_call.data(), mpmd_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
     }
+    ParallelDescriptor::Barrier();
 #endif
 }
 
@@ -269,6 +273,16 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
 #endif
 
 #ifdef USE_AMREX_MPMD
+    // Call to indicate this is from incflo::MakeNewLevelFromScratch
+    if (ParallelDescriptor::MyProc() == 0) {
+        Vector<int> mpmd_call;
+        mpmd_call.push_back(0);
+        mpmd_call.push_back(lev);
+        // Third value does not matter in this call
+        mpmd_call.push_back(0);
+        MPI_Send(mpmd_call.data(), mpmd_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
+    }
+    ParallelDescriptor::Barrier();
     // Leverage this to first send BoxArray information
     m_mpmd_copiers[lev] = std::make_unique<MPMD::Copier>(
                                amrex::convert(grids[lev],

@@ -51,6 +51,25 @@ void incflo::MakeNewLevelFromCoarse (int lev,
 #else
     macproj = std::make_unique<Hydro::MacProjector>(Geom(0,lev));
 #endif
+
+#ifdef USE_AMREX_MPMD
+    // Call to indicate this is from incflo::MakeNewLevelFromCoarse
+    if (ParallelDescriptor::MyProc() == 0) {
+        Vector<int> mpmd_call;
+        mpmd_call.push_back(0);
+        mpmd_call.push_back(lev);
+        // Third value does not matter in this call
+        mpmd_call.push_back(0);
+        MPI_Send(mpmd_call.data(), mpmd_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
+    }
+    ParallelDescriptor::Barrier();
+    std::unique_ptr<MPMD::Copier> new_levelmpmdcopier =
+                                  std::make_unique<MPMD::Copier>(
+                                       amrex::convert(ba,
+                                       IndexType::TheNodeType().ixType()),
+                                       dm,true);
+    m_mpmd_copiers[lev] = std::move(new_levelmpmdcopier);
+#endif
 }
 
 // Remake an existing level using provided BoxArray and DistributionMapping and
@@ -104,6 +123,25 @@ void incflo::RemakeLevel (int lev, Real time, const BoxArray& ba,
 #ifdef INCFLO_USE_PARTICLES
     particleData.Redistribute();
 #endif
+
+#ifdef USE_AMREX_MPMD
+    // Call to indicate this is from incflo::RemakeLevel
+    if (ParallelDescriptor::MyProc() == 0) {
+        Vector<int> mpmd_call;
+        mpmd_call.push_back(0);
+        mpmd_call.push_back(lev);
+        // Third value does not matter in this call
+        mpmd_call.push_back(0);
+        MPI_Send(mpmd_call.data(), mpmd_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
+    }
+    ParallelDescriptor::Barrier();
+    std::unique_ptr<MPMD::Copier> new_levelmpmdcopier =
+                                  std::make_unique<MPMD::Copier>(
+                                       amrex::convert(ba,
+                                       IndexType::TheNodeType().ixType()),
+                                       dm,true);
+    m_mpmd_copiers[lev] = std::move(new_levelmpmdcopier);
+#endif
 }
 
 // Delete level data
@@ -116,4 +154,7 @@ void incflo::ClearLevel (int lev)
     m_diffusion_tensor_op.reset();
     m_diffusion_scalar_op.reset();
     macproj.reset();
+#ifdef USE_AMREX_MPMD
+    m_mpmd_copiers[lev].reset();
+#endif
 }
