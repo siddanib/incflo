@@ -228,41 +228,27 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
            // nodal MultiFab for hydrostatic pressure
            MultiFab p_static(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
            compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,rho,lev_geom,nghost);
-           // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
-           // NOTE: Strain-rate calculated is TWO TIMES the actual value
-           // The second component will carry concentration
-           MultiFab inertial_num(vel_eta->boxArray(),vel_eta->DistributionMap(),2,nghost);
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-           for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-           {
-               Box const& bx = mfi.growntilebox(nghost);
-               Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
-               Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
-               Array4<Real> const& inrt_num_arr = inertial_num.array(mfi);
-               const Real eps = m_mu_p_eps_second;
-               const Real diam_scnd = m_diam_second;
-               const Real ro_scnd = m_ro_grain_second;
-               amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-               {
-                    // Regularized Pressure
-                    Real p_reg = std::sqrt(p_static_arr(i,j,k)*p_static_arr(i,j,k)
-                                           + eps*eps);
-                    p_reg += p_static_arr(i,j,k);
-                    p_reg *= Real(0.5);
-                    inrt_num_arr(i,j,k,0) =
-                       std::sqrt(ro_scnd/p_reg)*
-                       diam_scnd*Real(0.5)*sr_arr(i,j,k);
-               });
-           }
-           // Copy concentration
-           MultiFab::Copy(inertial_num,conc_second_nd,0,1,1,nghost);
 
 #ifdef USE_AMREX_MPMD
            if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
-               // Copier send inertial_num
-               mpmd_copiers_send_lev(inertial_num,0,2,lev);
+               // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
+               // NOTE: Strain-rate calculated is TWO TIMES the actual value
+               // The second component will carry concentration
+               MultiFab inertial_num(vel_eta->boxArray(),vel_eta->DistributionMap(),
+                                     1,nghost);
+               compute_nodal_inertial_num_at_level(lev,&inertial_num,
+                                                   &sr_mf,&p_static,m_mu_p_eps_second,
+                                                   m_ro_grain_second,m_diam_second,
+                                                   nghost);
+
+               MultiFab inertial_num_mpmd(vel_eta->boxArray(),vel_eta->DistributionMap(),
+                                          2,nghost);
+               // Copy concentration
+               MultiFab::Copy(inertial_num_mpmd,inertial_num,0,0,1,nghost);
+               // Copy concentration
+               MultiFab::Copy(inertial_num_mpmd,conc_second_nd,0,1,1,nghost);
+               // Copier send inertial_num_mpmd
+               mpmd_copiers_send_lev(inertial_num_mpmd,0,2,lev);
                // NOTE: Actual received quantity is stress ratio
                mpmd_copiers_recv_lev(vel_eta_second,0,1,lev);
 #ifdef _OPENMP
@@ -289,6 +275,15 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
            } else
 #endif
            if (m_fluid_model_second == FluidModel::Rauter) {
+               // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
+               // NOTE: Strain-rate calculated is TWO TIMES the actual value
+               // The second component will carry concentration
+               MultiFab inertial_num(vel_eta->boxArray(),vel_eta->DistributionMap(),
+                                     1,nghost);
+               compute_nodal_inertial_num_at_level(lev,&inertial_num,
+                                                   &sr_mf,&p_static,m_mu_p_eps_second,
+                                                   m_ro_grain_second,m_diam_second,
+                                                   nghost);
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif

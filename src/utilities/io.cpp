@@ -728,18 +728,27 @@ void incflo::WritePlotFile()
                                 &m_leveldata[lev]->density,
                                 Geom(lev),0);
 
+            MultiFab strainrate(amrex::convert(mf[lev].boxArray(),
+                                    IndexType::TheNodeType().ixType()),
+                                    mf[lev].DistributionMap(),1,0);
+
+            compute_nodal_strainrate_at_level(lev,&strainrate,
+                                              &m_leveldata[lev]->velocity,
+                                              Geom(lev),
+                                              m_cur_time, 0);
+
             MultiFab inertial_num(amrex::convert(mf[lev].boxArray(),
                                 IndexType::TheNodeType().ixType()),
                                 mf[lev].DistributionMap(),1,0);
+
             compute_nodal_inertial_num_at_level(lev,
                                            &inertial_num,
-                                           &m_leveldata[lev]->velocity,
+                                           &strainrate,
                                            &p_static,
                                            m_mu_p_eps_second,
                                            m_ro_grain_second,
                                            m_diam_second,
-                                           Geom(lev),
-                                           m_cur_time, 0);
+                                           0);
             amrex::average_node_to_cellcenter(mf[lev],icomp,inertial_num,0,1);
         }
         pltscaVarsName.push_back("inertial_num");
@@ -767,15 +776,24 @@ void incflo::WritePlotFile()
             compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
                                 &m_leveldata[lev]->density,
                                 Geom(lev),0);
+
+            MultiFab strainrate(amrex::convert(mf[lev].boxArray(),
+                                    IndexType::TheNodeType().ixType()),
+                                    mf[lev].DistributionMap(),1,0);
+
+            compute_nodal_strainrate_at_level(lev,&strainrate,
+                                              &m_leveldata[lev]->velocity,
+                                              Geom(lev),
+                                              m_cur_time, 0);
+
             compute_nodal_inertial_num_at_level(lev,
                                            &mu_I,
-                                           &m_leveldata[lev]->velocity,
+                                           &strainrate,
                                            &p_static,
                                            m_mu_p_eps_second,
                                            m_ro_grain_second,
                                            m_diam_second,
-                                           Geom(lev),
-                                           m_cur_time, 0);
+                                           0);
             // Copier send inertial_num
             mpmd_copiers_send_lev(mu_I,0,1,lev);
             // Receive mu(I) = stress ratio

@@ -228,16 +228,12 @@ void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
 
 void incflo::compute_nodal_inertial_num_at_level (int lev,
                                           MultiFab* inertial_num,
-                                          MultiFab* vel,
+                                          MultiFab* strainrate,
                                           MultiFab* press,
                                           Real p_eps, Real ro_grain,
                                           Real diam_grain,
-                                          Geometry& lev_geom,
-                                          Real time, int nghost)
+                                          int nghost)
 {
-    // Get strainrate in inertial_num
-    // Strainrate calculated is two times the actual value
-    compute_nodal_strainrate_at_level(lev,inertial_num,vel,lev_geom,time,nghost);
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -245,6 +241,7 @@ void incflo::compute_nodal_inertial_num_at_level (int lev,
            {
                Box const& bx = mfi.growntilebox(nghost);
                Array4<Real const> const& p_nd_arr = press->const_array(mfi);
+               Array4<Real const> const& sr_arr = strainrate->const_array(mfi);
                Array4<Real> const& inrt_num_arr = inertial_num->array(mfi);
                const Real eps = p_eps;
                const Real diam_scnd = diam_grain;
@@ -256,9 +253,9 @@ void incflo::compute_nodal_inertial_num_at_level (int lev,
                                            + eps*eps);
                     p_reg += p_nd_arr(i,j,k);
                     p_reg *= Real(0.5);
-                    inrt_num_arr(i,j,k) *=
-                       std::sqrt(ro_scnd/p_reg)*
-                       diam_scnd*Real(0.5);
+                    // Strainrate in incflo is two-times the actual value
+                    inrt_num_arr(i,j,k) = std::sqrt(ro_scnd/p_reg)*
+                                          diam_scnd*Real(0.5)*sr_arr(i,j,k);
                });
            }
 }

@@ -318,14 +318,13 @@ public:
                                     amrex::MultiFab* rho_cc,
                                     amrex::Geometry& lev_geom,
                                     int nghost);
-    virtual void compute_nodal_inertial_num_at_level (int lev,
+    void compute_nodal_inertial_num_at_level (int lev,
                                     amrex::MultiFab* inertial_num,
-                                    amrex::MultiFab* vel,
+                                    amrex::MultiFab* strainrate,
                                     amrex::MultiFab* press,
                                     amrex::Real p_eps, amrex::Real ro_grain,
                                     amrex::Real diam_grain,
-                                    amrex::Geometry& lev_geom,
-                                    amrex::Real time, int nghost);
+                                    int nghost);
     void compute_nodal_second_fluid_conc (amrex::MultiFab* conc_second_nd,
                                     amrex::MultiFab* rho_cc,
                                     int nghost) const;
