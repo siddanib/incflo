@@ -237,27 +237,28 @@ void incflo::compute_nodal_inertial_num_at_level (int lev,
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-           for (MFIter mfi(*inertial_num,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-           {
-               Box const& bx = mfi.growntilebox(nghost);
-               Array4<Real const> const& p_nd_arr = press->const_array(mfi);
-               Array4<Real const> const& sr_arr = strainrate->const_array(mfi);
-               Array4<Real> const& inrt_num_arr = inertial_num->array(mfi);
-               const Real eps = p_eps;
-               const Real diam_scnd = diam_grain;
-               const Real ro_scnd = ro_grain;
-               amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-               {
-                    // Regularized Pressure
-                    Real p_reg = std::sqrt(p_nd_arr(i,j,k)*p_nd_arr(i,j,k)
-                                           + eps*eps);
-                    p_reg += p_nd_arr(i,j,k);
-                    p_reg *= Real(0.5);
-                    // Strainrate in incflo is two-times the actual value
-                    inrt_num_arr(i,j,k) = std::sqrt(ro_scnd/p_reg)*
-                                          diam_scnd*Real(0.5)*sr_arr(i,j,k);
-               });
-           }
+    for (MFIter mfi(*inertial_num,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        Box const& bx = mfi.growntilebox(nghost);
+        Array4<Real const> const& p_nd_arr = press->const_array(mfi);
+        Array4<Real const> const& sr_arr = strainrate->const_array(mfi);
+        Array4<Real> const& inrt_num_arr = inertial_num->array(mfi);
+        const Real eps = p_eps;
+        const Real diam_scnd = diam_grain;
+        const Real ro_scnd = ro_grain;
+        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+             // Regularized Pressure
+             Real p_reg = std::sqrt(p_nd_arr(i,j,k)*p_nd_arr(i,j,k)
+                                    + eps*eps);
+             p_reg += p_nd_arr(i,j,k);
+             p_reg *= Real(0.5);
+             // Strainrate in incflo is two-times the actual value
+             inrt_num_arr(i,j,k) = std::sqrt(ro_scnd/p_reg)*
+                                   diam_scnd*Real(0.5)*sr_arr(i,j,k);
+        });
+    }
+    amrex::ignore_unused<int>(lev);
 }
 
 void incflo::compute_nodal_second_fluid_conc (MultiFab* conc_second_nd,
