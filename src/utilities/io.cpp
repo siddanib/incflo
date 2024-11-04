@@ -428,6 +428,9 @@ void incflo::WritePlotFile()
         && m_fluid_model_second == FluidModel::DataDrivenMPMD) ++ncomp;
 #endif
 
+    // hydrostatic pressure
+    if (m_plt_hydrostatic_p) ++ncomp;
+
     Vector<MultiFab> mf(finest_level + 1);
     for (int lev = 0; lev <= finest_level; ++lev) {
         mf[lev].define(grids[lev], dmap[lev], ncomp, 0, MFInfo(), Factory(lev));
@@ -726,6 +729,7 @@ void incflo::WritePlotFile()
 
             compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
                                 &m_leveldata[lev]->density,
+                                Real(0.0),
                                 Geom(lev),0);
 
             MultiFab strainrate(amrex::convert(mf[lev].boxArray(),
@@ -775,6 +779,7 @@ void incflo::WritePlotFile()
 
             compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
                                 &m_leveldata[lev]->density,
+                                Real(0.0),
                                 Geom(lev),0);
 
             MultiFab strainrate(amrex::convert(mf[lev].boxArray(),
@@ -804,6 +809,22 @@ void incflo::WritePlotFile()
         ++icomp;
     }
 #endif
+
+    if (m_plt_hydrostatic_p) {
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            MultiFab p_static(amrex::convert(mf[lev].boxArray(),
+                                IndexType::TheNodeType().ixType()),
+                                mf[lev].DistributionMap(),1,0);
+
+            compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
+                                &m_leveldata[lev]->density,
+                                Real(0.0),
+                                Geom(lev),0);
+            amrex::average_node_to_cellcenter(mf[lev],icomp,p_static,0,1);
+        }
+        pltscaVarsName.push_back("hydrostatic_p");
+        ++icomp;
+    }
 
 #ifdef AMREX_USE_EB
     for (int lev = 0; lev <= finest_level; ++lev) {

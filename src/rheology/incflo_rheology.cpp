@@ -227,24 +227,21 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
            compute_nodal_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost);
            // nodal MultiFab for hydrostatic pressure
            MultiFab p_static(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-           compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,rho,lev_geom,nghost);
+           compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,rho,Real(0.0),
+                                                       lev_geom,nghost);
 
 #ifdef USE_AMREX_MPMD
            if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
+               MultiFab inertial_num_mpmd(vel_eta->boxArray(),vel_eta->DistributionMap(),
+                                          2,nghost);
                // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
                // NOTE: Strain-rate calculated is TWO TIMES the actual value
                // The second component will carry concentration
-               MultiFab inertial_num(vel_eta->boxArray(),vel_eta->DistributionMap(),
-                                     1,nghost);
+               MultiFab inertial_num(inertial_num_mpmd,amrex::make_alias,0,1);
                compute_nodal_inertial_num_at_level(lev,&inertial_num,
                                                    &sr_mf,&p_static,m_mu_p_eps_second,
                                                    m_ro_grain_second,m_diam_second,
                                                    nghost);
-
-               MultiFab inertial_num_mpmd(vel_eta->boxArray(),vel_eta->DistributionMap(),
-                                          2,nghost);
-               // Copy concentration
-               MultiFab::Copy(inertial_num_mpmd,inertial_num,0,0,1,nghost);
                // Copy concentration
                MultiFab::Copy(inertial_num_mpmd,conc_second_nd,0,1,1,nghost);
                // Copier send inertial_num_mpmd

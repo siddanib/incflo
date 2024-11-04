@@ -161,6 +161,7 @@ void incflo::compute_nodal_strainrate_at_level (int /*lev*/,
 void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
                                           MultiFab* p_static,
                                           MultiFab* rho_cc,
+                                          Real p_surface,
                                           Geometry& lev_geom,
                                           int nghost)
 {
@@ -200,8 +201,6 @@ void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
 #if (AMREX_SPACEDIM == 3)
     Real idz = Real(1.0) / lev_geom.CellSize(2);
 #endif
-    const Dim3 dlo = amrex::lbound(lev_geom.Domain());
-    const Dim3 dhi = amrex::ubound(lev_geom.Domain());
 
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -213,13 +212,30 @@ void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
         Array4<Real> const& p_static_arr = pencil_p_static.array(mfi);
         Array4<Real const> const& rho_nodal_arr = pencil_rho_nodal.const_array(mfi);
         const Real gravity = std::abs(m_gravity[AMREX_SPACEDIM-1]);
-
+        // Even for pencil_ba, this needs to be based on validbox
+        const Dim3 v_bxlo = amrex::lbound(mfi.validbox());
+        const Dim3 v_bxhi = amrex::ubound(mfi.validbox());
+        const int level = lev;
+        const Real p_srf = p_surface;
+#if (AMREX_SPACEDIM == 2)
+        int h_end   = v_bxhi.y;
+#else
+        int h_end   = v_bxhi.z;
+#endif
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
-
-            p_static_arr(i,j,k) = incflo_local_hydrostatic_pressure_nodal(
+            Real p_validbox_top = p_srf;
+            if (level > 0) {
+#if (AMREX_SPACEDIM == 2)
+                p_validbox_top = p_static_arr(i,h_end,k);
+#else
+                p_validbox_top = p_static_arr(i,j,h_end);
+#endif
+            }
+            p_static_arr(i,j,k) = p_validbox_top;
+            p_static_arr(i,j,k) += incflo_local_hydrostatic_pressure_nodal(
                                            i,j,k,AMREX_D_DECL(idx,idy,idz),
-                                           gravity,rho_nodal_arr,dlo,dhi);
+                                           gravity,rho_nodal_arr,v_bxlo,v_bxhi);
         });
     }
     // nodal MultiFab for hydrostatic pressure

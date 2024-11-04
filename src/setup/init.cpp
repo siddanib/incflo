@@ -300,6 +300,7 @@ void incflo::ReadIOParameters()
     pp.query("plt_error_p",    m_plt_error_p );
     pp.query("plt_error_mac_p",m_plt_error_mac_p );
     pp.query("plt_inertial_num", m_plt_inertial_num);
+    pp.query("plt_hydrostatic_p", m_plt_hydrostatic_p);
 #ifdef USE_AMREX_MPMD
     pp.query("plt_mu_I", m_plt_mu_I);
 #endif
