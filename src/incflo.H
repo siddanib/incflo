@@ -318,7 +318,7 @@ public:
                                     amrex::MultiFab* rho_cc,
                                     amrex::Geometry& lev_geom,
                                     int nghost);
-    void compute_nodal_inertial_num_at_level (int lev,
+    static void compute_nodal_inertial_num_at_level (int lev,
                                     amrex::MultiFab* inertial_num,
                                     amrex::MultiFab* strainrate,
                                     amrex::MultiFab* press,
