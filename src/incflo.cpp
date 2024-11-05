@@ -32,6 +32,14 @@ incflo::incflo ()
     init_advection();
 
     set_background_pressure();
+#ifdef USE_AMREX_MPMD
+    int rank_offset = MPMD::MyProc()- ParallelDescriptor::MyProc();
+    if (rank_offset == 0) { // First program
+      m_mpmd_other_root = ParallelDescriptor::NProcs();
+    } else { // Second program
+      m_mpmd_other_root = 0;
+    }
+#endif
 }
 
 incflo::~incflo ()
@@ -261,16 +269,17 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
 #endif
 
 #ifdef USE_AMREX_MPMD
+    // Leverage this to first send BoxArray information
     m_mpmd_copiers[lev] = std::make_unique<MPMD::Copier>(
                                amrex::convert(grids[lev],
                                IndexType::TheNodeType().ixType()),
                                dmap[lev],true);
-    int rank_offset = MPMD::MyProc()- ParallelDescriptor::MyProc();
-    if (rank_offset == 0) { // First program
-      m_mpmd_other_root = ParallelDescriptor::NProcs();
-    } else { // Second program
-      m_mpmd_other_root = 0;
-    }
+    // Then receive the actual one from the other application
+    auto new_copier = std::make_unique<MPMD::Copier>(
+                               amrex::convert(grids[lev],
+                               IndexType::TheNodeType().ixType()),
+                               dmap[lev],false);
+    m_mpmd_copiers[lev] = std::move(new_copier);
 #endif
 }
 
