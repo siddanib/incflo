@@ -593,6 +593,8 @@ private:
     amrex::Real m_mu_p_eps_second = amrex::Real(1.0e-4);
     // epsilon value to strain rate magnitude while calculating dynamic viscosity
     amrex::Real m_mu_sr_eps_second = amrex::Real(1.0e-3);
+    // Variable for surface pressure in mu(I) model
+    amrex::Real m_mu_p_surf_second = amrex::Real(0.);
     // These are related to level set method
     // Coefficient d that is used in level set
     amrex::Real m_level_set_d = amrex::Real(0.1);

@@ -729,7 +729,7 @@ void incflo::WritePlotFile()
 
             compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
                                 &m_leveldata[lev]->density,
-                                Real(0.0),
+                                m_mu_p_surf_second,
                                 Geom(lev),0);
 
             MultiFab strainrate(amrex::convert(mf[lev].boxArray(),
@@ -779,7 +779,7 @@ void incflo::WritePlotFile()
 
             compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
                                 &m_leveldata[lev]->density,
-                                Real(0.0),
+                                m_mu_p_surf_second,
                                 Geom(lev),0);
 
             MultiFab strainrate(amrex::convert(mf[lev].boxArray(),
@@ -818,7 +818,7 @@ void incflo::WritePlotFile()
 
             compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
                                 &m_leveldata[lev]->density,
-                                Real(0.0),
+                                m_mu_p_surf_second,
                                 Geom(lev),0);
             amrex::average_node_to_cellcenter(mf[lev],icomp,p_static,0,1);
         }

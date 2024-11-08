@@ -227,7 +227,8 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
            compute_nodal_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost);
            // nodal MultiFab for hydrostatic pressure
            MultiFab p_static(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-           compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,rho,Real(0.0),
+           compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,rho,
+                                                       m_mu_p_surf_second,
                                                        lev_geom,nghost);
 
 #ifdef USE_AMREX_MPMD
