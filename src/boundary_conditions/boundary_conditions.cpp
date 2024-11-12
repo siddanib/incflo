@@ -336,7 +336,8 @@ void incflo::init_bcs ()
 
     // hydrostatic pressure - should NOT impose any conditions
     {
-        m_bcrec_density.resize(1);
+        m_bcrec_hydrostatic_p.resize(1);
+        m_bcrec_hydrostatic_p_d.resize(1);
 #ifdef AMREX_USE_GPU
         Gpu::htod_memcpy
 #else
