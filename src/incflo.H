@@ -315,7 +315,7 @@ public:
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
     void compute_nodal_hydrostatic_pressure_at_level (int lev,
                                     amrex::MultiFab* p_static,
-                                    amrex::MultiFab* rho_cc,
+                                    amrex::Real time,
                                     amrex::Real p_surface,
                                     amrex::Geometry& lev_geom,
                                     int nghost);
@@ -700,6 +700,8 @@ private:
 
         // nodal pressure multifab
         amrex::MultiFab p_nd;
+        // nodal hydrostatic pressure multifab
+        amrex::MultiFab p_static;
 
         // cell-centered pressure gradient
         amrex::MultiFab gp;
@@ -748,6 +750,9 @@ private:
     amrex::Gpu::DeviceVector<amrex::BCRec> m_bcrec_tracer_d;
     amrex::Vector<amrex::BCRec> m_bcrec_force;
     amrex::Gpu::DeviceVector<amrex::BCRec> m_bcrec_force_d;
+    // These should NOT impose any boundary effects
+    amrex::Vector<amrex::BCRec> m_bcrec_hydrostatic_p;
+    amrex::Gpu::DeviceVector<amrex::BCRec> m_bcrec_hydrostatic_p_d;
 
     amrex::Vector<int> m_iconserv_velocity;
     amrex::Gpu::DeviceVector<int> m_iconserv_velocity_d;
@@ -899,6 +904,8 @@ private:
     [[nodiscard]] amrex::Vector<amrex::BCRec> const& get_density_bcrec () const noexcept { return m_bcrec_density; }
     [[nodiscard]] amrex::Vector<amrex::BCRec> const& get_tracer_bcrec () const noexcept { return m_bcrec_tracer; }
     [[nodiscard]] amrex::Vector<amrex::BCRec> const& get_force_bcrec () const noexcept { return m_bcrec_force; }
+    [[nodiscard]] amrex::Vector<amrex::BCRec> const& get_hydrostatic_p_bcrec () const noexcept {
+        return m_bcrec_hydrostatic_p; }
     //
     [[nodiscard]] amrex::BCRec const* get_velocity_bcrec_device_ptr () const noexcept {
         return m_bcrec_velocity_d.data(); }
@@ -908,6 +915,8 @@ private:
         return m_bcrec_tracer_d.data(); }
     [[nodiscard]] amrex::BCRec const* get_force_bcrec_device_ptr () const noexcept {
         return m_bcrec_force_d.data(); }
+    [[nodiscard]] amrex::BCRec const* get_hydrostatic_p_bcrec_device_ptr () const noexcept {
+        return m_bcrec_hydrostatic_p_d.data(); }
 
     [[nodiscard]] amrex::Array<amrex::LinOpBCType,AMREX_SPACEDIM>
     get_nodal_projection_bc (amrex::Orientation::Side side) const noexcept;
@@ -928,11 +937,15 @@ private:
     void fillpatch_tracer (int lev, amrex::Real time, amrex::MultiFab& tracer, int ng);
     void fillpatch_gradp (int lev, amrex::Real time, amrex::MultiFab& gp, int ng);
     void fillpatch_force (amrex::Real time, amrex::Vector<amrex::MultiFab*> const& force, int ng);
+    void fillpatch_hydrostatic_p (int lev, amrex::Real time,
+                                  amrex::MultiFab& density, int ng);
 
     void fillcoarsepatch_velocity (int lev, amrex::Real time, amrex::MultiFab& vel, int ng);
     void fillcoarsepatch_density (int lev, amrex::Real time, amrex::MultiFab& density, int ng);
     void fillcoarsepatch_tracer (int lev, amrex::Real time, amrex::MultiFab& tracer, int ng);
     void fillcoarsepatch_gradp (int lev, amrex::Real time, amrex::MultiFab& gp, int ng);
+    void fillcoarsepatch_hydrostatic_p (int lev, amrex::Real time,
+                                        amrex::MultiFab& density, int ng);
 
     void fillphysbc_velocity (int lev, amrex::Real time, amrex::MultiFab& vel, int ng);
     void fillphysbc_density (int lev, amrex::Real time, amrex::MultiFab& density, int ng);

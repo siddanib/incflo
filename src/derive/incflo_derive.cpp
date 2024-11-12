@@ -160,31 +160,35 @@ void incflo::compute_nodal_strainrate_at_level (int /*lev*/,
 
 void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
                                           MultiFab* p_static,
-                                          MultiFab* rho_cc,
+                                          Real time,
                                           Real p_surface,
                                           Geometry& lev_geom,
                                           int nghost)
 {
+    // The current multi-level implementation works ONLY based on
+    //  rhoerr tagging and NOT on gradrhoerr tagging
+    BoxArray pencil_ba;
     if (lev > 0) {
-        amrex::Abort("Hydrostatic pressure is not implemented for lev > 0");
+        // Get smallEnd and bigEnd at this level
+        IntVect lev_smallEnd(AMREX_D_DECL(1048576, 1048576,1048576));
+        IntVect lev_bigEnd(AMREX_D_DECL(-1048576, -1048576,-1048576));
+        BoxArray org_ba = p_static->boxArray();
+        for (int i=0; i< org_ba.size();++i) {
+            for (int j=0; j < AMREX_SPACEDIM; ++j) {
+                lev_smallEnd[j] = std::min(lev_smallEnd[j],
+                                           org_ba[i].smallEnd(j));
+                lev_bigEnd[j] = std::max(lev_bigEnd[j],
+                                         org_ba[i].bigEnd(j));
+            }
+        }
+        // Create a pencil_box based on lev_smallEnd and lev_bigEnd
+        Box pencil_box(lev_smallEnd,lev_bigEnd,
+                       IntVectND<AMREX_SPACEDIM>::TheUnitVector());
+        pencil_ba.define(pencil_box);
     }
-
-    MultiFab rho_nodal(p_static->boxArray(), p_static->DistributionMap(),1,nghost);
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-    for (MFIter mfi(rho_nodal,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-    {
-        Box const& bx = mfi.tilebox();
-        Array4<Real const> const& rho_arr = rho_cc->const_array(mfi);
-        Array4<Real> const& rho_nodal_arr = rho_nodal.array(mfi);
-        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-        {
-           rho_nodal_arr(i,j,k) = incflo_nodal_density(i,j,k,rho_arr);
-        });
+    else {
+        pencil_ba.define(surroundingNodes(lev_geom.Domain()));
     }
-
-    BoxArray pencil_ba(surroundingNodes(lev_geom.Domain()));
 #if (AMREX_SPACEDIM==2)
     IntVect pencil_iv(8,1048576);
 #else
@@ -192,10 +196,26 @@ void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
 #endif
     pencil_ba.maxSize(pencil_iv);
     DistributionMapping pencil_dm{pencil_ba};
+    // Create a cell-centered density MultiFab based on pencil_ba
+    // Needs 1 layer of ghost cells
+    MultiFab pencil_rho_cc(pencil_ba.enclosedCells(),pencil_dm,1,nghost+1);
+    fillpatch_density(lev,time,pencil_rho_cc,nghost+1);
+    // Compute nodal density from cell-centered density
     MultiFab pencil_rho_nodal(pencil_ba,pencil_dm,1,nghost);
-    pencil_rho_nodal.ParallelCopy(rho_nodal,lev_geom.periodicity());
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(pencil_rho_nodal,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        Box const& bx = mfi.tilebox();
+        Array4<Real const> const& rho_arr = pencil_rho_cc.const_array(mfi);
+        Array4<Real> const& rho_nodal_arr = pencil_rho_nodal.array(mfi);
+        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+           rho_nodal_arr(i,j,k) = incflo_nodal_density(i,j,k,rho_arr);
+        });
+    }
     MultiFab pencil_p_static(pencil_ba,pencil_dm,1,nghost);
-
     Real idx = Real(1.0) / lev_geom.CellSize(0);
     Real idy = Real(1.0) / lev_geom.CellSize(1);
 #if (AMREX_SPACEDIM == 3)

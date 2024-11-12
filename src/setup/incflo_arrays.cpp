@@ -22,6 +22,8 @@ incflo::LevelData::LevelData (amrex::BoxArray const& ba,
       mac_phi   (ba, dm, 1             , 1       , MFInfo(), fact),
       p_nd      (amrex::convert(ba,IntVect::TheNodeVector()),
                      dm, 1             , 0 , MFInfo(), fact),
+      p_static  (amrex::convert(ba,IntVect::TheNodeVector()),
+                     dm, 1             , 0 , MFInfo(), fact),
       gp        (ba, dm, AMREX_SPACEDIM, 0 , MFInfo(), fact),
 
       conv_velocity_o (ba, dm, AMREX_SPACEDIM    , 0, MFInfo(), fact),

@@ -35,6 +35,13 @@ void incflo::MakeNewLevelFromCoarse (int lev,
     }
     fillcoarsepatch_gradp(lev, time, new_leveldata->gp, 0);
     new_leveldata->p_nd.setVal(0.0);
+    // Needs to be after density and tracer fillcoarsepatch
+    if (m_fluid_model_second == FluidModel::DataDrivenMPMD
+        || m_fluid_model_second == FluidModel::Rauter) {
+        fillcoarsepatch_hydrostatic_p(lev, time, new_leveldata->p_static, 0);
+    } else {
+        new_leveldata->p_static.setVal(0.0);
+    }
 
     m_leveldata[lev] = std::move(new_leveldata);
     m_factory[lev] = std::move(new_fact);
@@ -102,6 +109,13 @@ void incflo::RemakeLevel (int lev, Real time, const BoxArray& ba,
     }
     fillpatch_gradp(lev, time, new_leveldata->gp, 0);
     new_leveldata->p_nd.setVal(0.0);
+    // Needs to be after tracer and density fillpatch
+    if (m_fluid_model_second == FluidModel::DataDrivenMPMD
+        || m_fluid_model_second == FluidModel::Rauter) {
+        fillpatch_hydrostatic_p(lev, time, new_leveldata->p_static, 0);
+    } else {
+        new_leveldata->p_static.setVal(0.0);
+    }
 
     m_leveldata[lev] = std::move(new_leveldata);
     m_factory[lev] = std::move(new_fact);

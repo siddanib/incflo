@@ -172,6 +172,28 @@ void incflo::fillpatch_force (Real time, Vector<MultiFab*> const& force, int ng)
     }
 }
 
+void incflo::fillpatch_hydrostatic_p (int lev, Real time, MultiFab& p_static, int ng)
+{
+    if (lev > 0) {
+        // IncfloForFill is empty - Should NOT do anything
+        PhysBCFunct<GpuBndryFuncFab<IncfloForFill> > cphysbc(geom[lev-1],
+                                                       get_hydrostatic_p_bcrec(),
+                                                       IncfloForFill{m_probtype});
+        PhysBCFunct<GpuBndryFuncFab<IncfloForFill> > fphysbc(geom[lev],
+                                                       get_hydrostatic_p_bcrec(),
+                                                       IncfloForFill{m_probtype});
+        // Get the correct value at the highest nodes of current level
+        MFInterpolater* mapper = &mf_node_bilinear_interp;
+        FillPatchInterp(p_static,0,m_leveldata[lev-1]->p_static,0,1,
+                        IntVect(ng),geom[lev-1],geom[lev],geom[lev].Domain(),
+                        refRatio(lev-1),mapper,
+                        get_hydrostatic_p_bcrec(),0);
+    }
+    compute_nodal_hydrostatic_pressure_at_level(lev, &p_static, time,
+                                                m_mu_p_surf_second,geom[lev],
+                                                ng);
+}
+
 void incflo::fillcoarsepatch_velocity (int lev, Real time, MultiFab& vel, int ng)
 {
     const auto& bcrec = get_velocity_bcrec();
@@ -252,4 +274,27 @@ void incflo::fillcoarsepatch_gradp (int lev, Real time, MultiFab& gp, int ng)
                                  geom[lev-1], geom[lev],
                                  cphysbc, 0, fphysbc, 0,
                                  refRatio(lev-1), mapper, bcrec, 0);
+}
+
+void incflo::fillcoarsepatch_hydrostatic_p (int lev, Real time, MultiFab& p_static, int ng)
+{
+    // IncfloForFill is empty - Should NOT do anything
+    PhysBCFunct<GpuBndryFuncFab<IncfloForFill> > cphysbc(geom[lev-1],
+                                                   get_hydrostatic_p_bcrec(),
+                                                   IncfloForFill{m_probtype});
+
+    PhysBCFunct<GpuBndryFuncFab<IncfloForFill> > fphysbc(geom[lev],
+                                                   get_hydrostatic_p_bcrec(),
+                                                   IncfloForFill{m_probtype});
+
+    // Get the correct value at the highest nodes of current level
+    MFInterpolater* mapper = &mf_node_bilinear_interp;
+    FillPatchInterp(p_static,0,m_leveldata[lev-1]->p_static,0,1,
+                    IntVect(ng),geom[lev-1],geom[lev],geom[lev].Domain(),
+                    refRatio(lev-1),mapper,
+                    get_hydrostatic_p_bcrec(),0);
+
+    compute_nodal_hydrostatic_pressure_at_level(lev, &p_static, time,
+                                                m_mu_p_surf_second,geom[lev],
+                                                ng);
 }

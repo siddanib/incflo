@@ -333,5 +333,17 @@ void incflo::init_bcs ()
             (m_bcrec_force_d.data(), m_bcrec_force.data(), sizeof(BCRec)*ncomp);
 
     }
+
+    // hydrostatic pressure - should NOT impose any conditions
+    {
+        m_bcrec_density.resize(1);
+#ifdef AMREX_USE_GPU
+        Gpu::htod_memcpy
+#else
+        std::memcpy
+#endif
+            (m_bcrec_hydrostatic_p_d.data(),
+             m_bcrec_hydrostatic_p.data(), sizeof(BCRec));
+    }
 }
 

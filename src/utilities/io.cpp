@@ -728,7 +728,7 @@ void incflo::WritePlotFile()
                                 mf[lev].DistributionMap(),1,0);
 
             compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
-                                &m_leveldata[lev]->density,
+                                m_cur_time,
                                 m_mu_p_surf_second,
                                 Geom(lev),0);
 
@@ -778,7 +778,7 @@ void incflo::WritePlotFile()
                                 mf[lev].DistributionMap(),1,0);
 
             compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
-                                &m_leveldata[lev]->density,
+                                m_cur_time,
                                 m_mu_p_surf_second,
                                 Geom(lev),0);
 
@@ -817,7 +817,7 @@ void incflo::WritePlotFile()
                                 mf[lev].DistributionMap(),1,0);
 
             compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,
-                                &m_leveldata[lev]->density,
+                                m_cur_time,
                                 m_mu_p_surf_second,
                                 Geom(lev),0);
             amrex::average_node_to_cellcenter(mf[lev],icomp,p_static,0,1);
