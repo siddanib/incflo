@@ -263,8 +263,7 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                    {
                         // Regularized strain rate
-                        Real sr_reg = std::sqrt(Real(0.25)*sr_arr(i,j,k)*sr_arr(i,j,k)
-                                                + eps*eps);
+                        Real sr_reg = Real(0.5)*sr_arr(i,j,k) + eps;
                         vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
                         vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
                    });
@@ -307,8 +306,7 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
                         vel_eta_snd_arr(i,j,k) += mu_1_scnd;
                         // The above value is stress ratio
                         // Regularized strain rate
-                        Real sr_reg = std::sqrt(Real(0.25)*sr_arr(i,j,k)*sr_arr(i,j,k)
-                                                + eps*eps);
+                        Real sr_reg = Real(0.5)*sr_arr(i,j,k) + eps;
                         vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
                         vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
                    });
