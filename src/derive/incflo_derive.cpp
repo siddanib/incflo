@@ -265,10 +265,15 @@ void incflo::compute_nodal_inertial_num_at_level (int lev,
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
              // Regularized Pressure
-             Real p_reg = std::sqrt(p_nd_arr(i,j,k)*p_nd_arr(i,j,k)
-                                    + eps*eps);
-             p_reg += p_nd_arr(i,j,k);
-             p_reg *= Real(0.5);
+             //Real p_reg = std::sqrt(p_nd_arr(i,j,k)*p_nd_arr(i,j,k)
+             //                       + eps*eps);
+             //p_reg += p_nd_arr(i,j,k);
+             //p_reg *= Real(0.5);
+
+             // Note: This version of Regularized Pressure only works for
+             // Static pressure, i.e., p_s >= 0
+             Real p_reg = p_nd_arr(i,j,k) + eps;
+
              // Strainrate in incflo is two-times the actual value
              inrt_num_arr(i,j,k) = std::sqrt(ro_scnd/p_reg)*
                                    diam_scnd*Real(0.5)*sr_arr(i,j,k);
