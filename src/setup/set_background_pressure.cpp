@@ -15,10 +15,11 @@ void incflo::set_background_pressure ()
         GpuArray<Real,AMREX_SPACEDIM> problen{AMREX_D_DECL(probhi[0]-problo[0],
                                               probhi[1]-problo[1],
                                               probhi[2]-problo[2])};
+        int delp_dir;
         // There are 3 exclusive sources for background pressure gradient.
-        // (1) incflo.delp in inputs
-        int delp_dir = -1;
         for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+            delp_dir = -1;
+            // (1) incflo.delp in inputs
             if (std::abs(m_delp[dir]) > std::numeric_limits<Real>::epsilon()) {
                 if (delp_dir == -1) {
                     delp_dir = dir;
@@ -27,9 +28,7 @@ void incflo::set_background_pressure ()
                     amrex::Abort("set_background_pressure: how did this happen?");
                 }
             }
-        }
-        // (2) pressure inflow and pressure outflow
-        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+            // (2) pressure inflow and pressure outflow
             if ((m_bc_type[Orientation(dir,Orientation::low)] == BC::pressure_inflow and
                  m_bc_type[Orientation(dir,Orientation::high)] == BC::pressure_outflow) or
                 (m_bc_type[Orientation(dir,Orientation::high)] == BC::pressure_inflow and
@@ -43,9 +42,7 @@ void incflo::set_background_pressure ()
                     amrex::Abort("set_background_pressure: how did this happen?");
                 }
             }
-        }
-        // (3) gravity
-        for (int dir = 0; dir < AMREX_SPACEDIM; ++dir) {
+            // (3) gravity
             Real dpdx = m_gravity[dir] * m_ro_0;
             if (std::abs(dpdx) > std::numeric_limits<Real>::epsilon()) {
                 if (delp_dir == -1) {

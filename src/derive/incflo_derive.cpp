@@ -178,9 +178,18 @@ void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
         Box const& bx = mfi.tilebox();
         Array4<Real const> const& rho_arr = rho_cc->const_array(mfi);
         Array4<Real> const& rho_nodal_arr = rho_nodal.array(mfi);
+        const int prob_534 = (m_probtype == 534) ? 1 : 0;
+        const Real rho_1 = m_ro_0;
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
            rho_nodal_arr(i,j,k) = incflo_nodal_density(i,j,k,rho_arr);
+           // In inclined_plane_granular, the free surface needs to have
+           // hydrostatic pressure of zero
+           if (prob_534) {
+              if (rho_nodal_arr(i,j,k) == rho_1) {
+                 rho_nodal_arr(i,j,k) -= rho_1;
+              }
+           }
         });
     }
 

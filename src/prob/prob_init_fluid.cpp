@@ -218,6 +218,41 @@ void incflo::prob_init_fluid (int lev)
                                        domain, dx, problo, probhi);
         }
 #endif
+        // 534 corresponds to inclined_plane_granular,
+        // but the initialization is the same as column_collapse_granular
+        // 534 ENFORCES ZERO hydrostatic pressure for free surface
+        else if (534 == m_probtype)
+        {
+            column_collapse_granular(vbx, nbx,
+                                     ld.density.array(mfi),
+                                     ld.tracer.array(mfi),
+                                     ld.p_nd.array(mfi),
+                                     domain, dx, problo, probhi);
+        }
+        else if (535 == m_probtype) {
+            single_layer_inclined_plane_granular(vbx, nbx,
+                                     ld.density.array(mfi),
+                                     ld.tracer.array(mfi),
+                                     ld.p_nd.array(mfi),
+                                     ld.velocity.array(mfi),
+                                     domain, dx, problo, probhi);
+        }
+        else if (536 == m_probtype) {
+            double_layer_inclined_plane_granular(vbx, nbx,
+                                     ld.density.array(mfi),
+                                     ld.tracer.array(mfi),
+                                     ld.p_nd.array(mfi),
+                                     ld.velocity.array(mfi),
+                                     domain, dx, problo, probhi);
+        }
+        else if (537 == m_probtype) {
+            smooth_double_layer_inclined_plane_granular(vbx, nbx,
+                                     ld.density.array(mfi),
+                                     ld.tracer.array(mfi),
+                                     ld.p_nd.array(mfi),
+                                     ld.velocity.array(mfi),
+                                     domain, dx, problo, probhi);
+        }
         else
         {
             amrex::Abort("prob_init_fluid: unknown m_probtype");
