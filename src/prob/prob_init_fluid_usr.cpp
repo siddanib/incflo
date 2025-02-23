@@ -281,3 +281,282 @@ void incflo::cylinder_collapse_granular (Box const& vbx, Box const& nbx,
         amrex::Abort("Include non-zero initial_iterations as pressure is not set");
 }
 #endif
+
+void incflo::single_layer_inclined_plane_granular (Box const& vbx, Box const& nbx,
+                                 Array4<Real> const& density,
+                                 Array4<Real> const& tracer,
+                                 Array4<Real> const& pressure,
+                                 Array4<Real> const& velocity,
+                                 Box const& /*domain*/,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& dx,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& problo,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& probhi) const
+{
+    amrex::ignore_unused<Box>(nbx);
+    amrex::ignore_unused<Array4<Real>>(pressure);
+    // Ensure it is set to two_fluid
+    if (!m_two_fluid) amrex::Abort("probtype 535 leverages two_fluid infrastructure");
+    Real grav_mag = m_gravity[0]*m_gravity[0] + m_gravity[1]*m_gravity[1]+
+                    m_gravity[2]*m_gravity[2];
+    grav_mag = std::sqrt(grav_mag);
+    if (grav_mag ==  Real(0.)) {
+        amrex::Abort("Gravity is required in probtype 535");
+    }
+    Real zeta_0; // Inclination angle used in initialization
+    Real I_zeta_0; // Inertial number corresponding to initialization
+    ParmParse pp;
+    pp.get("zeta_0", zeta_0);
+    pp.get("I_zeta_0",I_zeta_0);
+    amrex::Print() << "zeta_0: "<<zeta_0<<" , I_zeta_0: "<< I_zeta_0<<"\n";
+
+    Real rho_2 = m_ro_0_second;
+    Real rho_p = m_ro_grain_second; // Granular particle density
+    Real diam_p = m_diam_second; // Granular particle mean diameter
+    Real H_c = probhi[1]; // Column Height
+#if (AMREX_SPACEDIM == 3)
+    H_c = probhi[2];
+#endif
+
+    amrex::ParallelFor(vbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+    {
+        Real x = problo[0] + (Real(i)+Real(0.5))*dx[0];
+        Real y = problo[1] + (Real(j)+Real(0.5))*dx[1];
+#if (AMREX_SPACEDIM == 3)
+        Real z = problo[2] + (Real(k)+Real(0.5))*dx[2];
+#endif
+        density(i,j,k) = rho_2;
+        tracer(i,j,k,0) = Real(1.0);
+        // Bagnold profile based on zeta_0
+        velocity(i,j,k,0) = std::sqrt(grav_mag*std::cos(zeta_0)*rho_2/rho_p);
+        velocity(i,j,k,0) *= (Real(4.0)*I_zeta_0/(Real(3.0)*diam_p));
+#if (AMREX_SPACEDIM == 2)
+        velocity(i,j,k,0) *= (std::pow(H_c,Real(1.5)) - std::pow(H_c-y,Real(1.5)));
+#else
+        velocity(i,j,k,0) *= (std::pow(H_c,Real(1.5)) - std::pow(H_c-z,Real(1.5)));
+#endif
+        velocity(i,j,k,1) = Real(0.0);
+#if (AMREX_SPACEDIM == 3)
+        velocity(i,j,k,2) = Real(0.0);
+#endif
+    });
+
+    if (m_initial_iterations == 0 )
+        amrex::Abort("Include non-zero initial_iterations as pressure is not set");
+}
+
+void incflo::double_layer_inclined_plane_granular (Box const& vbx, Box const& nbx,
+                                 Array4<Real> const& density,
+                                 Array4<Real> const& tracer,
+                                 Array4<Real> const& pressure,
+                                 Array4<Real> const& velocity,
+                                 Box const& /*domain*/,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& dx,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& problo,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& probhi) const
+{
+    amrex::ignore_unused<Box>(nbx);
+    amrex::ignore_unused<Array4<Real>>(pressure);
+    // Ensure it is set to two_fluid
+    if (!m_two_fluid) amrex::Abort("probtype 536 leverages two_fluid infrastructure");
+    Real grav_mag = m_gravity[0]*m_gravity[0] + m_gravity[1]*m_gravity[1]+
+                    m_gravity[2]*m_gravity[2];
+    grav_mag = std::sqrt(grav_mag);
+    if (grav_mag ==  Real(0.)) {
+        amrex::Abort("Gravity is required in probtype 536");
+    }
+    Real zeta_0; // Inclination angle used in initialization
+    Real I_zeta_0; // Inertial number corresponding to initialization
+    ParmParse pp;
+    pp.get("zeta_0", zeta_0);
+    pp.get("I_zeta_0",I_zeta_0);
+    amrex::Print() << "zeta_0: "<<zeta_0<<" , I_zeta_0: "<< I_zeta_0<<"\n";
+
+    Vector<Real> granlen_vec{AMREX_D_DECL(Real(0.),Real(0.),Real(0.))};
+    pp.getarr("granular_length",granlen_vec,0,AMREX_SPACEDIM);
+    GpuArray<Real,AMREX_SPACEDIM> granLen{AMREX_D_DECL(
+        granlen_vec[0],granlen_vec[1],granlen_vec[2])};
+    granLen[0] += problo[0];
+    granLen[1] += problo[1];
+    if (granLen[0] != probhi[0])
+        amrex::Abort("Granular length along x needs to be equal to setup");
+#if (AMREX_SPACEDIM == 2)
+    if (granLen[1] >= probhi[1])
+        amrex::Abort("Granular length along y needs to be smaller than setup");
+#else
+    if (granLen[1] != probhi[1])
+        amrex::Abort("Granular length along y needs to be equal to setup");
+
+    granLen[2] += problo[2];
+    if (granLen[2] >= probhi[2])
+        amrex::Abort("Granular length along z needs to be smaller than setup");
+#endif
+    Real rho_1 = m_ro_0; Real rho_2 = m_ro_0_second;
+    Real rho_p = m_ro_grain_second; // Granular particle density
+    Real diam_p = m_diam_second; // Granular particle mean diameter
+    Real H_c = granLen[1]; // Column Height
+    Real H_d = probhi[1]; // Domain Height
+#if (AMREX_SPACEDIM == 3)
+    H_c = granLen[2];
+    H_d = probhi[2];
+#endif
+    // Create a variable to store max Bagnold velocity
+    Real u_bag_max = std::sqrt(grav_mag*std::cos(zeta_0)*rho_2/rho_p);
+    u_bag_max *= (Real(4.0)*I_zeta_0/(Real(3.0)*diam_p));
+    u_bag_max *= std::pow(H_c,Real(1.5));
+
+    amrex::ParallelFor(vbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+    {
+        Real x = problo[0] + (Real(i)+Real(0.5))*dx[0];
+        Real y = problo[1] + (Real(j)+Real(0.5))*dx[1];
+#if (AMREX_SPACEDIM == 3)
+        Real z = problo[2] + (Real(k)+Real(0.5))*dx[2];
+#endif
+        if ( (x <= granLen[0]) and (y <= granLen[1])
+#if (AMREX_SPACEDIM == 3)
+            and (z <= granLen[2])
+#endif
+           ) {
+            density(i,j,k) = rho_2;
+            tracer(i,j,k,0) = Real(1.0);
+            // Bagnold profile based on zeta_0
+            velocity(i,j,k,0) = std::sqrt(grav_mag*std::cos(zeta_0)*rho_2/rho_p);
+            velocity(i,j,k,0) *= (Real(4.0)*I_zeta_0/(Real(3.0)*diam_p));
+#if (AMREX_SPACEDIM == 2)
+            velocity(i,j,k,0) *= (std::pow(H_c,Real(1.5)) - std::pow(H_c-y,Real(1.5)));
+#else
+            velocity(i,j,k,0) *= (std::pow(H_c,Real(1.5)) - std::pow(H_c-z,Real(1.5)));
+#endif
+        } else {
+            density(i,j,k) = rho_1;
+            tracer(i,j,k,0) = Real(0.0);
+            // Linear profile for lighter fluid
+#if (AMREX_SPACEDIM == 2)
+            velocity(i,j,k,0) = (H_d - y)/(H_d - H_c);
+#else
+            velocity(i,j,k,0) = (H_d - z)/(H_d - H_c);
+#endif
+            velocity(i,j,k,0) *= u_bag_max;
+        }
+
+        velocity(i,j,k,1) = Real(0.0);
+#if (AMREX_SPACEDIM == 3)
+        velocity(i,j,k,2) = Real(0.0);
+#endif
+    });
+
+    if (m_initial_iterations == 0 )
+        amrex::Abort("Include non-zero initial_iterations as pressure is not set");
+}
+
+void incflo::smooth_double_layer_inclined_plane_granular (Box const& vbx, Box const& nbx,
+                                 Array4<Real> const& density,
+                                 Array4<Real> const& tracer,
+                                 Array4<Real> const& pressure,
+                                 Array4<Real> const& velocity,
+                                 Box const& /*domain*/,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& dx,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& problo,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& probhi) const
+{
+    amrex::ignore_unused<Box>(nbx);
+    amrex::ignore_unused<Array4<Real>>(pressure);
+    // Ensure it is set to two_fluid
+    if (!m_two_fluid) amrex::Abort("probtype 537 requires two_fluid");
+    Real grav_mag = m_gravity[0]*m_gravity[0] + m_gravity[1]*m_gravity[1]+
+                    m_gravity[2]*m_gravity[2];
+    grav_mag = std::sqrt(grav_mag);
+    if (grav_mag ==  Real(0.)) {
+        amrex::Abort("Gravity is required in probtype 537");
+    }
+    Real zeta_0; // Inclination angle used in initialization
+    Real I_zeta_0; // Inertial number corresponding to initialization
+    ParmParse pp;
+    pp.get("zeta_0", zeta_0);
+    pp.get("I_zeta_0",I_zeta_0);
+    amrex::Print() << "zeta_0: "<<zeta_0<<" , I_zeta_0: "<< I_zeta_0<<"\n";
+
+    Real smoothing_factor;
+    pp.get("smoothing_factor",smoothing_factor);
+    Vector<Real> granlen_vec{AMREX_D_DECL(Real(0.),Real(0.),Real(0.))};
+    pp.getarr("granular_length",granlen_vec,0,AMREX_SPACEDIM);
+    GpuArray<Real,AMREX_SPACEDIM> granLen{AMREX_D_DECL(
+        granlen_vec[0],granlen_vec[1],granlen_vec[2])};
+    granLen[0] += problo[0];
+    granLen[1] += problo[1];
+    if (granLen[0] != probhi[0])
+        amrex::Abort("Granular length along x needs to be equal to setup");
+#if (AMREX_SPACEDIM == 2)
+    if (granLen[1] >= probhi[1])
+        amrex::Abort("Granular length along y needs to be smaller than setup");
+#else
+    if (granLen[1] != probhi[1])
+        amrex::Abort("Granular length along y needs to be equal to setup");
+
+    granLen[2] += problo[2];
+    if (granLen[2] >= probhi[2])
+        amrex::Abort("Granular length along z needs to be smaller than setup");
+#endif
+    Real rho_1 = m_ro_0; Real rho_2 = m_ro_0_second;
+    Real rho_p = m_ro_grain_second; // Granular particle density
+    Real diam_p = m_diam_second; // Granular particle mean diameter
+    Real H_c = granLen[1]; // Column Height
+    Real H_d = probhi[1]; // Domain Height
+#if (AMREX_SPACEDIM == 3)
+    H_c = granLen[2];
+    H_d = probhi[2];
+#endif
+    // Create a variable to store max Bagnold velocity
+    Real u_bag_max = std::sqrt(grav_mag*std::cos(zeta_0)*rho_2/rho_p);
+    u_bag_max *= (Real(4.0)*I_zeta_0/(Real(3.0)*diam_p));
+    u_bag_max *= std::pow(H_c,Real(1.5));
+
+    amrex::ParallelFor(vbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+    {
+        // Tracer is 1 in heavier fluid
+        Real x = problo[0] + (Real(i)+Real(0.5))*dx[0];
+        Real y = problo[1] + (Real(j)+Real(0.5))*dx[1];
+#if (AMREX_SPACEDIM == 2)
+        tracer(i,j,k,0) = std::tanh((granLen[1]-y)/(smoothing_factor*dx[1]))
+                            + Real(1.0);
+#else
+        Real z = problo[2] + (Real(k)+Real(0.5))*dx[2];
+        tracer(i,j,k,0) = std::tanh((granLen[2]-z)/(smoothing_factor*dx[2]))
+                            + Real(1.0);
+
+#endif
+        tracer(i,j,k,0) *= Real(0.5);
+        density(i,j,k)  = tracer(i,j,k,0)*(rho_2-rho_1);
+        density(i,j,k)  += rho_1;
+
+        if ( (x <= granLen[0]) and (y <= granLen[1])
+#if (AMREX_SPACEDIM == 3)
+            and (z <= granLen[2])
+#endif
+           ) {
+            // Bagnold profile based on zeta_0
+            velocity(i,j,k,0) = std::sqrt(grav_mag*std::cos(zeta_0)*rho_2/rho_p);
+            velocity(i,j,k,0) *= (Real(4.0)*I_zeta_0/(Real(3.0)*diam_p));
+#if (AMREX_SPACEDIM == 2)
+            velocity(i,j,k,0) *= (std::pow(H_c,Real(1.5)) - std::pow(H_c-y,Real(1.5)));
+#else
+            velocity(i,j,k,0) *= (std::pow(H_c,Real(1.5)) - std::pow(H_c-z,Real(1.5)));
+#endif
+        } else {
+            // Linear profile for lighter fluid
+#if (AMREX_SPACEDIM == 2)
+            velocity(i,j,k,0) = (H_d - y)/(H_d - H_c);
+#else
+            velocity(i,j,k,0) = (H_d - z)/(H_d - H_c);
+#endif
+            velocity(i,j,k,0) *= u_bag_max;
+        }
+
+        velocity(i,j,k,1) = Real(0.0);
+#if (AMREX_SPACEDIM == 3)
+        velocity(i,j,k,2) = Real(0.0);
+#endif
+    });
+
+    if (m_initial_iterations == 0 )
+        amrex::Abort("Include non-zero initial_iterations as pressure is not set");
+}

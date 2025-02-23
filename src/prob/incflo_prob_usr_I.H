@@ -159,4 +159,33 @@
                                    amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo,
                                    amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& probhi) const;
 #endif
+    void single_layer_inclined_plane_granular (amrex::Box const& vbx, amrex::Box const& nbx,
+                                   amrex::Array4<amrex::Real> const& density,
+                                   amrex::Array4<amrex::Real> const& tracer,
+                                   amrex::Array4<amrex::Real> const& pressure,
+                                   amrex::Array4<amrex::Real> const& velocity,
+                                   amrex::Box const& domain,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& dx,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& probhi) const;
+
+    void double_layer_inclined_plane_granular (amrex::Box const& vbx, amrex::Box const& nbx,
+                                   amrex::Array4<amrex::Real> const& density,
+                                   amrex::Array4<amrex::Real> const& tracer,
+                                   amrex::Array4<amrex::Real> const& pressure,
+                                   amrex::Array4<amrex::Real> const& velocity,
+                                   amrex::Box const& domain,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& dx,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& probhi) const;
+
+    void smooth_double_layer_inclined_plane_granular (amrex::Box const& vbx, amrex::Box const& nbx,
+                                   amrex::Array4<amrex::Real> const& density,
+                                   amrex::Array4<amrex::Real> const& tracer,
+                                   amrex::Array4<amrex::Real> const& pressure,
+                                   amrex::Array4<amrex::Real> const& velocity,
+                                   amrex::Box const& domain,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& dx,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo,
+                                   amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& probhi) const;
 #endif
