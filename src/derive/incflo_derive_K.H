@@ -95,6 +95,7 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
         idim = 0;
         jdim = (i == dlo.x)? 0:1;
         if ((bc_type[idim][jdim] == 2) or bc_type[idim][jdim] == 1) { // walls
+#ifdef USE_SECOND_ORDER
             n_0 = i-1; n_1 = 1; n_2 = 2;
             if (jdim==1) {
                 n_0 += 1; n_1 *= -1; n_2 *= -1;
@@ -139,6 +140,28 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
                 uxmp *= Real(-1.0); vxmp *= Real(-1.0); wxmp *= Real(-1.0);
                 uxmm *= Real(-1.0); vxmm *= Real(-1.0); wxmm *= Real(-1.0);
             }
+#else
+            uxpp *= Real(2.0);
+            uxpm *= Real(2.0);
+            uxmp *= Real(2.0);
+            uxmm *= Real(2.0);
+            if (bc_type[idim][jdim] == 2) { // no-slip wall
+                vxpp *= Real(2.0);
+                vxpm *= Real(2.0);
+                vxmp *= Real(2.0);
+                vxmm *= Real(2.0);
+                wxpp *= Real(2.0);
+                wxpm *= Real(2.0);
+                wxmp *= Real(2.0);
+                wxmm *= Real(2.0);
+            }
+            else if (bc_type[idim][jdim] == 1) { // slip wall
+                vxpp = Real(0.0); wxpp = Real(0.0);
+                vxpm = Real(0.0); wxpm = Real(0.0);
+                vxmp = Real(0.0); wxmp = Real(0.0);
+                vxmm = Real(0.0); wxmm = Real(0.0);
+            }
+#endif
         }
     }
 
@@ -146,6 +169,7 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
         idim = 1;
         jdim = (j == dlo.y)? 0:1;
         if ((bc_type[idim][jdim] == 2) or bc_type[idim][jdim] == 1) { // walls
+#ifdef USE_SECOND_ORDER
             n_0 = j-1; n_1 = 1; n_2 = 2;
             if (jdim==1) {
                 n_0 += 1; n_1 *= -1; n_2 *= -1;
@@ -190,6 +214,28 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
                 uymp *= Real(-1.0); vymp *= Real(-1.0); wymp *= Real(-1.0);
                 uymm *= Real(-1.0); vymm *= Real(-1.0); wymm *= Real(-1.0);
             }
+#else
+            vypp *= Real(2.0);
+            vypm *= Real(2.0);
+            vymp *= Real(2.0);
+            vymm *= Real(2.0);
+            if (bc_type[idim][jdim] == 2) {
+                uypp *= Real(2.0) ;
+                uypm *= Real(2.0) ;
+                uymp *= Real(2.0) ;
+                uymm *= Real(2.0) ;
+                wypp *= Real(2.0) ;
+                wypm *= Real(2.0) ;
+                wymp *= Real(2.0) ;
+                wymm *= Real(2.0) ;
+            }
+            else if (bc_type[idim][jdim] == 1) {
+                uypp = Real(0.0); wypp = Real(0.0);
+                uypm = Real(0.0); wypm = Real(0.0);
+                uymp = Real(0.0); wymp = Real(0.0);
+                uymm = Real(0.0); wymm = Real(0.0);
+            }
+#endif
         }
     }
 
@@ -197,6 +243,7 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
         idim = 2;
         jdim = (k == dlo.z)? 0:1;
         if ((bc_type[idim][jdim] == 2) or bc_type[idim][jdim] == 1) { // walls
+#ifdef USE_SECOND_ORDER
             n_0 = k-1; n_1 = 1; n_2 = 2;
             if (jdim==1) {
                 n_0 += 1; n_1 *= -1; n_2 *= -1;
@@ -241,6 +288,29 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
                 uzmp *= Real(-1.0); vzmp *= Real(-1.0); wzmp *= Real(-1.0);
                 uzmm *= Real(-1.0); vzmm *= Real(-1.0); wzmm *= Real(-1.0);
             }
+#else
+            wzpp *= Real(2.0);
+            wzpm *= Real(2.0);
+            wzmp *= Real(2.0);
+            wzmm *= Real(2.0);
+            if (bc_type[idim][jdim] == 2) {
+                uzpp *= Real(2.0);
+                uzpm *= Real(2.0);
+                uzmp *= Real(2.0);
+                uzmm *= Real(2.0);
+                vzpp *= Real(2.0);
+                vzpm *= Real(2.0);
+                vzmp *= Real(2.0);
+                vzmm *= Real(2.0);
+            }
+            else if (bc_type[idim][jdim] == 1) {
+                uzpp = Real(0.0); vzpp = Real(0.0);
+                uzpm = Real(0.0); vzpm = Real(0.0);
+                uzmp = Real(0.0); vzmp = Real(0.0);
+                uzmm = Real(0.0); vzmm = Real(0.0);
+            }
+
+#endif
         }
     }
 
@@ -359,6 +429,7 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
         idim = 0;
         jdim = (i == dlo.x)? 0:1;
         if ((bc_type[idim][jdim] == 2) or bc_type[idim][jdim] == 1) { // walls
+#ifdef USE_SECOND_ORDER
             n_0 = i-1; n_1 = 1; n_2 = 2;
             if (jdim==1) {
                 n_0 += 1; n_1 *= -1; n_2 *= -1;
@@ -382,6 +453,18 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
                 uxp *= Real(-1.0); vxp *= Real(-1.0);
                 uxm *= Real(-1.0); vxm *= Real(-1.0);
             }
+#else
+            uxp *= Real(2.0);
+            uxm *= Real(2.0);
+            if (bc_type[idim][jdim] == 2) {
+                vxp *= Real(2.0);
+                vxm *= Real(2.0);
+            }
+            else if (bc_type[idim][jdim] == 1) {
+                vxp = Real(0.0); vxm = Real(0.0);
+            }
+
+#endif
         }
     }
 
@@ -389,6 +472,7 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
         idim = 1;
         jdim = (j == dlo.y)? 0:1;
         if ((bc_type[idim][jdim] == 2) or bc_type[idim][jdim] == 1) { // walls
+#ifdef USE_SECOND_ORDER
             n_0 = j-1; n_1 = 1; n_2 = 2;
             if (jdim==1) {
                 n_0 += 1; n_1 *= -1; n_2 *= -1;
@@ -412,6 +496,17 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
                 uyp *= Real(-1.0); vyp *= Real(-1.0);
                 uym *= Real(-1.0); vym *= Real(-1.0);
             }
+#else
+            vyp *= Real(2.0);
+            vym *= Real(2.0);
+            if (bc_type[idim][jdim] == 2) {
+                uyp *= Real(2.0);
+                uym *= Real(2.0);
+            }
+            else if (bc_type[idim][jdim] == 1) {
+                uyp = Real(0.0); uym = Real(0.0);
+            }
+#endif
         }
     }
     // Corner cases
