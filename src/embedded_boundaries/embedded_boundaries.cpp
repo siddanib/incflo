@@ -57,6 +57,11 @@ void incflo::MakeEBGeometry()
     amrex::Print() << "\n Building tuscan geometry." << std::endl;
         make_eb_tuscan();
     }
+    else if(geom_type == "impeller")
+    {
+    amrex::Print() << "\n Building impeller geometry." << std::endl;
+        make_eb_impeller();
+    }
 #endif
     else if(geom_type == "annulus")
     {

@@ -504,6 +504,12 @@ private:
        amrex::Real density{1.};
        amrex::Vector<amrex::Real> tracer;
 
+       // Rotating EB but non-moving
+       bool has_rotation{false};
+       amrex::Vector<amrex::Real> rotation_center;
+       amrex::Vector<amrex::Real> rotation_omega;
+       amrex::Real rotation_max_r{amrex::Real(0.)};
+
        EBFlow_t ()
 
        = default;
@@ -921,6 +927,7 @@ private:
     void make_eb_spherecube ();
     void make_eb_cyl_tuscan ();
     void make_eb_tuscan ();
+    void make_eb_impeller ();
     void make_eb_chkptfile ();
 #ifdef CSG_EB
     void make_eb_csg (const std::string& csg_file);

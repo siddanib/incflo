@@ -196,6 +196,8 @@ void
 incflo::set_eb_velocity (int lev, Real /*time*/, MultiFab& eb_vel, int nghost)
 {
     Geometry const& gm = Geom(lev);
+    auto const& dx_gm = gm.CellSizeArray();
+    const auto problo = gm.ProbLoArray();
     eb_vel.setVal(0.);
 
     const auto& factory =
@@ -212,6 +214,8 @@ incflo::set_eb_velocity (int lev, Real /*time*/, MultiFab& eb_vel, int nghost)
           const auto& flags_arr    = flagfab.const_array();
           const auto& eb_vel_arr   = eb_vel[mfi].array();
           const auto& norm_arr     = factory.getBndryNormal()[mfi].const_array();
+          // This information is relative to local cell-center
+          const auto& bcent_arr     = factory.getBndryCent()[mfi].const_array();
 
           bool has_normal = m_eb_flow.has_normal;
           GpuArray<Real, AMREX_SPACEDIM> normal{0.};
@@ -230,48 +234,117 @@ incflo::set_eb_velocity (int lev, Real /*time*/, MultiFab& eb_vel, int nghost)
           Real eb_vel_mag(0.0);
           GpuArray<Real,3> eb_vel_comps{0.};
           // Flow is specified as a velocity magnitude
-          if ( m_eb_flow.is_mag ) {
-             eb_vel_mag = m_eb_flow.vel_mag;
-          } else {
-             has_comps = true;
-             const auto& vels = m_eb_flow.velocity;
-             AMREX_D_TERM(eb_vel_comps[0] = vels[0];,
-                          eb_vel_comps[1] = vels[1];,
-                          eb_vel_comps[2] = vels[2]);
+          if (!m_eb_flow.has_rotation) {
+             if ( m_eb_flow.is_mag ) {
+                eb_vel_mag = m_eb_flow.vel_mag;
+             } else {
+                has_comps = true;
+                const auto& vels = m_eb_flow.velocity;
+                AMREX_D_TERM(eb_vel_comps[0] = vels[0];,
+                             eb_vel_comps[1] = vels[1];,
+                             eb_vel_comps[2] = vels[2]);
+             }
+          }
+
+          bool has_rotation = m_eb_flow.has_rotation;
+          Real rotation_max_r{0.}, omega_mag{0.};
+          GpuArray<Real, AMREX_SPACEDIM> rotation_center{0.},
+                                         rotation_omega{0.},
+                                         omega_unit_vec{0.};
+          if (has_rotation) {
+             rotation_max_r = m_eb_flow.rotation_max_r;
+             AMREX_D_TERM(
+             rotation_center[0] = m_eb_flow.rotation_center[0];,
+             rotation_center[1] = m_eb_flow.rotation_center[1];,
+             rotation_center[2] = m_eb_flow.rotation_center[2]);
+
+             AMREX_D_TERM(
+             rotation_omega[0] = m_eb_flow.rotation_omega[0];,
+             rotation_omega[1] = m_eb_flow.rotation_omega[1];,
+             rotation_omega[2] = m_eb_flow.rotation_omega[2]);
+
+             AMREX_D_TERM(
+             omega_unit_vec[0] = m_eb_flow.rotation_omega[0];,
+             omega_unit_vec[1] = m_eb_flow.rotation_omega[1];,
+             omega_unit_vec[2] = m_eb_flow.rotation_omega[2]);
+
+             omega_mag =   omega_unit_vec[0]*omega_unit_vec[0]
+                         + omega_unit_vec[1]*omega_unit_vec[1];
+#if (AMREX_SPACEDIM == 3)
+
+             omega_mag  += omega_unit_vec[2]*omega_unit_vec[2];
+#endif
+             omega_mag = std::sqrt(omega_mag);
+             omega_unit_vec[0] /= omega_mag;
+             omega_unit_vec[1] /= omega_mag;
+#if (AMREX_SPACEDIM == 3)
+             omega_unit_vec[2] /= omega_mag;
+#endif
           }
 
           ParallelFor(bx, [flags_arr,eb_vel_arr,norm_arr,has_comps,has_normal,normal,
-                 norm_tol_lo, norm_tol_hi,eb_vel_mag,eb_vel_comps]
+                 norm_tol_lo, norm_tol_hi,eb_vel_mag,eb_vel_comps,
+                 has_rotation,rotation_max_r,rotation_center,rotation_omega,
+                 omega_unit_vec,bcent_arr,dx_gm,problo]
              AMREX_GPU_DEVICE (int i, int j, int k) noexcept
            {
              if (flags_arr(i,j,k).isSingleValued()) {
                 Real mask = Real(1.0);
-
-                if(has_normal) {
+                if (!has_rotation) {
+                   if(has_normal) {
 #if (AMREX_SPACEDIM==3)
-                  Real dotprod = norm_arr(i,j,k,0)*normal[0]
-                                 + norm_arr(i,j,k,1)*normal[1]
-                                 + norm_arr(i,j,k,2)*normal[2];
+                     Real dotprod = norm_arr(i,j,k,0)*normal[0]
+                                    + norm_arr(i,j,k,1)*normal[1]
+                                    + norm_arr(i,j,k,2)*normal[2];
 #else
-                  Real dotprod = norm_arr(i,j,k,0)*normal[0]
-                                 + norm_arr(i,j,k,1)*normal[1];
+                     Real dotprod = norm_arr(i,j,k,0)*normal[0]
+                                    + norm_arr(i,j,k,1)*normal[1];
 #endif
-
-                  mask = ((norm_tol_lo <= dotprod) &&
+                     mask = ((norm_tol_lo <= dotprod) &&
                           (dotprod <= norm_tol_hi)) ? Real(1.0) : Real(0.0);
-                }
+                   }
 
-                if (has_comps) {
-                   AMREX_D_TERM(eb_vel_arr(i,j,k,0) = mask*eb_vel_comps[0];,
-                                eb_vel_arr(i,j,k,1) = mask*eb_vel_comps[1];,
-                                eb_vel_arr(i,j,k,2) = mask*eb_vel_comps[2]);
+                   if (has_comps) {
+                      AMREX_D_TERM(eb_vel_arr(i,j,k,0) = mask*eb_vel_comps[0];,
+                                   eb_vel_arr(i,j,k,1) = mask*eb_vel_comps[1];,
+                                   eb_vel_arr(i,j,k,2) = mask*eb_vel_comps[2]);
+                   } else {
+                      // The EB normal points out of the domain so we need to flip the
+                      // when using it to convert magnitude to velocity components so
+                      // the resulting vector points into the domain.
+                      AMREX_D_TERM(eb_vel_arr(i,j,k,0) = -mask*norm_arr(i,j,k,0)*eb_vel_mag;,
+                                   eb_vel_arr(i,j,k,1) = -mask*norm_arr(i,j,k,1)*eb_vel_mag;,
+                                   eb_vel_arr(i,j,k,2) = -mask*norm_arr(i,j,k,2)*eb_vel_mag);
+                   }
                 } else {
-                   // The EB normal points out of the domain so we need to flip the
-                   // when using it to convert magnitude to velocity components so
-                   // the resulting vector points into the domain.
-                   AMREX_D_TERM(eb_vel_arr(i,j,k,0) = -mask*norm_arr(i,j,k,0)*eb_vel_mag;,
-                                eb_vel_arr(i,j,k,1) = -mask*norm_arr(i,j,k,1)*eb_vel_mag;,
-                                eb_vel_arr(i,j,k,2) = -mask*norm_arr(i,j,k,2)*eb_vel_mag);
+                   Real r_abs, r_normal, r_tangential, AMREX_D_DECL(rx, ry, rz);
+                   rx = problo[0];
+                   rx += (Real(i)+ Real(0.5) + bcent_arr(i,j,k,0))*dx_gm[0] - rotation_center[0];
+                   //rx += (Real(i)+  bcent_arr(i,j,k,0))*dx_gm[0] - rotation_center[0];
+                   ry = problo[1];
+                   ry += (Real(j)+ Real(0.5) + bcent_arr(i,j,k,1))*dx_gm[1] - rotation_center[1];
+                   //ry += (Real(j)+ bcent_arr(i,j,k,1))*dx_gm[1] - rotation_center[1];
+                   r_tangential = rx*omega_unit_vec[0] + ry*omega_unit_vec[1];
+                   r_abs = rx*rx+ry*ry;
+#if (AMREX_SPACEDIM == 3)
+                   rz = problo[2];
+                   rz += (Real(k) + Real(0.5) + bcent_arr(i,j,k,2))*dx_gm[2] - rotation_center[2];
+                   //rz += (Real(k) + bcent_arr(i,j,k,2))*dx_gm[2] - rotation_center[2];
+                   r_tangential += rz*omega_unit_vec[2];
+                   r_abs += rz*rz;
+#endif
+                   r_normal = std::sqrt(r_abs - r_tangential*r_tangential);
+#if (AMREX_SPACEDIM == 3)
+                   if (r_normal <= rotation_max_r) {
+                      eb_vel_arr(i,j,k,0) = rotation_omega[1]*rz - rotation_omega[2]*ry;
+                      eb_vel_arr(i,j,k,1) = rotation_omega[2]*rx - rotation_omega[0]*rz;
+                      eb_vel_arr(i,j,k,2) = rotation_omega[0]*ry - rotation_omega[1]*rx;
+                   } else {
+                      eb_vel_arr(i,j,k,0) = Real(0.0);
+                      eb_vel_arr(i,j,k,1) = Real(0.0);
+                      eb_vel_arr(i,j,k,2) = Real(0.0);
+                   }
+#endif
                 }
              }
            });
