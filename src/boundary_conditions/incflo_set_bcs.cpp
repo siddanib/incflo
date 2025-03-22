@@ -253,33 +253,21 @@ incflo::set_eb_velocity (int lev, Real /*time*/, MultiFab& eb_vel, int nghost)
                                          omega_unit_vec{0.};
           if (has_rotation) {
              rotation_max_r = m_eb_flow.rotation_max_r;
+             omega_mag = m_eb_flow.omega_mag;
              AMREX_D_TERM(
              rotation_center[0] = m_eb_flow.rotation_center[0];,
              rotation_center[1] = m_eb_flow.rotation_center[1];,
              rotation_center[2] = m_eb_flow.rotation_center[2]);
 
              AMREX_D_TERM(
-             rotation_omega[0] = m_eb_flow.rotation_omega[0];,
-             rotation_omega[1] = m_eb_flow.rotation_omega[1];,
-             rotation_omega[2] = m_eb_flow.rotation_omega[2]);
+             omega_unit_vec[0] = m_eb_flow.omega_unit_vec[0];,
+             omega_unit_vec[1] = m_eb_flow.omega_unit_vec[1];,
+             omega_unit_vec[2] = m_eb_flow.omega_unit_vec[2]);
 
              AMREX_D_TERM(
-             omega_unit_vec[0] = m_eb_flow.rotation_omega[0];,
-             omega_unit_vec[1] = m_eb_flow.rotation_omega[1];,
-             omega_unit_vec[2] = m_eb_flow.rotation_omega[2]);
-
-             omega_mag =   omega_unit_vec[0]*omega_unit_vec[0]
-                         + omega_unit_vec[1]*omega_unit_vec[1];
-#if (AMREX_SPACEDIM == 3)
-
-             omega_mag  += omega_unit_vec[2]*omega_unit_vec[2];
-#endif
-             omega_mag = std::sqrt(omega_mag);
-             omega_unit_vec[0] /= omega_mag;
-             omega_unit_vec[1] /= omega_mag;
-#if (AMREX_SPACEDIM == 3)
-             omega_unit_vec[2] /= omega_mag;
-#endif
+             rotation_omega[0] = omega_mag*m_eb_flow.omega_unit_vec[0];,
+             rotation_omega[1] = omega_mag*m_eb_flow.omega_unit_vec[1];,
+             rotation_omega[2] = omega_mag*m_eb_flow.omega_unit_vec[2]);
           }
 
           ParallelFor(bx, [flags_arr,eb_vel_arr,norm_arr,has_comps,has_normal,normal,
