@@ -247,11 +247,12 @@ incflo::set_eb_velocity (int lev, Real /*time*/, MultiFab& eb_vel, int nghost)
           }
 
           bool has_rotation = m_eb_flow.has_rotation;
-          Real rotation_max_r{0.}, omega_mag{0.};
+          Real rotation_min_r{0.}, rotation_max_r{0.}, omega_mag{0.};
           GpuArray<Real, AMREX_SPACEDIM> rotation_center{0.},
                                          rotation_omega{0.},
                                          omega_unit_vec{0.};
           if (has_rotation) {
+             rotation_min_r = m_eb_flow.rotation_min_r;
              rotation_max_r = m_eb_flow.rotation_max_r;
              omega_mag = m_eb_flow.omega_mag;
              AMREX_D_TERM(
@@ -272,8 +273,8 @@ incflo::set_eb_velocity (int lev, Real /*time*/, MultiFab& eb_vel, int nghost)
 
           ParallelFor(bx, [flags_arr,eb_vel_arr,norm_arr,has_comps,has_normal,normal,
                  norm_tol_lo, norm_tol_hi,eb_vel_mag,eb_vel_comps,
-                 has_rotation,rotation_max_r,rotation_center,rotation_omega,
-                 omega_unit_vec,bcent_arr,dx_gm,problo]
+                 has_rotation,rotation_min_r,rotation_max_r,rotation_center,
+                 rotation_omega,omega_unit_vec,bcent_arr,dx_gm,problo]
              AMREX_GPU_DEVICE (int i, int j, int k) noexcept
            {
              if (flags_arr(i,j,k).isSingleValued()) {
@@ -323,7 +324,7 @@ incflo::set_eb_velocity (int lev, Real /*time*/, MultiFab& eb_vel, int nghost)
 #endif
                    r_normal = std::sqrt(r_abs - r_tangential*r_tangential);
 #if (AMREX_SPACEDIM == 3)
-                   if (r_normal <= rotation_max_r) {
+                   if ((r_normal >= rotation_min_r)&&(r_normal <= rotation_max_r)) {
                       eb_vel_arr(i,j,k,0) = rotation_omega[1]*rz - rotation_omega[2]*ry;
                       eb_vel_arr(i,j,k,1) = rotation_omega[2]*rx - rotation_omega[0]*rz;
                       eb_vel_arr(i,j,k,2) = rotation_omega[0]*ry - rotation_omega[1]*rx;

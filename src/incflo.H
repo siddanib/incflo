@@ -509,6 +509,7 @@ private:
        amrex::Vector<amrex::Real> rotation_center;
        amrex::Vector<amrex::Real> omega_unit_vec;
        amrex::Real omega_mag{amrex::Real(0.)};
+       amrex::Real rotation_min_r{amrex::Real(0.)};
        amrex::Real rotation_max_r{amrex::Real(0.)};
 
        EBFlow_t ()

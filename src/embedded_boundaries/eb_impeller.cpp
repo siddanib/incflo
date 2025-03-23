@@ -43,9 +43,6 @@ void incflo::make_eb_impeller()
     m_eb_flow.has_rotation = true;
     m_eb_flow.rotation_center.resize(AMREX_SPACEDIM);
     m_eb_flow.rotation_center = centervec2;
-    Real omega_mag = Real(0.);
-    pp.get("omega_mag",omega_mag);
-    m_eb_flow.omega_mag = omega_mag;
     m_eb_flow.omega_unit_vec.resize(AMREX_SPACEDIM);
     for (int i=0; i<AMREX_SPACEDIM;i++) {
          if (i == direction) {

@@ -202,6 +202,20 @@ void incflo::ReadParameters ()
           pp_eb_flow.query("normal_tol", tol_deg);
           m_eb_flow.normal_tol = tol_deg*M_PI/amrex::Real(180.);
        }
+
+       if (pp_eb_flow.contains("omega_mag")) {
+          m_eb_flow.enabled = true;
+          m_eb_flow.has_rotation = true;
+          pp_eb_flow.get("omega_mag",m_eb_flow.omega_mag);
+          pp_eb_flow.query("rotation_min_r", m_eb_flow.rotation_min_r);
+          pp_eb_flow.query("rotation_max_r", m_eb_flow.rotation_max_r);
+          m_eb_flow.rotation_center.resize(AMREX_SPACEDIM);
+          pp_eb_flow.queryarr("rotation_center",
+                              m_eb_flow.rotation_center,0,AMREX_SPACEDIM);
+          m_eb_flow.omega_unit_vec.resize(AMREX_SPACEDIM);
+          pp_eb_flow.queryarr("omega_unit_vec",
+                              m_eb_flow.omega_unit_vec,0,AMREX_SPACEDIM);
+       }
     } // end prefix eb_flow
 #endif
 
