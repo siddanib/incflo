@@ -19,7 +19,7 @@ void incflo::make_eb_impeller()
     int direction = 2;
     Real radius1 = 0.5;
     Real radius2 = 0.5;
-    Real thickness = 0.5;
+    Real thickness = 0.0;
     Vector<Real> centervec1(3);
     Vector<Real> centervec2(3);
 
@@ -78,7 +78,9 @@ void incflo::make_eb_impeller()
 
     // Build the implicit function from the two cylinders
     EB2::CylinderIF cyl1(radius1, direction, center1,false);
-    EB2::CylinderIF cyl2(radius2, thickness, direction, center2,true);
+    EB2::CylinderIF cyl2 = (thickness > Real(0.0)) ?
+                    EB2::CylinderIF(radius2, thickness, direction, center2,true):
+                    EB2::CylinderIF(radius2, direction, center2,true);
     auto twocylinders = EB2::makeComplement(EB2::makeIntersection(cyl1,cyl2));
 
     // Generate GeometryShop
