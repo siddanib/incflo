@@ -216,40 +216,61 @@ void incflo_PC::initializeParticlesUniformDistributionInBox ( const RealBox& par
                }
             });
         }
+
+        // Initializing runtime reals to 0 for now
+        // Total including runtime
+        int ttl_numrealcomps = soa.NumRealComps();
+        // Excluding runtime
+        int compl_numrealcomps = incflo_ParticlesRealIdxSoA::ncomps;
+        if (ttl_numrealcomps > compl_numrealcomps) {
+           for (int i_rtime=compl_numrealcomps;
+                    i_rtime<ttl_numrealcomps; i_rtime++) {
+              auto* i_rtime_d_ptr = soa.GetRealData(i_rtime).data();
+              ParallelFor(tile_box, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+              {
+                  int start = offset_arr(i,j,k);
+                  for (int n = start; n < start+num_particles_arr(i,j,k); n++) {
+                      i_rtime_d_ptr[n] = Real(0.);
+                 }
+              });
+           }
+        }
     }
 
     ParmParse pp("cylinder");
 
     Real cyl_radius;
-    pp.get("radius",cyl_radius);
+    pp.query("radius",cyl_radius);
 
     Array<Real,3> cyl_center;
-    pp.get("center",cyl_center);
+    pp.query("center",cyl_center);
     Real x_ctr = cyl_center[0];
     Real y_ctr = cyl_center[1];
 
-    // Remove particles that are outside of the cylinder
-    for (ParIterType pti(*this, lev); pti.isValid(); ++pti)
-    {
-        auto& ptile = ParticlesAt(lev, pti);
-        auto& aos  = ptile.GetArrayOfStructs();
-        auto& soa  = ptile.GetStructOfArrays();
-        const int n = aos.numParticles();
-        auto *p_pbox = aos().data();
+    if (cyl_radius > Real(0.)) {
+       // Remove particles that are outside of the cylinder
+       for (ParIterType pti(*this, lev); pti.isValid(); ++pti)
+       {
+           auto& ptile = ParticlesAt(lev, pti);
+           auto& aos  = ptile.GetArrayOfStructs();
+           auto& soa  = ptile.GetStructOfArrays();
+           const int n = aos.numParticles();
+           auto *p_pbox = aos().data();
 
-        ParallelFor(n, [=] AMREX_GPU_DEVICE (int i)
-        {
-            ParticleType& p = p_pbox[i];
+           ParallelFor(n, [=] AMREX_GPU_DEVICE (int i)
+           {
+               ParticleType& p = p_pbox[i];
 
-            Real x =  p.pos(0) - x_ctr;
-            Real y =  p.pos(1) - y_ctr;
+               Real x =  p.pos(0) - x_ctr;
+               Real y =  p.pos(1) - y_ctr;
 
-            Real r =  std::sqrt(x*x + y*y);
+               Real r =  std::sqrt(x*x + y*y);
 
-            if (r > cyl_radius) {
-                p.id() = -1;
-            }
-        });
+               if (r > cyl_radius) {
+                   p.id() = -1;
+               }
+           });
+       }
     }
 }
 

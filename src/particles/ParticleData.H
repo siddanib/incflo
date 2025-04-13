@@ -23,6 +23,8 @@
 typedef std::map<std::string, incflo_PC*> ParticleSpeciesMap;
 typedef std::vector<std::string> ParticlesNamesVector;
 typedef std::list<std::string> ParticlesNamesList;
+// This is to create runtime ncomp Real data in a particle
+typedef std::map<std::string, int> ParticleComponentsMap;
 
 class ParticleData
 {
@@ -35,6 +37,7 @@ class ParticleData
             m_particle_species.clear();
             m_namelist.clear();
             m_namelist_unalloc.clear();
+            m_particle_components.clear();
         }
 
         /*! Destructor */
@@ -48,6 +51,7 @@ class ParticleData
             m_particle_species.clear();
             m_namelist.clear();
             m_namelist_unalloc.clear();
+            m_particle_components.clear();
         }
 
         /*! Write checkpoint files */
@@ -57,7 +61,14 @@ class ParticleData
             for (ParticlesNamesVector::size_type i = 0; i < m_namelist.size(); i++) {
                 auto name( m_namelist[i] );
                 auto particles( m_particle_species.at(name) );
-                particles->Checkpoint( a_fname, name, true, particles->varNames() );
+                amrex::Vector<std::string> varNames = particles->varNames();
+                // Check if this particle type involves components
+                int a_comp = getParticleComponents(name);
+                for (int i_runtime = 0; i_runtime < a_comp; i_runtime++) {
+                    std::string comp_name = std::string("comp_"+std::to_string(i_runtime));
+                    varNames.push_back(comp_name);
+                }
+                particles->Checkpoint( a_fname, name, true, varNames);
             }
         }
 
@@ -69,6 +80,12 @@ class ParticleData
             for (auto it = m_namelist_unalloc.begin(); it != m_namelist_unalloc.end(); ++it) {
                 std::string species_name( *it );
                 incflo_PC* pc = new incflo_PC( a_gdb, species_name );
+                // Check if this particle type involves components
+                int a_comp  = getParticleComponents(species_name);
+                for (int i_runtime = 0; i_runtime < a_comp; i_runtime++) {
+                    std::string comp_name = std::string("comp_"+std::to_string(i_runtime));
+                    pc->AddRealComp(comp_name,true);
+                }
                 pc->Restart(a_fname, species_name );
                 pushBack( species_name, pc );
             }
@@ -225,6 +242,26 @@ class ParticleData
             return (m_particle_species.size() == 0);
         }
 
+        /*! Add number of components in each particle species */
+        inline void addParticleComponents (const std::string& a_name,
+                                           int a_comps)
+        {
+          BL_PROFILE("ParticleData::addParticleComponents()");
+          m_particle_components[a_name] = a_comps;
+        }
+
+        /*! Return components in a particle */
+        int getParticleComponents (const std::string& a_name) const
+        {
+          BL_PROFILE("ParticleData::getParticleComponents()");
+          ParticleComponentsMap::const_iterator
+                             it (m_particle_components.find(a_name));
+          if (it == m_particle_components.end()) {
+              return 0;
+          } else {
+              return it->second;
+          }
+        }
 
     private:
 
@@ -234,6 +271,8 @@ class ParticleData
         ParticlesNamesVector m_namelist;
         /*! List with names of unallocated species */
         ParticlesNamesList m_namelist_unalloc;
+        /*! Vector of components in each particle species*/
+        ParticleComponentsMap m_particle_components;
 };
 
 #endif

@@ -17,6 +17,10 @@ void incflo::readTracerParticlesParams ()
 
     if (m_use_tracer_particles) {
         particleData.addName(incfloParticleNames::tracers);
+        int a_comps = 0;
+        pp.query(std::string("components_"+incfloParticleNames::tracers).c_str(),
+                 a_comps);
+        particleData.addParticleComponents(incfloParticleNames::tracers,a_comps);
     }
     return;
 }
@@ -38,6 +42,12 @@ void incflo::initializeTracerParticles ( ParGDBBase* a_gdb
         {
             AMREX_ASSERT(m_use_tracer_particles);
             incflo_PC* pc = new incflo_PC(a_gdb, incfloParticleNames::tracers);
+            // Check if this particle type involves components
+            int a_comp = particleData.getParticleComponents(species_name);
+            for (int i_runtime = 0; i_runtime < a_comp; i_runtime++) {
+                std::string comp_name = std::string("comp_"+std::to_string(i_runtime));
+                pc->AddRealComp(comp_name,true);
+            }
 #ifdef AMREX_USE_EB
             pc->InitializeParticles(ebfact);
 #else

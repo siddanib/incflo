@@ -36,7 +36,9 @@ struct incflo_ParticlesRealIdxSoA
     enum {
         vx = 0,
         vy,
+#if (AMREX_SPACEDIM == 3)
         vz,
+#endif
         mass,
         ncomps
     };
