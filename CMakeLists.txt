@@ -57,6 +57,7 @@ option( INCFLO_EB     "Build Embedded Boundary support" NO )
 option( INCFLO_PARTICLES "Build particle support" NO )
 option( INCFLO_HYPRE  "Enable HYPRE"  NO )
 option( INCFLO_FPE    "Enable Floating Point Exceptions checks" NO )
+option( INCFLO_PYBIND11 "Enable pybind11 to embed python function" NO)
 
 if ((INCFLO_CUDA AND INCFLO_HIP) OR
     (INCFLO_CUDA AND INCFLO_SYCL) OR
@@ -183,6 +184,22 @@ add_executable(incflo)
 
 #target_link_libraries(incflo PUBLIC AMReX::amrex amrex_hydro)
 target_link_libraries(incflo PUBLIC amrex_hydro) #link to amrex through amrex_hydro
+
+# Defining INCFLO_USE_PARTICLES
+if (INCFLO_PARTICLES)
+   target_compile_definitions(incflo PRIVATE INCFLO_USE_PARTICLES)
+endif ()
+
+# Leveraging PYBIND11 in incflo
+if (INCFLO_PYBIND11)
+   message(STATUS "INCFLO_PYBIND11 is ON.")
+   # Find Python 3
+   find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+   # Find pybind11
+   find_package(pybind11 REQUIRED)
+   target_link_libraries(incflo PRIVATE pybind11::embed)
+   target_compile_definitions(incflo PRIVATE USE_INCFLO_PYBIND11)
+endif ()
 
 #
 # If INCFLO_EB=false, we could still link against an external

@@ -1,5 +1,9 @@
 #include <incflo.H>
 #include <AMReX_buildInfo.H>
+#ifdef USE_INCFLO_PYBIND11
+#include <pybind11/embed.h>
+namespace py = pybind11;
+#endif
 
 void writeBuildInfo();
 

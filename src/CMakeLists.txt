@@ -33,3 +33,7 @@ add_subdirectory(utilities)
 if (INCFLO_EB)
    add_subdirectory(embedded_boundaries)
 endif ()
+
+if (INCFLO_PARTICLES)
+   add_subdirectory(particles)
+endif ()
