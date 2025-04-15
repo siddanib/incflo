@@ -621,6 +621,8 @@ private:
                                              amrex::Vector<amrex::MultiFab const*> const& v_mac,
                                              amrex::Vector<amrex::MultiFab const*> const& w_mac));
 
+   /*! Reactions for runtime components of particles*/
+   void reactingTracerParticles ();
 #endif
 
     struct LevelData {

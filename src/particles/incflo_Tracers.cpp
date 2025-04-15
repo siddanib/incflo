@@ -17,10 +17,20 @@ void incflo::readTracerParticlesParams ()
 
     if (m_use_tracer_particles) {
         particleData.addName(incfloParticleNames::tracers);
-        int a_comps = 0;
-        pp.query(std::string("components_"+incfloParticleNames::tracers).c_str(),
-                 a_comps);
-        particleData.addParticleComponents(incfloParticleNames::tracers,a_comps);
+        std::string comp_str = std::string(
+                               "components_"+incfloParticleNames::tracers);
+        if (pp.contains(comp_str.c_str())) {
+           int a_comps = 0;
+           pp.query(comp_str.c_str(),a_comps);
+           // Also allocating space for fluid components.
+           // Order:(fluid species, particle species)
+           if (a_comps == 0) {
+              amrex::Abort(
+               "Particle components must be non-zero. Remove variable if not required.\n");
+           }
+           a_comps += m_ntrac;
+           particleData.addParticleComponents(incfloParticleNames::tracers,a_comps);
+        }
     }
     return;
 }
@@ -74,6 +84,23 @@ void incflo::evolveTracerParticles (AMREX_D_DECL(Vector<MultiFab const*> const& 
             particleData[incfloParticleNames::tracers]->EvolveParticles(lev, m_dt,
                                                                         AMREX_D_DECL(u_mac[lev],v_mac[lev],w_mac[lev]));
         }
+    }
+}
+
+/*! Reactions for runtime components of particles*/
+void incflo::reactingTracerParticles ()
+{
+    if (m_use_tracer_particles &&
+        (particleData.getParticleComponents(
+          incfloParticleNames::tracers) > 0))
+    {
+       // Obtain fluid components
+       Vector<MultiFab*> fluid_comp = get_tracer_new();
+       for (int lev = 0; lev <= finest_level; ++lev)
+       {
+            particleData[incfloParticleNames::tracers]->ReactingParticles(
+            lev, m_dt, fluid_comp[lev]);
+       }
     }
 }
 #endif

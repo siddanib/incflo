@@ -106,6 +106,10 @@ class incflo_PC : public amrex::ParticleContainer<  incflo_ParticlesRealIdxAoS::
                                       AMREX_D_DECL(const amrex::MultiFab* a_u_mac,
                                                    const amrex::MultiFab* a_v_mac,
                                                    const amrex::MultiFab* a_w_mac));
+        /*! Reactions for particles*/
+        virtual void ReactingParticles (int,
+                                      amrex::Real,
+                                      amrex::MultiFab* fluid_comp);
 
         /*! Get real-type particle attribute names */
         virtual amrex::Vector<std::string> varNames () const
@@ -131,6 +135,10 @@ class incflo_PC : public amrex::ParticleContainer<  incflo_ParticlesRealIdxAoS::
         /*! Compute mass density */
         virtual void massDensity ( amrex::MultiFab&, const int&, const int& a_comp = 0) const;
 
+        /*! Copy pre-reaction fluid properties TO particles */
+        void oldFluidComponentsToParticles (const amrex::MultiFab&,const int&);
+        /*! Obtain post-reaction fluid properties FROM particle */
+        virtual void newFluidComponentsFromParticles ( amrex::MultiFab&, const int&) const;
         /*! Compute mesh variable from particles */
         virtual void computeMeshVar(    const std::string&  a_var_name,
                                         amrex::MultiFab&    a_mf,

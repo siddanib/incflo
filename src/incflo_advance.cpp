@@ -68,6 +68,8 @@ void incflo::Advance()
 
 #ifdef INCFLO_USE_PARTICLES
     particleData.Redistribute();
+    // Reactions for tracerparticle runtime components
+    reactingTracerParticles();
 #endif
 
 #if 0

@@ -30,12 +30,12 @@ void incflo_PC::AdvectWithFlow (int                                 a_lev,
                                 AMREX_D_DECL(const MultiFab* a_umac, const MultiFab* a_vmac, const MultiFab* a_wmac))
 {
     BL_PROFILE("incflo_PC::AdvectWithFlow()");
-    AMREX_ASSERT(OK(a_lev, a_lev, a_umac[0].nGrow()-1));
+    //AMREX_ASSERT(OK(a_lev, a_lev, a_umac[0]->nGrow()-1));
     AMREX_ASSERT(a_lev >= 0 && a_lev < GetParticles().size());
 
-    AMREX_D_TERM(AMREX_ASSERT(a_umac.nGrow() >= 1);,
-                 AMREX_ASSERT(a_vmac.nGrow() >= 1);,
-                 AMREX_ASSERT(a_wmac.nGrow() >= 1););
+    AMREX_D_TERM(AMREX_ASSERT(a_umac->nGrow() >= 1);,
+                 AMREX_ASSERT(a_vmac->nGrow() >= 1);,
+                 AMREX_ASSERT(a_wmac->nGrow() >= 1););
 
     const auto      strttime = amrex::second();
     const Geometry    & geom     = m_gdb->Geom(a_lev);
@@ -211,5 +211,19 @@ void incflo_PC::AdvectWithFlow (int                                 a_lev,
         });
 #endif
     }
+}
+
+void incflo_PC::ReactingParticles (int       a_lev,
+                                   Real      a_dt,
+                                   MultiFab* a_fluid_comp)
+{
+    BL_PROFILE("incflo_PC::ReactingParticles()");
+    AMREX_ASSERT(a_lev >= 0 && a_lev < GetParticles().size());
+    // The first m_ntrac runtime attributes correspond to fluid components
+    // Copy fluid components into particles
+    oldFluidComponentsToParticles(*a_fluid_comp, a_lev);
+    // Need to write the actual reaction function
+    // Get the updated fluid components from particles
+    newFluidComponentsFromParticles(*a_fluid_comp, a_lev);
 }
 #endif
