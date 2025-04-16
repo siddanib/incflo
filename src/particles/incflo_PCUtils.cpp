@@ -3,6 +3,11 @@
 
 #ifdef INCFLO_USE_PARTICLES
 
+#ifdef USE_INCFLO_PYBIND11
+#include <pybind11/embed.h>
+namespace py = pybind11;
+#endif
+
 using namespace amrex;
 
 void incflo_PC::massDensity ( MultiFab&  a_mf,
@@ -147,4 +152,42 @@ void incflo_PC::newFluidComponentsFromParticles ( MultiFab&  a_mf,
     a_mf.FillBoundary(geom.periodicity());
     return;
 }
+
+#ifdef USE_INCFLO_PYBIND11
+void incflo_PC::pythonChemicalReactions (const int& a_lev,
+                                         py::module& a_data_transfer_mod
+                                        )
+{
+    for (ParIterType pti(*this, a_lev); pti.isValid(); ++pti)
+    {
+        auto& ptile       = ParticlesAt(a_lev, pti);
+        auto& soa         = ptile.GetStructOfArrays();
+        const int n       = soa.numParticles();
+        const int n_comps = ptile.NumRuntimeRealComps();
+        auto ptd          = ptile.getParticleTileData();
+
+        py::object info_sender = a_data_transfer_mod.attr("create_tensor_from_add");
+        Gpu::DeviceVector<Real> py_vector(n*n_comps, -1.0);
+        Real* py_vector_data = py_vector.data();
+        // Copy TO vector
+        ParallelFor(n, [=] AMREX_GPU_DEVICE (int i)
+        {
+           for (int j=0; j<n_comps; j++) {
+              py_vector_data[i*n_comps+j] = ptd.m_runtime_rdata[j][i];
+           }
+        });
+        intptr_t ptr_addrs = reinterpret_cast<intptr_t>(py_vector.data());
+        py::object not_useful = info_sender(ptr_addrs,sizeof(Real),
+                                            py_vector.size());
+        // Copy FROM modifed vector
+        ParallelFor(n, [=] AMREX_GPU_DEVICE (int i)
+        {
+           for (int j=0; j<n_comps; j++) {
+              ptd.m_runtime_rdata[j][i] = py_vector_data[i*n_comps+j];
+           }
+        });
+    }
+}
+#endif
+
 #endif

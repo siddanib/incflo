@@ -4,6 +4,11 @@
 
 #ifdef INCFLO_USE_PARTICLES
 
+#ifdef USE_INCFLO_PYBIND11
+#include <pybind11/embed.h>
+namespace py = pybind11;
+#endif
+
 using namespace amrex;
 
 /*! Read tracer particles parameters */
@@ -94,12 +99,19 @@ void incflo::reactingTracerParticles ()
         (particleData.getParticleComponents(
           incfloParticleNames::tracers) > 0))
     {
+#ifdef USE_INCFLO_PYBIND11
+       py::module data_transfer_mod = py::module::import("script_call");
+#endif
        // Obtain fluid components
        Vector<MultiFab*> fluid_comp = get_tracer_new();
        for (int lev = 0; lev <= finest_level; ++lev)
        {
             particleData[incfloParticleNames::tracers]->ReactingParticles(
-            lev, m_dt, fluid_comp[lev]);
+            lev, m_dt, fluid_comp[lev]
+#ifdef USE_INCFLO_PYBIND11
+            ,data_transfer_mod
+#endif
+            );
        }
     }
 }

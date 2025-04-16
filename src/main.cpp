@@ -34,7 +34,9 @@ int main(int argc, char* argv[])
         deleting all the incflo member MultiFabs */
 
         BL_PROFILE("main()");
-
+#ifdef USE_INCFLO_PYBIND11
+        py::scoped_interpreter guard{};
+#endif
         // Issue an error if input file is not given
         if(argc < 2) amrex::Abort("Input file must be given as command-line argument.");
 

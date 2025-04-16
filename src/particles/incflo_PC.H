@@ -10,6 +10,11 @@
 #include <string>
 #include <AMReX_Particles.H>
 
+#ifdef USE_INCFLO_PYBIND11
+#include <pybind11/embed.h>
+namespace py = pybind11;
+#endif
+
 struct incflo_ParticlesIntIdxAoS
 {
     enum {
@@ -108,8 +113,12 @@ class incflo_PC : public amrex::ParticleContainer<  incflo_ParticlesRealIdxAoS::
                                                    const amrex::MultiFab* a_w_mac));
         /*! Reactions for particles*/
         virtual void ReactingParticles (int,
-                                      amrex::Real,
-                                      amrex::MultiFab* fluid_comp);
+                                        amrex::Real,
+                                        amrex::MultiFab* fluid_comp
+#ifdef USE_INCFLO_PYBIND11
+                                        ,py::module data_transfer_mod
+#endif
+                                       );
 
         /*! Get real-type particle attribute names */
         virtual amrex::Vector<std::string> varNames () const
@@ -135,10 +144,6 @@ class incflo_PC : public amrex::ParticleContainer<  incflo_ParticlesRealIdxAoS::
         /*! Compute mass density */
         virtual void massDensity ( amrex::MultiFab&, const int&, const int& a_comp = 0) const;
 
-        /*! Copy pre-reaction fluid properties TO particles */
-        void oldFluidComponentsToParticles (const amrex::MultiFab&,const int&);
-        /*! Obtain post-reaction fluid properties FROM particle */
-        virtual void newFluidComponentsFromParticles ( amrex::MultiFab&, const int&) const;
         /*! Compute mesh variable from particles */
         virtual void computeMeshVar(    const std::string&  a_var_name,
                                         amrex::MultiFab&    a_mf,
@@ -167,7 +172,16 @@ class incflo_PC : public amrex::ParticleContainer<  incflo_ParticlesRealIdxAoS::
                                                           ,amrex::EBFArrayBoxFactory const& ebfact
 #endif
                                                           );
-
+        // Reactions related
+        /*! Copy pre-reaction fluid properties TO particles */
+        virtual void oldFluidComponentsToParticles (const amrex::MultiFab&,const int&);
+        /*! Obtain post-reaction fluid properties FROM particle */
+        virtual void newFluidComponentsFromParticles ( amrex::MultiFab&, const int&) const;
+#ifdef USE_INCFLO_PYBIND11
+        virtual void pythonChemicalReactions (const int& a_lev,
+                                              py::module& a_data_transfer_mod
+                                             );
+#endif
     protected:
 
         bool m_advect_w_flow;               /*!< advect with flow velocity */

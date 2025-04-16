@@ -3,6 +3,10 @@
 #ifdef INCFLO_USE_PARTICLES
 
 #include <AMReX_TracerParticle_mod_K.H>
+#ifdef USE_INCFLO_PYBIND11
+#include <pybind11/embed.h>
+namespace py = pybind11;
+#endif
 
 using namespace amrex;
 
@@ -215,7 +219,11 @@ void incflo_PC::AdvectWithFlow (int                                 a_lev,
 
 void incflo_PC::ReactingParticles (int       a_lev,
                                    Real      a_dt,
-                                   MultiFab* a_fluid_comp)
+                                   MultiFab* a_fluid_comp
+#ifdef USE_INCFLO_PYBIND11
+                                   ,py::module a_data_transfer_mod
+#endif
+                                  )
 {
     BL_PROFILE("incflo_PC::ReactingParticles()");
     AMREX_ASSERT(a_lev >= 0 && a_lev < GetParticles().size());
@@ -223,6 +231,9 @@ void incflo_PC::ReactingParticles (int       a_lev,
     // Copy fluid components into particles
     oldFluidComponentsToParticles(*a_fluid_comp, a_lev);
     // Need to write the actual reaction function
+#ifdef USE_INCFLO_PYBIND11
+    pythonChemicalReactions(a_lev,a_data_transfer_mod);
+#endif
     // Get the updated fluid components from particles
     newFluidComponentsFromParticles(*a_fluid_comp, a_lev);
 }
