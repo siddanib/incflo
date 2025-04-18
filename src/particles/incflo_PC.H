@@ -179,6 +179,7 @@ class incflo_PC : public amrex::ParticleContainer<  incflo_ParticlesRealIdxAoS::
         virtual void newFluidComponentsFromParticles ( amrex::MultiFab&, const int&) const;
 #ifdef USE_INCFLO_PYBIND11
         virtual void pythonChemicalReactions (const int& a_lev,
+                                              amrex::Real a_dt,
                                               py::module& a_data_transfer_mod
                                              );
 #endif

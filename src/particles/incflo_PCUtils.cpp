@@ -155,18 +155,18 @@ void incflo_PC::newFluidComponentsFromParticles ( MultiFab&  a_mf,
 
 #ifdef USE_INCFLO_PYBIND11
 void incflo_PC::pythonChemicalReactions (const int& a_lev,
+                                         Real a_dt,
                                          py::module& a_data_transfer_mod
                                         )
 {
     for (ParIterType pti(*this, a_lev); pti.isValid(); ++pti)
     {
         auto& ptile       = ParticlesAt(a_lev, pti);
-        auto& soa         = ptile.GetStructOfArrays();
-        const int n       = soa.numParticles();
+        const int n       = ptile.numParticles();
         const int n_comps = ptile.NumRuntimeRealComps();
         auto ptd          = ptile.getParticleTileData();
 
-        py::object info_sender = a_data_transfer_mod.attr("create_tensor_from_add");
+        py::object info_sender = a_data_transfer_mod.attr("reaction_function");
         Gpu::DeviceVector<Real> py_vector(n*n_comps, -1.0);
         Real* py_vector_data = py_vector.data();
         // Copy TO vector
@@ -178,7 +178,7 @@ void incflo_PC::pythonChemicalReactions (const int& a_lev,
         });
         intptr_t ptr_addrs = reinterpret_cast<intptr_t>(py_vector.data());
         py::object not_useful = info_sender(ptr_addrs,sizeof(Real),
-                                            py_vector.size());
+                                            py_vector.size(), a_dt);
         // Copy FROM modifed vector
         ParallelFor(n, [=] AMREX_GPU_DEVICE (int i)
         {

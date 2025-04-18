@@ -232,7 +232,7 @@ void incflo_PC::ReactingParticles (int       a_lev,
     oldFluidComponentsToParticles(*a_fluid_comp, a_lev);
     // Need to write the actual reaction function
 #ifdef USE_INCFLO_PYBIND11
-    pythonChemicalReactions(a_lev,a_data_transfer_mod);
+    pythonChemicalReactions(a_lev, a_dt, a_data_transfer_mod);
 #endif
     // Get the updated fluid components from particles
     newFluidComponentsFromParticles(*a_fluid_comp, a_lev);
