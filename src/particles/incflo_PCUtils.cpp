@@ -170,22 +170,22 @@ void incflo_PC::pythonChemicalReactions (const int& a_lev,
         Gpu::DeviceVector<Real> py_vector(n*n_comps, -1.0);
         Real* py_vector_data = py_vector.data();
         // Copy TO vector
-        ParallelFor(n, [=] AMREX_GPU_DEVICE (int i)
-        {
-           for (int j=0; j<n_comps; j++) {
-              py_vector_data[i*n_comps+j] = ptd.m_runtime_rdata[j][i];
-           }
-        });
+        for (int j=0; j<n_comps; j++) {
+           ParallelFor(n, [=] AMREX_GPU_DEVICE (int i)
+           {
+                 py_vector_data[j*n+i] = ptd.m_runtime_rdata[j][i];
+           });
+        }
         intptr_t ptr_addrs = reinterpret_cast<intptr_t>(py_vector.data());
         py::object not_useful = info_sender(ptr_addrs,sizeof(Real),
                                             py_vector.size(), a_dt);
         // Copy FROM modifed vector
-        ParallelFor(n, [=] AMREX_GPU_DEVICE (int i)
-        {
-           for (int j=0; j<n_comps; j++) {
-              ptd.m_runtime_rdata[j][i] = py_vector_data[i*n_comps+j];
-           }
-        });
+        for (int j=0; j<n_comps; j++) {
+           ParallelFor(n, [=] AMREX_GPU_DEVICE (int i)
+           {
+                 ptd.m_runtime_rdata[j][i] = py_vector_data[j*n+i];
+           });
+        }
     }
 }
 #endif
