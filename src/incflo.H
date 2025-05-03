@@ -312,6 +312,14 @@ public:
                                      amrex::MultiFab* vel,
                                      amrex::Geometry& lev_geom,
                                      amrex::Real time, int nghost);
+    void compute_nodal_second_fluid_viscosity_at_level (int lev,
+                                      amrex::MultiFab* vel_eta,
+                                      amrex::MultiFab* rho,
+                                      amrex::MultiFab* vel,
+                                      amrex::Geometry& lev_geom,
+                                      amrex::Real time, int nghost,
+                                      amrex::MultiFab& vel_eta_second,
+                                      amrex::MultiFab& conc_second_nd);
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
     void compute_nodal_hydrostatic_pressure_at_level (int lev,
                                     amrex::MultiFab* p_static,

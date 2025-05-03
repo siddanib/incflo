@@ -73,21 +73,27 @@ void incflo::compute_viscosity (Vector<MultiFab*> const& vel_eta,
     }
 }
 
-#ifdef AMREX_USE_EB
 void incflo::compute_viscosity_at_level (int lev,
-#else
-void incflo::compute_viscosity_at_level (int /*lev*/,
-#endif
                                          MultiFab* vel_eta,
                                          MultiFab* /*rho*/,
                                          MultiFab* vel,
                                          Geometry& lev_geom,
-                                         Real /*time*/, int nghost)
+                                         Real time, int nghost)
 {
     if (m_fluid_model == FluidModel::Newtonian)
     {
         vel_eta->setVal(m_mu, 0, 1, nghost);
     }
+#ifdef USE_AMREX_MPMD
+    else if (m_fluid_model == FluidModel::DataDrivenMPMD)
+    {
+        // Copier send of *vel_eta and Copier recv of *vel_eta
+        compute_strainrate_at_level(lev, vel_eta, vel, lev_geom,
+                                    time, nghost);
+        mpmd_copiers_send_lev(*vel_eta,0,1,lev);
+        mpmd_copiers_recv_lev(*vel_eta,0,1,lev);
+    }
+#endif
     else
     {
         NonNewtonianViscosity non_newtonian_viscosity;
@@ -216,142 +222,10 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
        // Nodal second fluid concentration MultiFab
        MultiFab conc_second_nd(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
        compute_nodal_second_fluid_conc(&conc_second_nd,rho,nghost);
-
-       if (m_fluid_model_second == FluidModel::Newtonian)
-       {
-           vel_eta_second.setVal(m_mu_second, 0, 1, nghost);
-       }
-       else {
-           // Create a nodal strain-rate MultiFab, nghost is already set to 0
-           MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-           compute_nodal_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost);
-           // nodal MultiFab for hydrostatic pressure
-           MultiFab p_static(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-           compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,rho,
-                                                       m_mu_p_surf_second,
-                                                       lev_geom,nghost);
-
-#ifdef USE_AMREX_MPMD
-           if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
-               MultiFab inertial_num_mpmd(vel_eta->boxArray(),vel_eta->DistributionMap(),
-                                          2,nghost);
-               // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
-               // NOTE: Strain-rate calculated is TWO TIMES the actual value
-               // The second component will carry concentration
-               MultiFab inertial_num(inertial_num_mpmd,amrex::make_alias,0,1);
-               compute_nodal_inertial_num_at_level(lev,&inertial_num,
-                                                   &sr_mf,&p_static,m_mu_p_eps_second,
-                                                   m_ro_grain_second,m_diam_second,
-                                                   nghost);
-               // Copy concentration
-               MultiFab::Copy(inertial_num_mpmd,conc_second_nd,0,1,1,nghost);
-               // Copier send inertial_num_mpmd
-               mpmd_copiers_send_lev(inertial_num_mpmd,0,2,lev);
-               // NOTE: Actual received quantity is stress ratio
-               mpmd_copiers_recv_lev(vel_eta_second,0,1,lev);
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-               for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-               {
-                   Box const& bx = mfi.growntilebox(nghost);
-                   Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
-                   Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
-                   Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
-                   const Real eps = m_mu_sr_eps_second;
-                   // Note: sr_mf contains TWO TIMES strain rate
-                   amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                   {
-                        // Regularized strain rate
-                        Real sr_reg = Real(0.5)*sr_arr(i,j,k) + eps;
-                        vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
-                        vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
-                   });
-               }
-
-           } else
-#endif
-           if (m_fluid_model_second == FluidModel::Rauter) {
-               // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
-               // NOTE: Strain-rate calculated is TWO TIMES the actual value
-               // The second component will carry concentration
-               MultiFab inertial_num(vel_eta->boxArray(),vel_eta->DistributionMap(),
-                                     1,nghost);
-               compute_nodal_inertial_num_at_level(lev,&inertial_num,
-                                                   &sr_mf,&p_static,m_mu_p_eps_second,
-                                                   m_ro_grain_second,m_diam_second,
-                                                   nghost);
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-               for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-               {
-                   Box const& bx = mfi.growntilebox(nghost);
-                   Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
-                   Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
-                   Array4<Real const> const& inrt_num_arr = inertial_num.const_array(mfi);
-                   Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
-                   const Real mu_1_scnd = m_mu_1_second;
-                   const Real mu_2_scnd = m_mu_2_second;
-                   const Real I_0_scnd = m_I_0_second;
-                   const Real eps = m_mu_sr_eps_second;
-                   // Note: sr_mf contains TWO TIMES strain rate
-                   // Note: Inertial number in Rauter 2021 (Eq. 2.29)
-                   // has an extra factor of 2
-                   amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                   {
-                        vel_eta_snd_arr(i,j,k) = inrt_num_arr(i,j,k,0);
-                        vel_eta_snd_arr(i,j,k) /= (I_0_scnd + inrt_num_arr(i,j,k,0));
-                        vel_eta_snd_arr(i,j,k) *= (mu_2_scnd-mu_1_scnd);
-                        vel_eta_snd_arr(i,j,k) += mu_1_scnd;
-                        // The above value is stress ratio
-                        // Regularized strain rate
-                        Real sr_reg = Real(0.5)*sr_arr(i,j,k) + eps;
-                        vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
-                        vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
-                   });
-               }
-
-           } else
-           {
-               NonNewtonianViscosity non_newtonian_viscosity;
-               non_newtonian_viscosity.fluid_model = m_fluid_model_second;
-               non_newtonian_viscosity.mu = m_mu_second;
-               non_newtonian_viscosity.n_flow = m_n_0_second;
-               non_newtonian_viscosity.tau_0 = m_tau_0_second;
-               non_newtonian_viscosity.eta_0 = m_eta_0_second;
-               non_newtonian_viscosity.papa_reg = m_papa_reg_second;
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-               for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-               {
-                   Box const& bx = mfi.growntilebox(nghost);
-                   Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
-                   Array4<Real> const& eta_arr = vel_eta_second.array(mfi);
-                   amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                   {
-                       eta_arr(i,j,k) = non_newtonian_viscosity(sr_arr(i,j,k));
-                   });
-               }
-           }
-           // Clamp vel_eta_second if it is NOT-NEWTONIAN
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-          for (MFIter mfi(vel_eta_second,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-          {
-              Box const& bx = mfi.growntilebox(nghost);
-              Array4<Real> const& eta_arr = vel_eta_second.array(mfi);
-              const Real eta_min_scnd = m_eta_min_second;
-              const Real eta_max_scnd = m_eta_max_second;
-              amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-              {
-                  eta_arr(i,j,k) = amrex::Clamp(eta_arr(i,j,k),eta_min_scnd,
-                                                eta_max_scnd);
-              });
-          }
-       }
+       // Calculate second fluid viscosity
+       compute_nodal_second_fluid_viscosity_at_level(lev, vel_eta, rho, vel, lev_geom,
+                                                     time, nghost, vel_eta_second,
+                                                     conc_second_nd);
        // Calculate weighted viscosity
        if (!(m_mu-m_mu_second == Real(0.) and m_fluid_model == m_fluid_model_second)) {
 #ifdef _OPENMP
@@ -383,6 +257,154 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
          }
        }
     }
+}
+
+void incflo::compute_nodal_second_fluid_viscosity_at_level (int lev,
+                                         MultiFab* vel_eta,
+                                         MultiFab* rho,
+                                         MultiFab* vel,
+                                         Geometry& lev_geom,
+                                         Real time, int nghost,
+                                         MultiFab& vel_eta_second,
+                                         MultiFab& conc_second_nd
+                                         )
+{
+   if (m_fluid_model_second == FluidModel::Newtonian)
+   {
+       vel_eta_second.setVal(m_mu_second, 0, 1, nghost);
+   }
+   else
+   {
+       // Create a nodal strain-rate MultiFab, nghost is already set to 0
+       MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+       compute_nodal_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost);
+       // nodal MultiFab for hydrostatic pressure
+       MultiFab p_static(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+       compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,rho,
+                                                   m_mu_p_surf_second,
+                                                   lev_geom,nghost);
+
+#ifdef USE_AMREX_MPMD
+       if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
+           MultiFab inertial_num_mpmd(vel_eta->boxArray(),vel_eta->DistributionMap(),
+                                      2,nghost);
+           // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
+           // NOTE: Strain-rate calculated is TWO TIMES the actual value
+           // The second component will carry concentration
+           MultiFab inertial_num(inertial_num_mpmd,amrex::make_alias,0,1);
+           compute_nodal_inertial_num_at_level(lev,&inertial_num,
+                                               &sr_mf,&p_static,m_mu_p_eps_second,
+                                               m_ro_grain_second,m_diam_second,
+                                               nghost);
+           // Copy concentration
+           MultiFab::Copy(inertial_num_mpmd,conc_second_nd,0,1,1,nghost);
+           // Copier send inertial_num_mpmd
+           mpmd_copiers_send_lev(inertial_num_mpmd,0,2,lev);
+           // NOTE: Actual received quantity is stress ratio
+           mpmd_copiers_recv_lev(vel_eta_second,0,1,lev);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+           for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+           {
+               Box const& bx = mfi.growntilebox(nghost);
+               Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
+               Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
+               Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
+               const Real eps = m_mu_sr_eps_second;
+               // Note: sr_mf contains TWO TIMES strain rate
+               amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+               {
+                    // Regularized strain rate
+                    Real sr_reg = Real(0.5)*sr_arr(i,j,k) + eps;
+                    vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
+                    vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
+               });
+           }
+
+       } else
+#endif
+       if (m_fluid_model_second == FluidModel::Rauter) {
+          // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
+          // NOTE: Strain-rate calculated is TWO TIMES the actual value
+          // The second component will carry concentration
+          MultiFab inertial_num(vel_eta->boxArray(),vel_eta->DistributionMap(),
+                                1,nghost);
+          compute_nodal_inertial_num_at_level(lev,&inertial_num,
+                                              &sr_mf,&p_static,m_mu_p_eps_second,
+                                              m_ro_grain_second,m_diam_second,
+                                              nghost);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+          for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+          {
+              Box const& bx = mfi.growntilebox(nghost);
+              Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
+              Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
+              Array4<Real const> const& inrt_num_arr = inertial_num.const_array(mfi);
+              Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
+              const Real mu_1_scnd = m_mu_1_second;
+              const Real mu_2_scnd = m_mu_2_second;
+              const Real I_0_scnd = m_I_0_second;
+              const Real eps = m_mu_sr_eps_second;
+              // Note: sr_mf contains TWO TIMES strain rate
+              // Note: Inertial number in Rauter 2021 (Eq. 2.29)
+              // has an extra factor of 2
+              amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+              {
+                   vel_eta_snd_arr(i,j,k) = inrt_num_arr(i,j,k,0);
+                   vel_eta_snd_arr(i,j,k) /= (I_0_scnd + inrt_num_arr(i,j,k,0));
+                   vel_eta_snd_arr(i,j,k) *= (mu_2_scnd-mu_1_scnd);
+                   vel_eta_snd_arr(i,j,k) += mu_1_scnd;
+                   // The above value is stress ratio
+                   // Regularized strain rate
+                   Real sr_reg = Real(0.5)*sr_arr(i,j,k) + eps;
+                   vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
+                   vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
+              });
+          }
+
+      } else
+      {
+          NonNewtonianViscosity non_newtonian_viscosity;
+          non_newtonian_viscosity.fluid_model = m_fluid_model_second;
+          non_newtonian_viscosity.mu = m_mu_second;
+          non_newtonian_viscosity.n_flow = m_n_0_second;
+          non_newtonian_viscosity.tau_0 = m_tau_0_second;
+          non_newtonian_viscosity.eta_0 = m_eta_0_second;
+          non_newtonian_viscosity.papa_reg = m_papa_reg_second;
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+          for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+          {
+              Box const& bx = mfi.growntilebox(nghost);
+              Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
+              Array4<Real> const& eta_arr = vel_eta_second.array(mfi);
+              amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+              {
+                  eta_arr(i,j,k) = non_newtonian_viscosity(sr_arr(i,j,k));
+              });
+          }
+      }
+      // Clamp vel_eta_second if it is NOT-NEWTONIAN
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+      for (MFIter mfi(vel_eta_second,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+      {
+          Box const& bx = mfi.growntilebox(nghost);
+          Array4<Real> const& eta_arr = vel_eta_second.array(mfi);
+          const Real eta_min_scnd = m_eta_min_second;
+          const Real eta_max_scnd = m_eta_max_second;
+          amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+          {
+              eta_arr(i,j,k) = amrex::Clamp(eta_arr(i,j,k),eta_min_scnd,
+                                            eta_max_scnd);
+          });
+      }
+   }
 }
 
 void incflo::compute_tracer_diff_coeff (Vector<MultiFab*> const& tra_eta, int nghost)
