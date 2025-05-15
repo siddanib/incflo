@@ -138,8 +138,7 @@ void incflo::compute_viscosity_at_level (int lev,
        }
        else
        {
-           // Need to implement corresponding cell-centered function
-           amrex::Abort("cell-centered conc_second function needs to be implemented");
+           compute_cc_second_fluid_conc(&conc_second,rho,nghost);
        }
        // Calculate second fluid viscosity
        compute_second_fluid_viscosity_at_level(lev, rho, vel, lev_geom,
@@ -223,7 +222,10 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
        }
        else
        {
-          amrex::Abort("Corresponding cell-centered functions need to be implemented");
+          compute_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost);
+          compute_cc_hydrostatic_pressure_at_level(lev,&p_static,rho,
+                                                   m_mu_p_surf_second,
+                                                   lev_geom,nghost);
        }
 #ifdef USE_AMREX_MPMD
        if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
@@ -332,6 +334,7 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
 }
 
 // This is cell-centered non-newtonian viscosity calculation
+// EBs can be handled
 void incflo::compute_cc_non_newtonian_viscosity (int lev,
                                          MultiFab* vel_eta,
                                          MultiFab* vel,
@@ -406,6 +409,7 @@ void incflo::compute_cc_non_newtonian_viscosity (int lev,
 }
 
 // This is nodal non-newtonian viscosity
+// EBs CANNOT be handled
 void incflo::compute_nodal_non_newtonian_viscosity (int lev,
                                                     MultiFab* vel_eta,
                                                     MultiFab* rho,

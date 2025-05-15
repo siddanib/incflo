@@ -251,6 +251,98 @@ void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
     p_static->ParallelCopy(pencil_p_static,lev_geom.periodicity());
 }
 
+void incflo::compute_cc_hydrostatic_pressure_at_level (int lev,
+                                          MultiFab* p_static,
+                                          MultiFab* rho,
+                                          Real p_surface,
+                                          Geometry& lev_geom,
+                                          int nghost)
+{
+    if (lev > 0) {
+        amrex::Abort("Hydrostatic pressure is not implemented for lev > 0");
+    }
+    // This is a copy of cell-centered rho
+    // because prob_534 requires special handling
+    MultiFab rho_cc(p_static->boxArray(), p_static->DistributionMap(),1,nghost);
+    MultiFab::Copy(rho_cc, *rho, 0, 0, 1, nghost);
+    if (m_probtype == 534) {
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+       for (MFIter mfi(rho_cc,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+       {
+           Box const& bx = mfi.tilebox();
+           Array4<Real> const& rho_arr = rho_cc.array(mfi);
+           const Real rho_1 = m_ro_0;
+           amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+           {
+              // In inclined_plane_granular, the free surface needs to have
+              // hydrostatic pressure of zero
+                 if (rho_arr(i,j,k) == rho_1) {
+                    rho_arr(i,j,k) -= rho_1;
+                 }
+           });
+       }
+    }
+    BoxArray pencil_ba(lev_geom.Domain());
+#if (AMREX_SPACEDIM==2)
+    IntVect pencil_iv(8,1048576);
+#else
+    IntVect pencil_iv(8,8,1048576);
+#endif
+    pencil_ba.maxSize(pencil_iv);
+    DistributionMapping pencil_dm{pencil_ba};
+    MultiFab pencil_rho_cc(pencil_ba,pencil_dm,1,nghost);
+    pencil_rho_cc.ParallelCopy(rho_cc,lev_geom.periodicity());
+    MultiFab pencil_p_static(pencil_ba,pencil_dm,1,nghost);
+
+    Real idx = Real(1.0) / lev_geom.CellSize(0);
+    Real idy = Real(1.0) / lev_geom.CellSize(1);
+#if (AMREX_SPACEDIM == 3)
+    Real idz = Real(1.0) / lev_geom.CellSize(2);
+#endif
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(pencil_rho_cc,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        // Ensure that static pressure is calculated based on validbox
+        Box const& bx = mfi.tilebox();
+        Array4<Real      > const& p_static_arr = pencil_p_static.array(mfi);
+        Array4<Real const> const& rho_cc_arr   = pencil_rho_cc.const_array(mfi);
+        const Real gravity = std::abs(m_gravity[AMREX_SPACEDIM-1]);
+        // Even for pencil_ba, this needs to be based on validbox
+        const Dim3 v_bxlo = amrex::lbound(mfi.validbox());
+        const Dim3 v_bxhi = amrex::ubound(mfi.validbox());
+        const int level = lev;
+        const Real p_srf = p_surface;
+#if (AMREX_SPACEDIM == 2)
+        int h_end   = v_bxhi.y;
+#else
+        int h_end   = v_bxhi.z;
+#endif
+        // Note: p_valid_box logic ONLY works for max_level = 0
+        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+            Real p_validbox_top = p_srf;
+            if (level > 0) {
+#if (AMREX_SPACEDIM == 2)
+                p_validbox_top = p_static_arr(i,h_end,k);
+#else
+                p_validbox_top = p_static_arr(i,j,h_end);
+#endif
+            }
+            p_static_arr(i,j,k) = p_validbox_top;
+            p_static_arr(i,j,k) += incflo_local_hydrostatic_pressure_cc(
+                                           i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                           gravity,rho_cc_arr,v_bxlo,v_bxhi);
+        });
+    }
+    // MultiFab for hydrostatic pressure
+    p_static->ParallelCopy(pencil_p_static,lev_geom.periodicity());
+}
+
 void incflo::compute_inertial_num_at_level (int lev,
                                           MultiFab* inertial_num,
                                           MultiFab* strainrate,
@@ -299,35 +391,7 @@ void incflo::compute_nodal_second_fluid_conc (MultiFab* conc_second_nd,
     MultiFab conc_second_cc(rho->boxArray(),rho->DistributionMap(),1,nghost+1);
     conc_second_cc.setVal(-1.0);
     if (m_two_fluid_cc_rho_conc) {
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-       for (MFIter mfi(conc_second_cc,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-       {
-           Box const& bx = mfi.growntilebox(nghost+1);
-           Array4<Real const> const& rho_arr = rho->const_array(mfi);
-           Array4<Real> const& conc_second_arr = conc_second_cc.array(mfi);
-           const Real rho_first = m_ro_0;
-           const Real rho_second = m_ro_0_second;
-           const bool rho_harmonic = m_two_fluid_rho_harmonic;
-           amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-           {
-              Real conc_scnd = Real(-1.0);
-              if (rho_harmonic) {
-                 // Based on weighted harmonic mean for cell-centered density
-                 conc_scnd =
-                   ((rho_first*rho_second)/rho_arr(i,j,k)) - rho_second;
-                 conc_scnd /= (rho_first-rho_second);
-              }
-              else {
-                 // Based on weighted arithmetic mean for cell-centered density
-                 conc_scnd = (rho_arr(i,j,k)-rho_first)/(rho_second-rho_first);
-              }
-              // Put guards
-              conc_second_arr(i,j,k) =
-                amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
-           });
-       }
+       compute_cc_second_fluid_conc(&conc_second_cc, rho, nghost+1);
     }
     // Obtain concentration of the second fluid, based on nodal density
     MultiFab rho_nodal(conc_second_nd->boxArray(),
@@ -373,6 +437,40 @@ void incflo::compute_nodal_second_fluid_conc (MultiFab* conc_second_nd,
            }
         });
     }
+}
+
+void incflo::compute_cc_second_fluid_conc (MultiFab* conc_second_cc,
+                                           MultiFab* rho, int nghost) const
+{
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+   for (MFIter mfi(*conc_second_cc,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+   {
+       Box const& bx = mfi.growntilebox(nghost);
+       Array4<Real const> const& rho_arr = rho->const_array(mfi);
+       Array4<Real> const& conc_second_arr = conc_second_cc->array(mfi);
+       const Real rho_first = m_ro_0;
+       const Real rho_second = m_ro_0_second;
+       const bool rho_harmonic = m_two_fluid_rho_harmonic;
+       amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+       {
+          Real conc_scnd = Real(-1.0);
+          if (rho_harmonic) {
+             // Based on weighted harmonic mean for cell-centered density
+             conc_scnd =
+               ((rho_first*rho_second)/rho_arr(i,j,k)) - rho_second;
+             conc_scnd /= (rho_first-rho_second);
+          }
+          else {
+             // Based on weighted arithmetic mean for cell-centered density
+             conc_scnd = (rho_arr(i,j,k)-rho_first)/(rho_second-rho_first);
+          }
+          // Put guards
+          conc_second_arr(i,j,k) =
+            amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
+       });
+   }
 }
 
 Real incflo::ComputeKineticEnergy ()

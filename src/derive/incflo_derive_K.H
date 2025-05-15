@@ -762,4 +762,36 @@ amrex::Real incflo_local_hydrostatic_pressure_nodal (int i, int j, int k,
     }
     return p_st*grav;
 }
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real incflo_local_hydrostatic_pressure_cc (int i, int j, int k,
+             AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
+             const amrex::Real grav, amrex::Array4<amrex::Real const> const& rho_cc,
+             const amrex::Dim3& v_bxlo, const amrex::Dim3& v_bxhi) noexcept
+{
+    using namespace amrex;
+    amrex::ignore_unused<Real>(idx);
+    amrex::ignore_unused<Dim3>(v_bxlo);
+    // NOTE THAT INVERSE CELL SIZES ARE BEING PASSED
+    // Assuming gravity along the last dimension
+#if (AMREX_SPACEDIM == 2)
+    int h_start = j;
+    int h_end   = v_bxhi.y;
+    Real p_st = Real(0.5)*rho_cc(i,h_start,k)/idy;
+#else
+    amrex::ignore_unused<Real>(idy);
+    int h_start = k;
+    int h_end   = v_bxhi.z;
+    Real p_st = Real(0.5)*rho_cc(i,j,h_start)/idz;
+#endif
+
+    for (int h=h_start+1; h <= h_end; ++h) {
+#if (AMREX_SPACEDIM == 2)
+        p_st += (rho_cc(i,h,k)/idy);
+#else
+        p_st += (rho_cc(i,j,h)/idz);
+#endif
+    }
+    return p_st*grav;
+}
 #endif
