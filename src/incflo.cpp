@@ -270,14 +270,22 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
 
 #ifdef USE_AMREX_MPMD
     // Leverage this to first send BoxArray information
-    m_mpmd_copiers[lev] = std::make_unique<MPMD::Copier>(
+    m_mpmd_copiers[lev] = (m_nodal_vel_eta) ?
+                          std::make_unique<MPMD::Copier>(
                                amrex::convert(grids[lev],
                                IndexType::TheNodeType().ixType()),
+                               dmap[lev],true) :
+                          std::make_unique<MPMD::Copier>(
+                               grids[lev],
                                dmap[lev],true);
     // Then receive the actual one from the other application
-    auto new_copier = std::make_unique<MPMD::Copier>(
+    auto new_copier = (m_nodal_vel_eta) ?
+                          std::make_unique<MPMD::Copier>(
                                amrex::convert(grids[lev],
                                IndexType::TheNodeType().ixType()),
+                               dmap[lev],false) :
+                          std::make_unique<MPMD::Copier>(
+                               grids[lev],
                                dmap[lev],false);
     m_mpmd_copiers[lev] = std::move(new_copier);
 #endif
