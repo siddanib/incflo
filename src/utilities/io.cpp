@@ -610,7 +610,7 @@ void incflo::WritePlotFile()
                 MultiFab vel_eta(amrex::convert(mf[lev].boxArray(),
                                  IndexType::TheNodeType().ixType()),
                                  mf[lev].DistributionMap(),1,0);
-                compute_nodal_viscosity_at_level(lev,
+                compute_viscosity_at_level(lev,
                                            &vel_eta,
                                            &m_leveldata[lev]->density,
                                            &m_leveldata[lev]->velocity,
@@ -745,7 +745,7 @@ void incflo::WritePlotFile()
                                 IndexType::TheNodeType().ixType()),
                                 mf[lev].DistributionMap(),1,0);
 
-            compute_nodal_inertial_num_at_level(lev,
+            compute_inertial_num_at_level(lev,
                                            &inertial_num,
                                            &strainrate,
                                            &p_static,
@@ -791,7 +791,7 @@ void incflo::WritePlotFile()
                                               Geom(lev),
                                               m_cur_time, 0);
 
-            compute_nodal_inertial_num_at_level(lev,
+            compute_inertial_num_at_level(lev,
                                            &mu_I,
                                            &strainrate,
                                            &p_static,

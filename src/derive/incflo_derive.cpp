@@ -251,7 +251,7 @@ void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
     p_static->ParallelCopy(pencil_p_static,lev_geom.periodicity());
 }
 
-void incflo::compute_nodal_inertial_num_at_level (int lev,
+void incflo::compute_inertial_num_at_level (int lev,
                                           MultiFab* inertial_num,
                                           MultiFab* strainrate,
                                           MultiFab* press,

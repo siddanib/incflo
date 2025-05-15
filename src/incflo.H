@@ -306,20 +306,25 @@ public:
                                      amrex::MultiFab* vel,
                                      amrex::Geometry& lev_geom,
                                      amrex::Real time, int nghost);
-    void compute_nodal_viscosity_at_level (int lev,
+    void compute_cc_non_newtonian_viscosity (int lev,
+                                     amrex::MultiFab* eta,
+                                     amrex::MultiFab* vel,
+                                     amrex::Geometry& lev_geom,
+                                     int nghost, int comp_id);
+    void compute_nodal_non_newtonian_viscosity (int lev,
                                      amrex::MultiFab* eta,
                                      amrex::MultiFab* rho,
                                      amrex::MultiFab* vel,
                                      amrex::Geometry& lev_geom,
-                                     amrex::Real time, int nghost);
-    void compute_nodal_second_fluid_viscosity_at_level (int lev,
-                                      amrex::MultiFab* vel_eta,
+                                     amrex::Real time, int nghost,
+                                     int comp_id);
+    void compute_second_fluid_viscosity_at_level (int lev,
                                       amrex::MultiFab* rho,
                                       amrex::MultiFab* vel,
                                       amrex::Geometry& lev_geom,
                                       amrex::Real time, int nghost,
                                       amrex::MultiFab& vel_eta_second,
-                                      amrex::MultiFab& conc_second_nd);
+                                      amrex::MultiFab& conc_second);
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
     void compute_nodal_hydrostatic_pressure_at_level (int lev,
                                     amrex::MultiFab* p_static,
@@ -327,7 +332,7 @@ public:
                                     amrex::Real p_surface,
                                     amrex::Geometry& lev_geom,
                                     int nghost);
-    static void compute_nodal_inertial_num_at_level (int lev,
+    static void compute_inertial_num_at_level (int lev,
                                     amrex::MultiFab* inertial_num,
                                     amrex::MultiFab* strainrate,
                                     amrex::MultiFab* press,

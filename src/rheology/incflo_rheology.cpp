@@ -60,22 +60,17 @@ void incflo::compute_viscosity (Vector<MultiFab*> const& vel_eta,
         MPI_Send(last_call.data(), last_call.size(), MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
     }
 #endif
-
+    int nghost_cc_nd = m_nodal_vel_eta ? 0 : nghost;
     for (int lev = 0; lev <= finest_level; ++lev)
     {
-        if (m_nodal_vel_eta) {
-            compute_nodal_viscosity_at_level(lev, vel_eta[lev], rho[lev],
-                    vel[lev], geom[lev], time, 0);
-        } else {
             compute_viscosity_at_level(lev, vel_eta[lev], rho[lev],
-                    vel[lev], geom[lev], time, nghost);
-        }
+                    vel[lev], geom[lev], time, nghost_cc_nd);
     }
 }
 
 void incflo::compute_viscosity_at_level (int lev,
                                          MultiFab* vel_eta,
-                                         MultiFab* /*rho*/,
+                                         MultiFab* rho,
                                          MultiFab* vel,
                                          Geometry& lev_geom,
                                          Real time, int nghost)
@@ -88,118 +83,35 @@ void incflo::compute_viscosity_at_level (int lev,
     else if (m_fluid_model == FluidModel::DataDrivenMPMD)
     {
         // Copier send of *vel_eta and Copier recv of *vel_eta
-        compute_strainrate_at_level(lev, vel_eta, vel, lev_geom,
-                                    time, nghost);
+        if (m_nodal_vel_eta) {
+            compute_nodal_strainrate_at_level(lev,vel_eta,vel,lev_geom,
+                                              time,nghost);
+        }
+        else
+        {
+            compute_strainrate_at_level(lev, vel_eta, vel, lev_geom,
+                                        time, nghost);
+        }
         mpmd_copiers_send_lev(*vel_eta,0,1,lev);
         mpmd_copiers_recv_lev(*vel_eta,0,1,lev);
     }
 #endif
     else
     {
-        NonNewtonianViscosity non_newtonian_viscosity;
-        non_newtonian_viscosity.fluid_model = m_fluid_model;
-        non_newtonian_viscosity.mu = m_mu;
-        non_newtonian_viscosity.n_flow = m_n_0;
-        non_newtonian_viscosity.tau_0 = m_tau_0;
-        non_newtonian_viscosity.eta_0 = m_eta_0;
-        non_newtonian_viscosity.papa_reg = m_papa_reg;
-
-#ifdef AMREX_USE_EB
-        auto const& fact = EBFactory(lev);
-        auto const& flags = fact.getMultiEBCellFlagFab();
-#endif
-
-        Real idx = Real(1.0) / lev_geom.CellSize(0);
-        Real idy = Real(1.0) / lev_geom.CellSize(1);
-#if (AMREX_SPACEDIM == 3)
-        Real idz = Real(1.0) / lev_geom.CellSize(2);
-#endif
-
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-        for (MFIter mfi(*vel_eta,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        if (m_nodal_vel_eta) {
+           compute_nodal_non_newtonian_viscosity(lev, vel_eta, rho, vel,
+                                                 lev_geom, time, nghost,
+                                                 0);
+        }
+        else
         {
-                Box const& bx = mfi.growntilebox(nghost);
-                Array4<Real> const& eta_arr = vel_eta->array(mfi);
-                Array4<Real const> const& vel_arr = vel->const_array(mfi);
-#ifdef AMREX_USE_EB
-                auto const& flag_fab = flags[mfi];
-                auto typ = flag_fab.getType(bx);
-                if (typ == FabType::covered)
-                {
-                    ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                    {
-                        eta_arr(i,j,k) = Real(0.0);
-                    });
-                }
-                else if (typ == FabType::singlevalued)
-                {
-                    auto const& flag_arr = flag_fab.const_array();
-                    ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                    {
-                        Real sr = incflo_strainrate_eb(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr,flag_arr(i,j,k));
-                        eta_arr(i,j,k) = non_newtonian_viscosity(sr);
-                    });
-                }
-                else
-#endif
-                {
-                    ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                    {
-                        Real sr = incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr);
-                        eta_arr(i,j,k) = non_newtonian_viscosity(sr);
-                    });
-                }
+           compute_cc_non_newtonian_viscosity(lev, vel_eta, vel, lev_geom,
+                                              nghost, 0);
         }
     }
-}
-
-void incflo::compute_nodal_viscosity_at_level (int lev,
-                                         MultiFab* vel_eta,
-                                         MultiFab* rho,
-                                         MultiFab* vel,
-                                         Geometry& lev_geom,
-                                         Real time, int nghost)
-{
-    if (m_fluid_model == FluidModel::Newtonian)
+    // Clamp vel_eta if it is NOT-NEWTONIAN
+    if (m_fluid_model != FluidModel::Newtonian)
     {
-        vel_eta->setVal(m_mu, 0, 1, nghost);
-    }
-    else {
-        // Create a nodal strain-rate MultiFab, nghost is already set to 0
-        MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-        compute_nodal_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost);
-#ifdef USE_AMREX_MPMD
-        if (m_fluid_model == FluidModel::DataDrivenMPMD) {
-            // Copier send of sr_mf and Copier recv of *vel_eta
-            mpmd_copiers_send_lev(sr_mf,0,1,lev);
-            mpmd_copiers_recv_lev(*vel_eta,0,1,lev);
-        } else
-#endif
-        {
-            NonNewtonianViscosity non_newtonian_viscosity;
-            non_newtonian_viscosity.fluid_model = m_fluid_model;
-            non_newtonian_viscosity.mu = m_mu;
-            non_newtonian_viscosity.n_flow = m_n_0;
-            non_newtonian_viscosity.tau_0 = m_tau_0;
-            non_newtonian_viscosity.eta_0 = m_eta_0;
-            non_newtonian_viscosity.papa_reg = m_papa_reg;
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-            for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-            {
-                Box const& bx = mfi.growntilebox(nghost);
-                Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
-                Array4<Real> const& eta_arr = vel_eta->array(mfi);
-                amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                {
-                    eta_arr(i,j,k) = non_newtonian_viscosity(sr_arr(i,j,k));
-                });
-            }
-        }
-        // Clamp vel_eta if it is NOT-NEWTONIAN
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -217,24 +129,31 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
     }
 
     if (m_two_fluid) {
-       // Create a nodal viscosity MultiFab for the second fluid, nghost is already set to 0
+       // Create a viscosity MultiFab for the second fluid
        MultiFab vel_eta_second(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-       // Nodal second fluid concentration MultiFab
-       MultiFab conc_second_nd(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-       compute_nodal_second_fluid_conc(&conc_second_nd,rho,nghost);
+       // second fluid concentration MultiFab
+       MultiFab conc_second(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+       if (m_nodal_vel_eta) {
+           compute_nodal_second_fluid_conc(&conc_second,rho,nghost);
+       }
+       else
+       {
+           // Need to implement corresponding cell-centered function
+           amrex::Abort("cell-centered conc_second function needs to be implemented");
+       }
        // Calculate second fluid viscosity
-       compute_nodal_second_fluid_viscosity_at_level(lev, vel_eta, rho, vel, lev_geom,
-                                                     time, nghost, vel_eta_second,
-                                                     conc_second_nd);
+       compute_second_fluid_viscosity_at_level(lev, rho, vel, lev_geom,
+                                               time, nghost, vel_eta_second,
+                                               conc_second);
        // Calculate weighted viscosity
        if (!(m_mu-m_mu_second == Real(0.) and m_fluid_model == m_fluid_model_second)) {
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-         for (MFIter mfi(conc_second_nd,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+         for (MFIter mfi(conc_second,TilingIfNotGPU()); mfi.isValid(); ++mfi)
          {
              Box const& bx = mfi.growntilebox(nghost);
-             Array4<Real const> const& conc_second_arr = conc_second_nd.array(mfi);
+             Array4<Real const> const& conc_second_arr = conc_second.array(mfi);
              Array4<Real const> const& eta_arr_second = vel_eta_second.const_array(mfi);
              Array4<Real> const& eta_arr = vel_eta->array(mfi);
              const Real min_conc_scnd = m_min_conc_second;
@@ -259,45 +178,68 @@ void incflo::compute_nodal_viscosity_at_level (int lev,
     }
 }
 
-void incflo::compute_nodal_second_fluid_viscosity_at_level (int lev,
-                                         MultiFab* vel_eta,
-                                         MultiFab* rho,
-                                         MultiFab* vel,
-                                         Geometry& lev_geom,
-                                         Real time, int nghost,
-                                         MultiFab& vel_eta_second,
-                                         MultiFab& conc_second_nd
-                                         )
+void incflo::compute_second_fluid_viscosity_at_level (int lev,
+                                                      MultiFab* rho,
+                                                      MultiFab* vel,
+                                                      Geometry& lev_geom,
+                                                      Real time, int nghost,
+                                                      MultiFab& vel_eta_second,
+                                                      MultiFab& conc_second
+                                                     )
 {
    if (m_fluid_model_second == FluidModel::Newtonian)
    {
        vel_eta_second.setVal(m_mu_second, 0, 1, nghost);
    }
+   else if (m_fluid_model_second != FluidModel::DataDrivenMPMD
+            && m_fluid_model_second != FluidModel::Rauter)
+
+   {
+       // Non-Newtonian
+       if (m_nodal_vel_eta) {
+          compute_nodal_non_newtonian_viscosity(lev, &vel_eta_second, rho,
+                                                vel, lev_geom, time,
+                                                nghost,1);
+       }
+       else
+       {
+          compute_cc_non_newtonian_viscosity(lev, &vel_eta_second, vel,
+                                             lev_geom, nghost, 1);
+       }
+   }
    else
    {
-       // Create a nodal strain-rate MultiFab, nghost is already set to 0
-       MultiFab sr_mf(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-       compute_nodal_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost);
-       // nodal MultiFab for hydrostatic pressure
-       MultiFab p_static(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
-       compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,rho,
+       // Create a strain-rate MultiFab
+       MultiFab sr_mf(vel_eta_second.boxArray(),
+                      vel_eta_second.DistributionMap(),1,nghost);
+       // MultiFab for hydrostatic pressure
+       MultiFab p_static(vel_eta_second.boxArray(),
+                         vel_eta_second.DistributionMap(),1,nghost);
+       if (m_nodal_vel_eta) {
+          compute_nodal_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost);
+          compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,rho,
                                                    m_mu_p_surf_second,
                                                    lev_geom,nghost);
-
+       }
+       else
+       {
+          amrex::Abort("Corresponding cell-centered functions need to be implemented");
+       }
 #ifdef USE_AMREX_MPMD
        if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
-           MultiFab inertial_num_mpmd(vel_eta->boxArray(),vel_eta->DistributionMap(),
+           MultiFab inertial_num_mpmd(vel_eta_second.boxArray(),
+                                      vel_eta_second.DistributionMap(),
                                       2,nghost);
            // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
            // NOTE: Strain-rate calculated is TWO TIMES the actual value
            // The second component will carry concentration
            MultiFab inertial_num(inertial_num_mpmd,amrex::make_alias,0,1);
-           compute_nodal_inertial_num_at_level(lev,&inertial_num,
-                                               &sr_mf,&p_static,m_mu_p_eps_second,
-                                               m_ro_grain_second,m_diam_second,
-                                               nghost);
+           compute_inertial_num_at_level(lev,&inertial_num,
+                                         &sr_mf,&p_static,m_mu_p_eps_second,
+                                         m_ro_grain_second,m_diam_second,
+                                         nghost);
            // Copy concentration
-           MultiFab::Copy(inertial_num_mpmd,conc_second_nd,0,1,1,nghost);
+           MultiFab::Copy(inertial_num_mpmd,conc_second,0,1,1,nghost);
            // Copier send inertial_num_mpmd
            mpmd_copiers_send_lev(inertial_num_mpmd,0,2,lev);
            // NOTE: Actual received quantity is stress ratio
@@ -328,12 +270,13 @@ void incflo::compute_nodal_second_fluid_viscosity_at_level (int lev,
           // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
           // NOTE: Strain-rate calculated is TWO TIMES the actual value
           // The second component will carry concentration
-          MultiFab inertial_num(vel_eta->boxArray(),vel_eta->DistributionMap(),
+          MultiFab inertial_num(vel_eta_second.boxArray(),
+                                vel_eta_second.DistributionMap(),
                                 1,nghost);
-          compute_nodal_inertial_num_at_level(lev,&inertial_num,
-                                              &sr_mf,&p_static,m_mu_p_eps_second,
-                                              m_ro_grain_second,m_diam_second,
-                                              nghost);
+          compute_inertial_num_at_level(lev,&inertial_num,
+                                        &sr_mf,&p_static,m_mu_p_eps_second,
+                                        m_ro_grain_second,m_diam_second,
+                                        nghost);
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -364,31 +307,12 @@ void incflo::compute_nodal_second_fluid_viscosity_at_level (int lev,
                    vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
               });
           }
-
-      } else
-      {
-          NonNewtonianViscosity non_newtonian_viscosity;
-          non_newtonian_viscosity.fluid_model = m_fluid_model_second;
-          non_newtonian_viscosity.mu = m_mu_second;
-          non_newtonian_viscosity.n_flow = m_n_0_second;
-          non_newtonian_viscosity.tau_0 = m_tau_0_second;
-          non_newtonian_viscosity.eta_0 = m_eta_0_second;
-          non_newtonian_viscosity.papa_reg = m_papa_reg_second;
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-          for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-          {
-              Box const& bx = mfi.growntilebox(nghost);
-              Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
-              Array4<Real> const& eta_arr = vel_eta_second.array(mfi);
-              amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-              {
-                  eta_arr(i,j,k) = non_newtonian_viscosity(sr_arr(i,j,k));
-              });
-          }
       }
-      // Clamp vel_eta_second if it is NOT-NEWTONIAN
+   }
+
+   // Clamp vel_eta_second if it is NOT-NEWTONIAN
+   if (m_fluid_model_second != FluidModel::Newtonian)
+   {
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -404,7 +328,124 @@ void incflo::compute_nodal_second_fluid_viscosity_at_level (int lev,
                                             eta_max_scnd);
           });
       }
-   }
+    }
+}
+
+// This is cell-centered non-newtonian viscosity calculation
+void incflo::compute_cc_non_newtonian_viscosity (int lev,
+                                         MultiFab* vel_eta,
+                                         MultiFab* vel,
+                                         Geometry& lev_geom,
+                                         int nghost, int comp_id)
+{
+    NonNewtonianViscosity non_newtonian_viscosity;
+    if (comp_id == 0) {
+       non_newtonian_viscosity.fluid_model = m_fluid_model;
+       non_newtonian_viscosity.mu = m_mu;
+       non_newtonian_viscosity.n_flow = m_n_0;
+       non_newtonian_viscosity.tau_0 = m_tau_0;
+       non_newtonian_viscosity.eta_0 = m_eta_0;
+       non_newtonian_viscosity.papa_reg = m_papa_reg;
+    }
+    else {
+       non_newtonian_viscosity.fluid_model = m_fluid_model_second;
+       non_newtonian_viscosity.mu = m_mu_second;
+       non_newtonian_viscosity.n_flow = m_n_0_second;
+       non_newtonian_viscosity.tau_0 = m_tau_0_second;
+       non_newtonian_viscosity.eta_0 = m_eta_0_second;
+       non_newtonian_viscosity.papa_reg = m_papa_reg_second;
+    }
+#ifdef AMREX_USE_EB
+    auto const& fact = EBFactory(lev);
+    auto const& flags = fact.getMultiEBCellFlagFab();
+#endif
+
+    Real idx = Real(1.0) / lev_geom.CellSize(0);
+    Real idy = Real(1.0) / lev_geom.CellSize(1);
+#if (AMREX_SPACEDIM == 3)
+    Real idz = Real(1.0) / lev_geom.CellSize(2);
+#endif
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(*vel_eta,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+            Box const& bx = mfi.growntilebox(nghost);
+            Array4<Real> const& eta_arr = vel_eta->array(mfi);
+            Array4<Real const> const& vel_arr = vel->const_array(mfi);
+#ifdef AMREX_USE_EB
+            auto const& flag_fab = flags[mfi];
+            auto typ = flag_fab.getType(bx);
+            if (typ == FabType::covered)
+            {
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    eta_arr(i,j,k) = Real(0.0);
+                });
+            }
+            else if (typ == FabType::singlevalued)
+            {
+                auto const& flag_arr = flag_fab.const_array();
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    Real sr = incflo_strainrate_eb(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr,flag_arr(i,j,k));
+                    eta_arr(i,j,k) = non_newtonian_viscosity(sr);
+                });
+            }
+            else
+#endif
+            {
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    Real sr = incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr);
+                    eta_arr(i,j,k) = non_newtonian_viscosity(sr);
+                });
+            }
+    }
+}
+
+// This is nodal non-newtonian viscosity
+void incflo::compute_nodal_non_newtonian_viscosity (int lev,
+                                                    MultiFab* vel_eta,
+                                                    MultiFab* rho,
+                                                    MultiFab* vel,
+                                                    Geometry& lev_geom,
+                                                    Real time, int nghost,
+                                                    int comp_id)
+{
+
+    NonNewtonianViscosity non_newtonian_viscosity;
+    if (comp_id == 0) {
+       non_newtonian_viscosity.fluid_model = m_fluid_model;
+       non_newtonian_viscosity.mu = m_mu;
+       non_newtonian_viscosity.n_flow = m_n_0;
+       non_newtonian_viscosity.tau_0 = m_tau_0;
+       non_newtonian_viscosity.eta_0 = m_eta_0;
+       non_newtonian_viscosity.papa_reg = m_papa_reg;
+    }
+    else {
+       non_newtonian_viscosity.fluid_model = m_fluid_model_second;
+       non_newtonian_viscosity.mu = m_mu_second;
+       non_newtonian_viscosity.n_flow = m_n_0_second;
+       non_newtonian_viscosity.tau_0 = m_tau_0_second;
+       non_newtonian_viscosity.eta_0 = m_eta_0_second;
+       non_newtonian_viscosity.papa_reg = m_papa_reg_second;
+    }
+
+    compute_nodal_strainrate_at_level(lev,vel_eta,vel,lev_geom,time,nghost);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(*vel_eta,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        Box const& bx = mfi.growntilebox(nghost);
+        Array4<Real> const& eta_arr = vel_eta->array(mfi);
+        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+            eta_arr(i,j,k) = non_newtonian_viscosity(eta_arr(i,j,k));
+        });
+    }
 }
 
 void incflo::compute_tracer_diff_coeff (Vector<MultiFab*> const& tra_eta, int nghost)
