@@ -90,7 +90,10 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
     // Applying Boundary Conditions
     // First ghost cells of boundary are populated
     // with domain boundary value
-    int idim, jdim, n_0, n_1, n_2;
+    int idim, jdim;
+#ifdef USE_SECOND_ORDER
+    int  n_0, n_1, n_2;
+#endif
     if ((i == dlo.x) or (i == dhi.x+1) ){
         idim = 0;
         jdim = (i == dlo.x)? 0:1;
@@ -424,7 +427,10 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
     // Applying Boundary Conditions
     // First ghost cells of boundary are populated
     // with domain boundary value
-    int idim, jdim, n_0, n_1, n_2;
+    int idim, jdim;
+#ifdef USE_SECOND_ORDER
+    int n_0, n_1, n_2;
+#endif
     if ((i == dlo.x) or (i == dhi.x+1)) {
         idim = 0;
         jdim = (i == dlo.x)? 0:1;
