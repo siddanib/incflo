@@ -401,12 +401,10 @@ void incflo::ReadIOParameters()
         Warning("amr.plt_* is depreciated. Please use amr.plotVariables");
         update_plotVars("hydrostatic_p",plt_var);
     }
-#ifdef USE_AMREX_MPMD
     if ( pp.query("plt_mu_I",plt_var ) ) {
         Warning("amr.plt_* is depreciated. Please use amr.plotVariables");
         update_plotVars("mu_I",plt_var);
     }
-#endif
 
 #ifdef INCFLO_USE_PARTICLES
     if ( pp.query("plt_particle_count", plt_var ) ) {

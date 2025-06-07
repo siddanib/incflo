@@ -417,17 +417,19 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
         }
         else if (vars[n] == "inertial_num"
             && (m_fluid_model_second == FluidModel::DataDrivenMPMD
-            || m_fluid_model_second == FluidModel::Rauter)) {
+            || m_fluid_model_second == FluidModel::Rauter
+            || m_fluid_model_second == FluidModel::GranularPowerlaw
+            )) {
             //Inertial Number in mu(I)
             ++ncomp;
         }
-#ifdef USE_AMREX_MPMD
         else if (vars[n] == "mu_I"
-             &&
-             m_fluid_model_second == FluidModel::DataDrivenMPMD) {
+            && (m_fluid_model_second == FluidModel::DataDrivenMPMD
+            || m_fluid_model_second == FluidModel::Rauter
+            || m_fluid_model_second == FluidModel::GranularPowerlaw
+            )) {
             ++ncomp;
         }
-#endif
         else if (vars[n] == "hydrostatic_p") {
             // hydrostatic pressure
             ++ncomp;
@@ -727,7 +729,9 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
         }
         else if (vars[n] == "inertial_num"
             && (m_fluid_model_second == FluidModel::DataDrivenMPMD
-                || m_fluid_model_second == FluidModel::Rauter)) {
+                || m_fluid_model_second == FluidModel::Rauter
+                || m_fluid_model_second == FluidModel::GranularPowerlaw
+            )) {
             for (int lev = 0; lev <= finest_level; ++lev) {
                 MultiFab p_static((m_nodal_vel_eta) ?
                                     amrex::convert(mf[lev].boxArray(),
@@ -779,9 +783,12 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
             pltscaVarsName.push_back("inertial_num");
             ++icomp;
         }
-#ifdef USE_AMREX_MPMD
         else if (vars[n] == "mu_I"
-            && m_fluid_model_second == FluidModel::DataDrivenMPMD) {
+            && (m_fluid_model_second == FluidModel::DataDrivenMPMD
+            || m_fluid_model_second == FluidModel::Rauter
+            || m_fluid_model_second == FluidModel::GranularPowerlaw
+            )) {
+#ifdef USE_AMREX_MPMD
             // Call to indicate this is from incflo::WritePlotFile for mu_I
             if (ParallelDescriptor::MyProc() == 0) {
                 Vector<int> last_call;
@@ -789,6 +796,7 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
                 MPI_Send(last_call.data(), last_call.size(),
                          MPI_INT,m_mpmd_other_root,94,MPI_COMM_WORLD);
             }
+#endif
             for (int lev = 0; lev <= finest_level; ++lev) {
                 MultiFab mu_I((m_nodal_vel_eta) ?
                                  amrex::convert(mf[lev].boxArray(),
@@ -827,10 +835,17 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
                                                m_ro_grain_second,
                                                m_diam_second,
                                                0);
-                // Copier send inertial_num
-                mpmd_copiers_send_lev(mu_I,0,1,lev);
-                // Receive mu(I) = stress ratio
-                mpmd_copiers_recv_lev(mu_I,0,1,lev);
+                if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
+#ifdef USE_AMREX_MPMD
+                   // Copier send inertial_num
+                   mpmd_copiers_send_lev(mu_I,0,1,lev);
+                   // Receive mu(I) = stress ratio
+                   mpmd_copiers_recv_lev(mu_I,0,1,lev);
+#endif
+                }
+                else {
+                  compute_mu_I_at_level(lev, &mu_I, 0);
+                }
                 if (m_nodal_vel_eta) {
                    amrex::average_node_to_cellcenter(mf[lev],icomp,mu_I,0,1);
                 }
@@ -841,7 +856,6 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
             pltscaVarsName.push_back("mu_I");
             ++icomp;
         }
-#endif
         else if (vars[n]=="hydrostatic_p") {
             for (int lev = 0; lev <= finest_level; ++lev) {
                 MultiFab p_static((m_nodal_vel_eta) ?

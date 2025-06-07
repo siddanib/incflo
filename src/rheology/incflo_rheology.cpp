@@ -45,6 +45,31 @@ struct NonNewtonianViscosity
     }
 };
 
+struct GranularViscosity
+{
+    incflo::FluidModel fluid_model;
+    amrex::Real mu_1, mu_2, I_0, mu_const, mu_A, mu_alpha;
+
+    AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    amrex::Real operator() (amrex::Real inrt_num) const noexcept {
+        switch (fluid_model)
+        {
+        case incflo::FluidModel::Rauter:
+        {
+            return mu_1 + (mu_2-mu_1)*(inrt_num/(I_0 + inrt_num));
+        }
+        case incflo::FluidModel::GranularPowerlaw:
+        {
+            return mu_const + mu_A * std::pow(inrt_num, mu_alpha);
+        }
+        default:
+        {
+            return Real(0.);
+        }
+        };
+    }
+};
+
 }
 
 void incflo::compute_viscosity (Vector<MultiFab*> const& vel_eta,
@@ -131,6 +156,7 @@ void incflo::compute_viscosity_at_level (int lev,
     if (m_two_fluid) {
        // Create a viscosity MultiFab for the second fluid
        MultiFab vel_eta_second(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
+       vel_eta_second.setVal(Real(0.0), 0, 1, nghost);
        // second fluid concentration MultiFab
        MultiFab conc_second(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
        if (m_nodal_vel_eta) {
@@ -146,12 +172,19 @@ void incflo::compute_viscosity_at_level (int lev,
                                                conc_second);
        // Calculate weighted viscosity
        if (!(m_mu-m_mu_second == Real(0.) and m_fluid_model == m_fluid_model_second)) {
+         // Models that rely on hydrostatic pressure should only work on valid cells/nodes
+         int nghost_mix = nghost;
+         if (m_fluid_model_second == FluidModel::DataDrivenMPMD
+             || m_fluid_model_second == FluidModel::Rauter
+             || m_fluid_model_second == FluidModel::GranularPowerlaw) {
+             nghost_mix = 0;
+         }
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
          for (MFIter mfi(conc_second,TilingIfNotGPU()); mfi.isValid(); ++mfi)
          {
-             Box const& bx = mfi.growntilebox(nghost);
+             Box const& bx = mfi.growntilebox(nghost_mix);
              Array4<Real const> const& conc_second_arr = conc_second.array(mfi);
              Array4<Real const> const& eta_arr_second = vel_eta_second.const_array(mfi);
              Array4<Real> const& eta_arr = vel_eta->array(mfi);
@@ -173,6 +206,9 @@ void incflo::compute_viscosity_at_level (int lev,
                 }
              });
          }
+         if (nghost - nghost_mix) {
+            vel_eta->FillBoundary(lev_geom.periodicity());
+         }
        }
     }
 }
@@ -191,8 +227,8 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
        vel_eta_second.setVal(m_mu_second, 0, 1, nghost);
    }
    else if (m_fluid_model_second != FluidModel::DataDrivenMPMD
-            && m_fluid_model_second != FluidModel::Rauter)
-
+            && m_fluid_model_second != FluidModel::Rauter
+            && m_fluid_model_second != FluidModel::GranularPowerlaw)
    {
        // Non-Newtonian
        if (m_nodal_vel_eta) {
@@ -208,30 +244,32 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
    }
    else
    {
+       // Hydrostatic pressure is only calculated in valid cells/nodes
+       int nghost_hydrostatic = 0;
        // Create a strain-rate MultiFab
        MultiFab sr_mf(vel_eta_second.boxArray(),
-                      vel_eta_second.DistributionMap(),1,nghost);
+                      vel_eta_second.DistributionMap(),1,nghost_hydrostatic);
        // MultiFab for hydrostatic pressure
        MultiFab p_static(vel_eta_second.boxArray(),
-                         vel_eta_second.DistributionMap(),1,nghost);
+                         vel_eta_second.DistributionMap(),1,nghost_hydrostatic);
        if (m_nodal_vel_eta) {
-          compute_nodal_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost);
+          compute_nodal_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost_hydrostatic);
           compute_nodal_hydrostatic_pressure_at_level(lev,&p_static,rho,
                                                    m_mu_p_surf_second,
-                                                   lev_geom,nghost);
+                                                   lev_geom,nghost_hydrostatic);
        }
        else
        {
-          compute_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost);
+          compute_strainrate_at_level(lev,&sr_mf,vel,lev_geom,time,nghost_hydrostatic);
           compute_cc_hydrostatic_pressure_at_level(lev,&p_static,rho,
                                                    m_mu_p_surf_second,
-                                                   lev_geom,nghost);
+                                                   lev_geom,nghost_hydrostatic);
        }
 #ifdef USE_AMREX_MPMD
        if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
            MultiFab inertial_num_mpmd(vel_eta_second.boxArray(),
                                       vel_eta_second.DistributionMap(),
-                                      2,nghost);
+                                      2,nghost_hydrostatic);
            // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
            // NOTE: Strain-rate calculated is TWO TIMES the actual value
            // The second component will carry concentration
@@ -239,9 +277,9 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
            compute_inertial_num_at_level(lev,&inertial_num,
                                          &sr_mf,&p_static,m_mu_p_eps_second,
                                          m_ro_grain_second,m_diam_second,
-                                         nghost);
+                                         nghost_hydrostatic);
            // Copy concentration
-           MultiFab::Copy(inertial_num_mpmd,conc_second,0,1,1,nghost);
+           MultiFab::Copy(inertial_num_mpmd,conc_second,0,1,1,nghost_hydrostatic);
            // Copier send inertial_num_mpmd
            mpmd_copiers_send_lev(inertial_num_mpmd,0,2,lev);
            // NOTE: Actual received quantity is stress ratio
@@ -251,7 +289,7 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
 #endif
            for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
            {
-               Box const& bx = mfi.growntilebox(nghost);
+               Box const& bx = mfi.growntilebox(nghost_hydrostatic);
                Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
                Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
                Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
@@ -268,40 +306,49 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
 
        } else
 #endif
-       if (m_fluid_model_second == FluidModel::Rauter) {
+       if (m_fluid_model_second == FluidModel::Rauter ||
+           m_fluid_model_second == FluidModel::GranularPowerlaw) {
+          GranularViscosity granvisc;
+          granvisc.fluid_model = m_fluid_model_second;
+          if (m_fluid_model_second == FluidModel::Rauter)
+          {
+             granvisc.mu_1 = m_mu_1_second;
+             granvisc.mu_2 = m_mu_2_second;
+             granvisc.I_0  = m_I_0_second;
+          }
+          else
+          {
+             granvisc.mu_const = m_mu_powerlaw[0][0];
+             granvisc.mu_A     = m_mu_powerlaw[0][1];
+             granvisc.mu_alpha = m_mu_powerlaw[0][2];
+          }
           // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
           // NOTE: Strain-rate calculated is TWO TIMES the actual value
           // The second component will carry concentration
           MultiFab inertial_num(vel_eta_second.boxArray(),
                                 vel_eta_second.DistributionMap(),
-                                1,nghost);
+                                1,nghost_hydrostatic);
           compute_inertial_num_at_level(lev,&inertial_num,
                                         &sr_mf,&p_static,m_mu_p_eps_second,
                                         m_ro_grain_second,m_diam_second,
-                                        nghost);
+                                        nghost_hydrostatic);
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
           for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
           {
-              Box const& bx = mfi.growntilebox(nghost);
+              Box const& bx = mfi.growntilebox(nghost_hydrostatic);
               Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
               Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
               Array4<Real const> const& inrt_num_arr = inertial_num.const_array(mfi);
               Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
-              const Real mu_1_scnd = m_mu_1_second;
-              const Real mu_2_scnd = m_mu_2_second;
-              const Real I_0_scnd = m_I_0_second;
               const Real eps = m_mu_sr_eps_second;
               // Note: sr_mf contains TWO TIMES strain rate
               // Note: Inertial number in Rauter 2021 (Eq. 2.29)
               // has an extra factor of 2
               amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
               {
-                   vel_eta_snd_arr(i,j,k) = inrt_num_arr(i,j,k,0);
-                   vel_eta_snd_arr(i,j,k) /= (I_0_scnd + inrt_num_arr(i,j,k,0));
-                   vel_eta_snd_arr(i,j,k) *= (mu_2_scnd-mu_1_scnd);
-                   vel_eta_snd_arr(i,j,k) += mu_1_scnd;
+                   vel_eta_snd_arr(i,j,k) = granvisc(inrt_num_arr(i,j,k,0));
                    // The above value is stress ratio
                    // Regularized strain rate
                    Real sr_reg = Real(0.5)*sr_arr(i,j,k) + eps;
@@ -309,6 +356,10 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
                    vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
               });
           }
+      }
+      // As only valid cells/nodes were populated
+      if (nghost) {
+         vel_eta_second.FillBoundary(lev_geom.periodicity());
       }
    }
 
@@ -450,6 +501,38 @@ void incflo::compute_nodal_non_newtonian_viscosity (int lev,
             eta_arr(i,j,k) = non_newtonian_viscosity(eta_arr(i,j,k));
         });
     }
+}
+
+// This function in-place converts inertial number to mu(I)
+void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
+                                    int nghost)
+{
+  GranularViscosity granvisc;
+  granvisc.fluid_model = m_fluid_model_second;
+  if (m_fluid_model_second == FluidModel::Rauter)
+  {
+     granvisc.mu_1 = m_mu_1_second;
+     granvisc.mu_2 = m_mu_2_second;
+     granvisc.I_0  = m_I_0_second;
+  }
+  else
+  {
+     granvisc.mu_const = m_mu_powerlaw[0][0];
+     granvisc.mu_A     = m_mu_powerlaw[0][1];
+     granvisc.mu_alpha = m_mu_powerlaw[0][2];
+  }
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+  for (MFIter mfi(*inertial_num,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+  {
+      Box const& bx = mfi.growntilebox(nghost);
+      Array4<Real> const& inrt_num_arr = inertial_num->array(mfi);
+      amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+      {
+           inrt_num_arr(i,j,k,0) = granvisc(inrt_num_arr(i,j,k,0));
+      });
+  }
 }
 
 void incflo::compute_tracer_diff_coeff (Vector<MultiFab*> const& tra_eta, int nghost)

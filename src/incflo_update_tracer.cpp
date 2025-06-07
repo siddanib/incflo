@@ -125,6 +125,8 @@ void incflo::update_tracer (StepType step_type, Vector<MultiFab>& tra_eta, Vecto
             }
 
             // Define half-time density after the average down
+            MultiFab::LinComb(ld.density_nph, Real(0.5), ld.density, 0, Real(0.5), ld.density_o, 0, 0, 1, ng);
+            /*
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -148,10 +150,12 @@ void incflo::update_tracer (StepType step_type, Vector<MultiFab>& tra_eta, Vecto
                 }
             } // mfi
             if (ng > 0) {
-                fillpatch_density(lev, m_t_new[lev], ld.density_nph, ng);
-                ld.density_nph.FillBoundary(IntVectND<AMREX_SPACEDIM>::TheUnitVector(),
-                                            geom[lev].periodicity());
+                fillpatch_density(lev, Real(0.5)*(m_t_old[lev]+m_t_new[lev]),
+                                  ld.density_nph, ng);
+                //ld.density_nph.FillBoundary(IntVectND<AMREX_SPACEDIM>::TheUnitVector(),
+                //                            geom[lev].periodicity());
             }
+            */
         }
 
     }

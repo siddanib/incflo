@@ -38,7 +38,7 @@ public:
 
     enum struct FluidModel {
         Newtonian, powerlaw, Bingham, HerschelBulkley, deSouzaMendesDutra,
-        DataDrivenMPMD, Rauter
+        DataDrivenMPMD, Rauter, GranularPowerlaw
     };
 
     incflo ();
@@ -366,6 +366,8 @@ public:
                                     amrex::Real p_eps, amrex::Real ro_grain,
                                     amrex::Real diam_grain,
                                     int nghost);
+    void compute_mu_I_at_level (int lev, amrex::MultiFab* inertial_num,
+                                int nghost);
     void compute_cc_second_fluid_conc (amrex::MultiFab* conc_second_cc,
                                     amrex::MultiFab* rho_cc,
                                     int nghost) const;
@@ -643,6 +645,8 @@ private:
     amrex::Real m_mu_1_second = amrex::Real(0.);
     amrex::Real m_mu_2_second = amrex::Real(0.);
     amrex::Real m_I_0_second = amrex::Real(0.);
+    // This is specifically for Granular_Powerlaw (Srivastava, JFM 2021)
+    std::vector<std::vector<amrex::Real>> m_mu_powerlaw;
     // epsilon value to pressure while calculating Inertial Number
     amrex::Real m_mu_p_eps_second = amrex::Real(1.0e-4);
     // epsilon value to strain rate magnitude while calculating dynamic viscosity

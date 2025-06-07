@@ -214,6 +214,14 @@ void incflo::ReadRheologyParameters()
             pp_scnd.get("I_0", m_I_0_second);
             amrex::Print() << "Using mu(I) defined Rauter 2021 (Eq. 2.30)"<<std::endl;
         }
+        else if(fluid_model_s_snd == "granularpowerlaw")
+        {
+            m_fluid_model_second = FluidModel::GranularPowerlaw;
+            // Form of powerlaw: const + A (Inertial_Num ^ (alpha))
+            // Ordering in table (const, A, alpha)
+            pp_scnd.gettable("coeff_table", m_mu_powerlaw);
+            amrex::Print() << "Using mu(I) based on Granular Powerlaw"<<std::endl;
+        }
         else
         {
             amrex::Abort("Unknown fluid_model! Choose either newtonian, powerlaw, bingham, hb, smd");
