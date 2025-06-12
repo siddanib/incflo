@@ -800,4 +800,286 @@ amrex::Real incflo_local_hydrostatic_pressure_cc (int i, int j, int k,
     }
     return p_st*grav;
 }
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+void incflo_gradientOfVelocity (int i, int j, int k,
+                               AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
+                               amrex::Array4<amrex::Real const> const& vel,
+                               amrex::Array4<amrex::Real      > const& gradVel) noexcept
+{
+    using namespace amrex;
+
+#if (AMREX_SPACEDIM == 3)
+    gradVel(i,j,k,0) = amrex::Real(0.5) * (vel(i+1,j,k,0) - vel(i-1,j,k,0)) * idx;
+    gradVel(i,j,k,1) = amrex::Real(0.5) * (vel(i+1,j,k,1) - vel(i-1,j,k,1)) * idx;
+    gradVel(i,j,k,2) = amrex::Real(0.5) * (vel(i+1,j,k,2) - vel(i-1,j,k,2)) * idx;
+
+    gradVel(i,j,k,3) = amrex::Real(0.5) * (vel(i,j+1,k,0) - vel(i,j-1,k,0)) * idy;
+    gradVel(i,j,k,4) = amrex::Real(0.5) * (vel(i,j+1,k,1) - vel(i,j-1,k,1)) * idy;
+    gradVel(i,j,k,5) = amrex::Real(0.5) * (vel(i,j+1,k,2) - vel(i,j-1,k,2)) * idy;
+
+    gradVel(i,j,k,6) = amrex::Real(0.5) * (vel(i,j,k+1,0) - vel(i,j,k-1,0)) * idz;
+    gradVel(i,j,k,7) = amrex::Real(0.5) * (vel(i,j,k+1,1) - vel(i,j,k-1,1)) * idz;
+    gradVel(i,j,k,8) = amrex::Real(0.5) * (vel(i,j,k+1,2) - vel(i,j,k-1,2)) * idz;
+
+#else
+    gradVel(i,j,k,0) = amrex::Real(0.5) * (vel(i+1,j,k,0) - vel(i-1,j,k,0)) * idx;
+    gradVel(i,j,k,1) = amrex::Real(0.5) * (vel(i+1,j,k,1) - vel(i-1,j,k,1)) * idx;
+
+    gradVel(i,j,k,2) = amrex::Real(0.5) * (vel(i,j+1,k,0) - vel(i,j-1,k,0)) * idy;
+    gradVel(i,j,k,3) = amrex::Real(0.5) * (vel(i,j+1,k,1) - vel(i,j-1,k,1)) * idy;
+
+#endif
+}
+
+#ifdef AMREX_USE_EB
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+void incflo_gradientOfVelocity_eb (int i, int j, int k,
+                                  AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
+                                  amrex::Array4<amrex::Real const> const& vel,
+                                  amrex::Array4<amrex::Real      > const& gradVel,
+                                  amrex::EBCellFlag flag) noexcept
+{
+    using namespace amrex;
+
+    if (flag.isRegular()) {
+        incflo_gradientOfVelocity(i,j,k,AMREX_D_DECL(idx,idy,idz),vel,gradVel);
+    } else if (flag.isSingleValued()) {
+        constexpr Real c0 = -1.5;
+        constexpr Real c1 =  amrex::Real(2.0);
+        constexpr Real c2 = -amrex::Real(0.5);
+        Real ux, vx, uy, vy;
+#if (AMREX_SPACEDIM == 3)
+        Real wx, wy, uz, vz, wz;
+#endif
+        if (!flag.isConnected( 1,0,0))
+        {
+            // Covered cell to the right, go fish left
+            ux = - (c0 * vel(i  ,j,k,0)
+                  + c1 * vel(i-1,j,k,0)
+                  + c2 * vel(i-2,j,k,0)) * idx;
+            vx = - (c0 * vel(i  ,j,k,1)
+                  + c1 * vel(i-1,j,k,1)
+                  + c2 * vel(i-2,j,k,1)) * idx;
+#if (AMREX_SPACEDIM == 3)
+            wx = - (c0 * vel(i  ,j,k,2)
+                  + c1 * vel(i-1,j,k,2)
+                  + c2 * vel(i-2,j,k,2)) * idx;
+#endif
+        }
+        else if (!flag.isConnected(-1,0,0))
+        {
+            // Covered cell to the left, go fish right
+            ux = (c0 * vel(i  ,j,k,0)
+                + c1 * vel(i+1,j,k,0)
+                + c2 * vel(i+2,j,k,0)) * idx;
+            vx = (c0 * vel(i  ,j,k,1)
+                + c1 * vel(i+1,j,k,1)
+                + c2 * vel(i+2,j,k,1)) * idx;
+#if (AMREX_SPACEDIM == 3)
+            wx = (c0 * vel(i  ,j,k,2)
+                + c1 * vel(i+1,j,k,2)
+                + c2 * vel(i+2,j,k,2)) * idx;
+#endif
+        }
+        else
+        {
+            // No covered cells right or left, use standard stencil
+            ux = amrex::Real(0.5) * (vel(i+1,j,k,0) - vel(i-1,j,k,0)) * idx;
+            vx = amrex::Real(0.5) * (vel(i+1,j,k,1) - vel(i-1,j,k,1)) * idx;
+#if (AMREX_SPACEDIM == 3)
+            wx = amrex::Real(0.5) * (vel(i+1,j,k,2) - vel(i-1,j,k,2)) * idx;
+#endif
+        }
+
+        // Do the same in y-direction
+        if (!flag.isConnected(0, 1,0))
+        {
+            uy = - (c0 * vel(i,j  ,k,0)
+                  + c1 * vel(i,j-1,k,0)
+                  + c2 * vel(i,j-2,k,0)) * idy;
+            vy = - (c0 * vel(i,j  ,k,1)
+                  + c1 * vel(i,j-1,k,1)
+                  + c2 * vel(i,j-2,k,1)) * idy;
+#if (AMREX_SPACEDIM == 3)
+            wy = - (c0 * vel(i,j  ,k,2)
+                  + c1 * vel(i,j-1,k,2)
+                  + c2 * vel(i,j-2,k,2)) * idy;
+#endif
+        }
+        else if (!flag.isConnected(0,-1,0))
+        {
+            uy = (c0 * vel(i,j  ,k,0)
+                + c1 * vel(i,j+1,k,0)
+                + c2 * vel(i,j+2,k,0)) * idy;
+            vy = (c0 * vel(i,j  ,k,1)
+                + c1 * vel(i,j+1,k,1)
+                + c2 * vel(i,j+2,k,1)) * idy;
+#if (AMREX_SPACEDIM == 3)
+            wy = (c0 * vel(i,j  ,k,2)
+                + c1 * vel(i,j+1,k,2)
+                + c2 * vel(i,j+2,k,2)) * idy;
+#endif
+        }
+        else
+        {
+            uy = amrex::Real(0.5) * (vel(i,j+1,k,0) - vel(i,j-1,k,0)) * idy;
+            vy = amrex::Real(0.5) * (vel(i,j+1,k,1) - vel(i,j-1,k,1)) * idy;
+#if (AMREX_SPACEDIM == 3)
+            wy = amrex::Real(0.5) * (vel(i,j+1,k,2) - vel(i,j-1,k,2)) * idy;
+#endif
+        }
+#if (AMREX_SPACEDIM == 3)
+        // Do the same in z-direction
+        if (!flag.isConnected(0,0, 1))
+        {
+            uz = - (c0 * vel(i,j,k  ,0)
+                  + c1 * vel(i,j,k-1,0)
+                  + c2 * vel(i,j,k-2,0)) * idz;
+            vz = - (c0 * vel(i,j,k  ,1)
+                  + c1 * vel(i,j,k-1,1)
+                  + c2 * vel(i,j,k-2,1)) * idz;
+            wz = - (c0 * vel(i,j,k  ,2)
+                  + c1 * vel(i,j,k-1,2)
+                  + c2 * vel(i,j,k-2,2)) * idz;
+        }
+        else if (!flag.isConnected(0,0,-1))
+        {
+            uz = (c0 * vel(i,j,k  ,0)
+                + c1 * vel(i,j,k+1,0)
+                + c2 * vel(i,j,k+2,0)) * idz;
+            vz = (c0 * vel(i,j,k  ,1)
+                + c1 * vel(i,j,k+1,1)
+                + c2 * vel(i,j,k+2,1)) * idz;
+            wz = (c0 * vel(i,j,k  ,2)
+                + c1 * vel(i,j,k+1,2)
+                + c2 * vel(i,j,k+2,2)) * idz;
+        }
+        else
+        {
+            uz = amrex::Real(0.5) * (vel(i,j,k+1,0) - vel(i,j,k-1,0)) * idz;
+            vz = amrex::Real(0.5) * (vel(i,j,k+1,1) - vel(i,j,k-1,1)) * idz;
+            wz = amrex::Real(0.5) * (vel(i,j,k+1,2) - vel(i,j,k-1,2)) * idz;
+        }
+
+        gradVel(i,j,k,0) = ux; gradVel(i,j,k,1) = uy; gradVel(i,j,k,2) = uz;
+        gradVel(i,j,k,3) = vx; gradVel(i,j,k,4) = vy; gradVel(i,j,k,5) = vz;
+        gradVel(i,j,k,6) = wx; gradVel(i,j,k,7) = wy; gradVel(i,j,k,8) = wz;
+#else
+        gradVel(i,j,k,0) = ux; gradVel(i,j,k,1) = uy;
+        gradVel(i,j,k,2) = vx; gradVel(i,j,k,3) = vy;
+#endif
+    } else {
+        return;
+    }
+}
+#endif
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real incflo_divergenceOfVector (int i, int j, int k,
+                               AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
+                               amrex::Array4<amrex::Real const> const& vel) noexcept
+{
+    using namespace amrex;
+
+#if (AMREX_SPACEDIM == 3)
+    Real ux = amrex::Real(0.5) * (vel(i+1,j,k,0) - vel(i-1,j,k,0)) * idx;
+    Real vy = amrex::Real(0.5) * (vel(i,j+1,k,1) - vel(i,j-1,k,1)) * idy;
+    Real wz = amrex::Real(0.5) * (vel(i,j,k+1,2) - vel(i,j,k-1,2)) * idz;
+
+    return ux+vy+wz;
+#else
+    Real ux = amrex::Real(0.5) * (vel(i+1,j,k,0) - vel(i-1,j,k,0)) * idx;
+    Real vy = amrex::Real(0.5) * (vel(i,j+1,k,1) - vel(i,j-1,k,1)) * idy;
+
+    return ux+vy;
+#endif
+}
+
+
+#ifdef AMREX_USE_EB
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real incflo_divergenceOfVector_eb (int i, int j, int k,
+                                  AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
+                                  amrex::Array4<amrex::Real const> const& vel,
+                                  amrex::EBCellFlag flag) noexcept
+{
+    using namespace amrex;
+
+    if (flag.isRegular()) {
+        return incflo_divergenceOfVector(i,j,k,AMREX_D_DECL(idx,idy,idz),vel);
+    } else if (flag.isSingleValued()) {
+        constexpr Real c0 = -1.5;
+        constexpr Real c1 =  amrex::Real(2.0);
+        constexpr Real c2 = -amrex::Real(0.5);
+        Real ux, vy;
+#if (AMREX_SPACEDIM == 3)
+        Real wz;
+#endif
+        if (!flag.isConnected( 1,0,0))
+        {
+            // Covered cell to the right, go fish left
+            ux = - (c0 * vel(i  ,j,k,0)
+                  + c1 * vel(i-1,j,k,0)
+                  + c2 * vel(i-2,j,k,0)) * idx;
+        }
+        else if (!flag.isConnected(-1,0,0))
+        {
+            // Covered cell to the left, go fish right
+            ux = (c0 * vel(i  ,j,k,0)
+                + c1 * vel(i+1,j,k,0)
+                + c2 * vel(i+2,j,k,0)) * idx;
+        }
+        else
+        {
+            // No covered cells right or left, use standard stencil
+            ux = amrex::Real(0.5) * (vel(i+1,j,k,0) - vel(i-1,j,k,0)) * idx;
+        }
+
+        // Do the same in y-direction
+        if (!flag.isConnected(0, 1,0))
+        {
+            vy = - (c0 * vel(i,j  ,k,1)
+                  + c1 * vel(i,j-1,k,1)
+                  + c2 * vel(i,j-2,k,1)) * idy;
+        }
+        else if (!flag.isConnected(0,-1,0))
+        {
+            vy = (c0 * vel(i,j  ,k,1)
+                + c1 * vel(i,j+1,k,1)
+                + c2 * vel(i,j+2,k,1)) * idy;
+        }
+        else
+        {
+            vy = amrex::Real(0.5) * (vel(i,j+1,k,1) - vel(i,j-1,k,1)) * idy;
+        }
+#if (AMREX_SPACEDIM == 3)
+        // Do the same in z-direction
+        if (!flag.isConnected(0,0, 1))
+        {
+            wz = - (c0 * vel(i,j,k  ,2)
+                  + c1 * vel(i,j,k-1,2)
+                  + c2 * vel(i,j,k-2,2)) * idz;
+        }
+        else if (!flag.isConnected(0,0,-1))
+        {
+            wz = (c0 * vel(i,j,k  ,2)
+                + c1 * vel(i,j,k+1,2)
+                + c2 * vel(i,j,k+2,2)) * idz;
+        }
+        else
+        {
+            wz = amrex::Real(0.5) * (vel(i,j,k+1,2) - vel(i,j,k-1,2)) * idz;
+        }
+
+        return ux+vy+wz;
+#else
+        return ux+vy;
+#endif
+    } else {
+        return 0.0;
+    }
+}
+#endif
+
 #endif

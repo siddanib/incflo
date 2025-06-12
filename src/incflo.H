@@ -202,15 +202,49 @@ public:
 
     virtual void compute_strainrate_at_level (int lev,
                                               amrex::MultiFab* strainrate,
-                                              amrex::MultiFab* vel,
+                                              const amrex::MultiFab* vel,
                                               amrex::Geometry& lev_geom,
                                               amrex::Real time, int nghost);
 
     virtual void compute_nodal_strainrate_at_level (int lev,
                                               amrex::MultiFab* strainrate,
-                                              amrex::MultiFab* vel,
+                                              const amrex::MultiFab* vel,
                                               amrex::Geometry& lev_geom,
                                               amrex::Real time, int nghost);
+
+    void compute_nodal_hydrostatic_pressure_at_level (int lev,
+                                    amrex::MultiFab* p_static,
+                                    const amrex::MultiFab* rho_cc,
+                                    amrex::Real p_surface,
+                                    amrex::Geometry& lev_geom,
+                                    int nghost);
+
+    void compute_cc_hydrostatic_pressure_at_level (int lev,
+                                    amrex::MultiFab* p_static,
+                                    const amrex::MultiFab* rho,
+                                    amrex::Real p_surface,
+                                    amrex::Geometry& lev_geom,
+                                    int nghost);
+
+    static void compute_inertial_num_at_level (int lev,
+                                    amrex::MultiFab* inertial_num,
+                                    amrex::MultiFab* strainrate,
+                                    amrex::MultiFab* press,
+                                    amrex::Real p_eps, amrex::Real ro_grain,
+                                    amrex::Real diam_grain,
+                                    int nghost);
+
+    void compute_cc_second_fluid_conc (amrex::MultiFab* conc_second_cc,
+                                    amrex::MultiFab* rho_cc,
+                                    int nghost) const;
+
+    void compute_nodal_second_fluid_conc (amrex::MultiFab* conc_second_nd,
+                                    amrex::MultiFab* rho_cc,
+                                    int nghost) const;
+
+    void compute_gradientOfVelocity_on_level (int lev, amrex::MultiFab& gradVel,
+                                              const amrex::MultiFab& velocity,
+                                              amrex::Geometry& lev_geom);
 
     ///////////////////////////////////////////////////////////////////////////
     //
@@ -347,33 +381,20 @@ public:
                                       amrex::MultiFab& vel_eta_second,
                                       amrex::MultiFab& conc_second);
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
-    void compute_nodal_hydrostatic_pressure_at_level (int lev,
-                                    amrex::MultiFab* p_static,
-                                    amrex::MultiFab* rho_cc,
-                                    amrex::Real p_surface,
-                                    amrex::Geometry& lev_geom,
-                                    int nghost);
-    void compute_cc_hydrostatic_pressure_at_level (int lev,
-                                    amrex::MultiFab* p_static,
-                                    amrex::MultiFab* rho,
-                                    amrex::Real p_surface,
-                                    amrex::Geometry& lev_geom,
-                                    int nghost);
-    static void compute_inertial_num_at_level (int lev,
-                                    amrex::MultiFab* inertial_num,
-                                    amrex::MultiFab* strainrate,
-                                    amrex::MultiFab* press,
-                                    amrex::Real p_eps, amrex::Real ro_grain,
-                                    amrex::Real diam_grain,
-                                    int nghost);
     void compute_mu_I_at_level (int lev, amrex::MultiFab* inertial_num,
                                 int nghost);
-    void compute_cc_second_fluid_conc (amrex::MultiFab* conc_second_cc,
-                                    amrex::MultiFab* rho_cc,
-                                    int nghost) const;
-    void compute_nodal_second_fluid_conc (amrex::MultiFab* conc_second_nd,
-                                    amrex::MultiFab* rho_cc,
-                                    int nghost) const;
+    void compute_rheological_vel_forces_on_level (int lev, amrex::MultiFab& vel_forces,
+                                                  const amrex::MultiFab& velocity,
+                                                  const amrex::MultiFab& density,
+                                                  const amrex::MultiFab& tracer_old,
+                                                  const amrex::MultiFab& tracer_new);
+    void compute_granular_powerlaw_second_order_coeff (int lev,
+                                                       amrex::MultiFab& scnd_coeff,
+                                                       const amrex::MultiFab& velocity,
+                                                       const amrex::MultiFab& density,
+                                                       const amrex::MultiFab& tracer_old,
+                                                       const amrex::MultiFab& tracer_new,
+                                                       amrex::Geometry& lev_geom);
 
 #ifdef AMREX_USE_EB
     ///////////////////////////////////////////////////////////////////////////

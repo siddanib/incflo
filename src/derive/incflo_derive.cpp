@@ -46,7 +46,7 @@ void incflo::compute_strainrate_at_level (int lev,
 void incflo::compute_strainrate_at_level (int /*lev*/,
 #endif
                                           MultiFab* strainrate,
-                                          MultiFab* vel,
+                                          const MultiFab* vel,
                                           Geometry& lev_geom,
                                           Real /*time*/, int nghost)
 {
@@ -99,7 +99,7 @@ void incflo::compute_strainrate_at_level (int /*lev*/,
 
 void incflo::compute_nodal_strainrate_at_level (int /*lev*/,
                                           MultiFab* strainrate,
-                                          MultiFab* vel,
+                                          const MultiFab* vel,
                                           Geometry& lev_geom,
                                           Real /*time*/, int nghost)
 {
@@ -160,7 +160,7 @@ void incflo::compute_nodal_strainrate_at_level (int /*lev*/,
 
 void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
                                           MultiFab* p_static,
-                                          MultiFab* rho_cc,
+                                          const MultiFab* rho_cc,
                                           Real p_surface,
                                           Geometry& lev_geom,
                                           int nghost)
@@ -253,7 +253,7 @@ void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
 
 void incflo::compute_cc_hydrostatic_pressure_at_level (int lev,
                                           MultiFab* p_static,
-                                          MultiFab* rho,
+                                          const MultiFab* rho,
                                           Real p_surface,
                                           Geometry& lev_geom,
                                           int nghost)
@@ -471,6 +471,56 @@ void incflo::compute_cc_second_fluid_conc (MultiFab* conc_second_cc,
             amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
        });
    }
+}
+
+void incflo::compute_gradientOfVelocity_on_level (int lev, MultiFab& gradVel,
+                                                  const MultiFab& velocity,
+                                                  Geometry& lev_geom)
+{
+#ifdef AMREX_USE_EB
+    auto const& fact = EBFactory(lev);
+    auto const& flags = fact.getMultiEBCellFlagFab();
+#endif
+    Real idx = Real(1.0) / lev_geom.CellSize(0);
+    Real idy = Real(1.0) / lev_geom.CellSize(1);
+#if (AMREX_SPACEDIM == 3)
+    Real idz = Real(1.0) / lev_geom.CellSize(2);
+#endif
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(velocity,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+            Box const& bx = mfi.tilebox();
+            Array4<Real const> const& vel_arr = velocity.const_array(mfi);
+            Array4<Real      > const& gradVel_arr = gradVel.array(mfi);
+#ifdef AMREX_USE_EB
+            auto const& flag_fab = flags[mfi];
+            auto typ = flag_fab.getType(bx);
+            if (typ == FabType::covered)
+            {
+                // Do nothing; already initialised to zero
+            }
+            else if (typ == FabType::singlevalued)
+            {
+                auto const& flag_arr = flag_fab.const_array();
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    incflo_gradientOfVelocity_eb(i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                                 vel_arr,gradVel_arr,flag_arr(i,j,k));
+                });
+            }
+            else
+#endif
+            {
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    incflo_gradientOfVelocity(i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                              vel_arr,gradVel_arr);
+                });
+            }
+    }
 }
 
 Real incflo::ComputeKineticEnergy ()

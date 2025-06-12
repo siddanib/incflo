@@ -49,7 +49,7 @@ void incflo::compute_vel_forces (Vector<MultiFab*> const& vel_forces,
 
 void incflo::compute_vel_forces_on_level (int lev,
                                                 MultiFab& vel_forces,
-                                          const MultiFab& /*velocity*/,
+                                          const MultiFab& velocity,
                                           const MultiFab& density,
                                           const MultiFab& tracer_old,
                                           const MultiFab& tracer_new,
@@ -147,5 +147,13 @@ void incflo::compute_vel_forces_on_level (int lev,
                     }
                 });
             }
+    }
+
+    if (m_two_fluid && m_fluid_model_second == FluidModel::GranularPowerlaw) {
+       // This is to consider high-order terms in Granular Rheology as additional body force terms
+       if (m_mu_powerlaw.size() > 1) {
+          compute_rheological_vel_forces_on_level(lev,vel_forces,velocity,density,
+                                               tracer_old, tracer_new);
+       }
     }
 }
