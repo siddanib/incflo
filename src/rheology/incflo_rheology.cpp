@@ -48,7 +48,31 @@ struct NonNewtonianViscosity
 struct GranularViscosity
 {
     incflo::FluidModel fluid_model;
-    amrex::Real mu_1, mu_2, I_0, mu_const, mu_A, mu_alpha;
+    amrex::Real mu_1, mu_2, I_0;
+    amrex::Real mu_const, mu_A, mu_alpha;
+    amrex::Real I_1_N, I_1_N_A_minus;
+    amrex::Real I_1_N_alpha = amrex::Real(1.9);
+
+    void set_rauter_parameters (amrex::Real a_mu_1, amrex::Real a_mu_2,
+                                amrex::Real a_I_0) {
+        mu_1 = a_mu_1;
+        mu_2 = a_mu_2;
+        I_0 = a_I_0;
+    }
+
+    void set_granularpowerlaw_parameters (amrex::Real a_mu_const,
+                                          amrex::Real a_mu_A,
+                                          amrex::Real a_mu_alpha,
+                                          amrex::Real a_I_1_N) {
+        mu_const = a_mu_const;
+        mu_A = a_mu_A;
+        mu_alpha = a_mu_alpha;
+        I_1_N = a_I_1_N;
+        if (I_1_N > amrex::Real(0.0)) {
+           amrex::Real I_1_N_mu = mu_const + mu_A * std::pow(I_1_N, mu_alpha);
+           I_1_N_A_minus = I_1_N*std::exp(I_1_N_alpha/(I_1_N_mu*I_1_N_mu));
+        }
+    }
 
     AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
     amrex::Real operator() (amrex::Real inrt_num) const noexcept {
@@ -60,7 +84,17 @@ struct GranularViscosity
         }
         case incflo::FluidModel::GranularPowerlaw:
         {
-            return mu_const + mu_A * std::pow(inrt_num, mu_alpha);
+            if (I_1_N > amrex::Real(0.0)) {
+              if (inrt_num > I_1_N) {
+                 return mu_const + mu_A * std::pow(inrt_num, mu_alpha);
+              }
+              else {
+                 return std::sqrt(I_1_N_alpha/std::log(I_1_N_A_minus/(inrt_num+amrex::Real(1.0e-18))));
+              }
+            }
+            else {
+               return mu_const + mu_A * std::pow(inrt_num, mu_alpha);
+            }
         }
         default:
         {
@@ -312,15 +346,15 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
           granvisc.fluid_model = m_fluid_model_second;
           if (m_fluid_model_second == FluidModel::Rauter)
           {
-             granvisc.mu_1 = m_mu_1_second;
-             granvisc.mu_2 = m_mu_2_second;
-             granvisc.I_0  = m_I_0_second;
+             granvisc.set_rauter_parameters(m_mu_1_second, m_mu_2_second,
+                                            m_I_0_second);
           }
           else
           {
-             granvisc.mu_const = m_mu_powerlaw[0][0];
-             granvisc.mu_A     = m_mu_powerlaw[0][1];
-             granvisc.mu_alpha = m_mu_powerlaw[0][2];
+             granvisc.set_granularpowerlaw_parameters(m_mu_powerlaw[0][0],
+                                                      m_mu_powerlaw[0][1],
+                                                      m_mu_powerlaw[0][2],
+                                                      m_I_1_N_powerlaw);
           }
           // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
           // NOTE: Strain-rate calculated is TWO TIMES the actual value
@@ -511,15 +545,15 @@ void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
   granvisc.fluid_model = m_fluid_model_second;
   if (m_fluid_model_second == FluidModel::Rauter)
   {
-     granvisc.mu_1 = m_mu_1_second;
-     granvisc.mu_2 = m_mu_2_second;
-     granvisc.I_0  = m_I_0_second;
+     granvisc.set_rauter_parameters(m_mu_1_second, m_mu_2_second,
+                                    m_I_0_second);
   }
   else
   {
-     granvisc.mu_const = m_mu_powerlaw[0][0];
-     granvisc.mu_A     = m_mu_powerlaw[0][1];
-     granvisc.mu_alpha = m_mu_powerlaw[0][2];
+     granvisc.set_granularpowerlaw_parameters(m_mu_powerlaw[0][0],
+                                              m_mu_powerlaw[0][1],
+                                              m_mu_powerlaw[0][2],
+                                              m_I_1_N_powerlaw);
   }
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
