@@ -678,6 +678,12 @@ void incflo::compute_rheological_vel_forces_on_level (int lev, MultiFab& vel_for
           A_23 *= scndCoeff_arr(i,j,k,0);
           A_33 *= scndCoeff_arr(i,j,k,0);
 #endif
+          // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
+          // BE A MINUS INFRONT OF THE TERMS
+          A_11 *= Real(-1.0); A_12 *= Real(-1.0);  A_22 *= Real(-1.0);
+#if (AMREX_SPACEDIM == 3)
+          A_13 *= Real(-1.0); A_23 *= Real(-1.0); A_33 *= Real(-1.0);
+#endif
           // Populating the vectors
           vecX_arr(i,j,k,0) = A_11;
           vecX_arr(i,j,k,1) = A_12;
@@ -722,8 +728,8 @@ void incflo::compute_rheological_vel_forces_on_level (int lev, MultiFab& vel_for
 #if (AMREX_SPACEDIM == 3)
             Array4<Real const> const& vecZ_arr  = vecZ.const_array(mfi);
 #endif
-            Array4<Real const> const& trac_o_arr   = tracer_old.const_array(mfi);
-            Array4<Real const> const& trac_n_arr   = tracer_new.const_array(mfi);
+            Array4<Real const> const& trac_o_arr  = tracer_old.const_array(mfi);
+            Array4<Real const> const& trac_n_arr  = tracer_new.const_array(mfi);
             Array4<Real      > const& vel_f_arr   = vel_forces.array(mfi);
             const Real min_conc_scnd = m_min_conc_second;
 #ifdef AMREX_USE_EB
@@ -740,16 +746,16 @@ void incflo::compute_rheological_vel_forces_on_level (int lev, MultiFab& vel_for
                 {
                    Real trcr_val = Real(0.5)*(trac_o_arr(i,j,k,0)+trac_n_arr(i,j,k,0));
                    if (trcr_val > min_conc_scnd) {
-                      vel_f_arr(i,j,k,0) -= (incflo_divergenceOfVector_eb(i,j,k,
+                      vel_f_arr(i,j,k,0) += (incflo_divergenceOfVector_eb(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
                                                               vecX_arr,flag_arr(i,j,k)))
                                             /rho_arr(i,j,k);
-                      vel_f_arr(i,j,k,1) -= (incflo_divergenceOfVector_eb(i,j,k,
+                      vel_f_arr(i,j,k,1) += (incflo_divergenceOfVector_eb(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
                                                               vecY_arr,flag_arr(i,j,k)))
                                             /rho_arr(i,j,k);
 #if (AMREX_SPACEDIM == 3)
-                      vel_f_arr(i,j,k,2) -= (incflo_divergenceOfVector_eb(i,j,k,
+                      vel_f_arr(i,j,k,2) += (incflo_divergenceOfVector_eb(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
                                                               vecZ_arr,flag_arr(i,j,k)))
                                             /rho_arr(i,j,k);
@@ -764,16 +770,16 @@ void incflo::compute_rheological_vel_forces_on_level (int lev, MultiFab& vel_for
                 {
                    Real trcr_val = Real(0.5)*(trac_o_arr(i,j,k,0)+trac_n_arr(i,j,k,0));
                    if (trcr_val > min_conc_scnd) {
-                      vel_f_arr(i,j,k,0) -= (incflo_divergenceOfVector(i,j,k,
+                      vel_f_arr(i,j,k,0) += (incflo_divergenceOfVector(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
                                                               vecX_arr))
                                             /rho_arr(i,j,k);
-                      vel_f_arr(i,j,k,1) -= (incflo_divergenceOfVector(i,j,k,
+                      vel_f_arr(i,j,k,1) += (incflo_divergenceOfVector(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
                                                               vecY_arr))
                                            /rho_arr(i,j,k);
 #if (AMREX_SPACEDIM == 3)
-                      vel_f_arr(i,j,k,2) -= (incflo_divergenceOfVector(i,j,k,
+                      vel_f_arr(i,j,k,2) += (incflo_divergenceOfVector(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
                                                               vecZ_arr))
                                             /rho_arr(i,j,k);
