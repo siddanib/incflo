@@ -34,6 +34,23 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
     Real diff_cfl = Real(0.0);
     Real forc_cfl = Real(0.0);
 
+    // Make a temporary here for vel_eta; Using for two fluid scenario
+    Vector<MultiFab> vel_eta;
+    if (m_two_fluid) {
+       for (int lev = 0; lev <= finest_level; ++lev) {
+          if (m_nodal_vel_eta) {
+              vel_eta.emplace_back(amrex::convert(grids[lev],
+                      IndexType::TheNodeType().ixType()),
+                      dmap[lev], 1, 0, MFInfo(), Factory(lev));
+          } else {
+              vel_eta.emplace_back(grids[lev], dmap[lev], 1, 0, MFInfo(), Factory(lev));
+          }
+       }
+       compute_viscosity(GetVecOfPtrs(vel_eta),
+                         get_density_new(), get_velocity_new(),
+                         m_cur_time, 0);
+    }
+
     for (int lev = 0; lev <= finest_level; ++lev)
     {
         auto const dxinv = geom[lev].InvCellSizeArray();
@@ -70,7 +87,7 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
                            });
                            return mx;
                        });
-            if (explicit_diffusion) {
+            if (explicit_diffusion && (!m_two_fluid)) {
                 diff_lev = amrex::ReduceMax(rho, flag, 0,
                            [=] AMREX_GPU_HOST_DEVICE (Box const& b,
                                                       Array4<Real const> const& r,
@@ -87,6 +104,26 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
                               return mx;
                           });
                 diff_lev *= m_mu;
+            }
+            // Should probably use it for every two fluid model,
+            // but only using for high-order rheology for now
+            if (m_two_fluid && (m_mu_powerlaw.size() > 1)) {
+                diff_lev = amrex::ReduceMax(rho, vel_eta[lev], flag, 0,
+                           [=] AMREX_GPU_HOST_DEVICE (Box const& b,
+                                                      Array4<Real const> const& r,
+                                                      Array4<Real const> const& eta,
+                                                      Array4<EBCellFlag const> const& f) -> Real
+                          {
+                              Real mx = Real(-1.0);
+                              amrex::Loop(b, [=,&mx] (int i, int j, int k) noexcept
+                              {
+                                  if (!f(i,j,k).isCovered()) {
+                                      Real eta_by_rho = eta(i,j,k)/r(i,j,k);
+                                      mx = amrex::max(eta_by_rho, mx);
+                                  }
+                              });
+                              return mx;
+                          });
             }
 
             // Forcing term -- old way of computing
@@ -129,7 +166,7 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
                            return mx;
                        });
 
-            if (explicit_diffusion) {
+            if (explicit_diffusion && (!m_two_fluid)) {
                 diff_lev = amrex::ReduceMax(rho, 0,
                            [=] AMREX_GPU_HOST_DEVICE (Box const& b,
                                                       Array4<Real const> const& r) -> Real
@@ -143,6 +180,25 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
                                return mx;
                            });
                 diff_lev *= m_mu;
+            }
+
+            // Should probably use it for every two fluid model,
+            // but only using for high-order rheology for now
+            if (m_two_fluid && (m_mu_powerlaw.size() > 1)) {
+                diff_lev = amrex::ReduceMax(rho, vel_eta[lev], 0,
+                           [=] AMREX_GPU_HOST_DEVICE (Box const& b,
+                                                      Array4<Real const> const& r,
+                                                      Array4<Real const> const& eta) -> Real
+                          {
+                              Real mx = Real(-1.0);
+                              amrex::Loop(b, [=,&mx] (int i, int j, int k) noexcept
+                              {
+                                  Real eta_by_rho = eta(i,j,k)/r(i,j,k);
+                                  mx = amrex::max(eta_by_rho, mx);
+
+                              });
+                              return mx;
+                          });
             }
 
             // Forcing term -- old way of computing
@@ -180,7 +236,9 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
     }
 
     Real cd_cfl;
-    if (explicit_diffusion) {
+    if (explicit_diffusion ||
+        (m_two_fluid && (m_mu_powerlaw.size() > 1))
+       ) {
         ParallelAllReduce::Max<Real>({conv_cfl,diff_cfl},
                                      ParallelContext::CommunicatorSub());
         cd_cfl = conv_cfl + diff_cfl;

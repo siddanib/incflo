@@ -510,6 +510,9 @@ void incflo::smooth_double_layer_inclined_plane_granular (Box const& vbx, Box co
     u_bag_max *= (Real(4.0)*I_zeta_0/(Real(3.0)*diam_p));
     u_bag_max *= std::pow(H_c,Real(1.5));
 
+    bool init_vel = true;
+    pp.query("initialize_velocity", init_vel);
+
     amrex::ParallelFor(vbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
     {
         // Tracer is 1 in heavier fluid
@@ -528,29 +531,32 @@ void incflo::smooth_double_layer_inclined_plane_granular (Box const& vbx, Box co
         density(i,j,k)  = tracer(i,j,k,0)*(rho_2-rho_1);
         density(i,j,k)  += rho_1;
 
-        if ( (x <= granLen[0]) and (y <= granLen[1])
+        if (init_vel) {
+           if ( (x <= granLen[0]) and (y <= granLen[1])
 #if (AMREX_SPACEDIM == 3)
-            and (z <= granLen[2])
+               and (z <= granLen[2])
 #endif
-           ) {
-            // Bagnold profile based on zeta_0
-            velocity(i,j,k,0) = std::sqrt(grav_mag*std::cos(zeta_0)*rho_2/rho_p);
-            velocity(i,j,k,0) *= (Real(4.0)*I_zeta_0/(Real(3.0)*diam_p));
+              ) {
+                // Bagnold profile based on zeta_0
+                velocity(i,j,k,0) = std::sqrt(grav_mag*std::cos(zeta_0)*rho_2/rho_p);
+                velocity(i,j,k,0) *= (Real(4.0)*I_zeta_0/(Real(3.0)*diam_p));
 #if (AMREX_SPACEDIM == 2)
-            velocity(i,j,k,0) *= (std::pow(H_c,Real(1.5)) - std::pow(H_c-y,Real(1.5)));
+                velocity(i,j,k,0) *= (std::pow(H_c,Real(1.5)) - std::pow(H_c-y,Real(1.5)));
 #else
-            velocity(i,j,k,0) *= (std::pow(H_c,Real(1.5)) - std::pow(H_c-z,Real(1.5)));
+                velocity(i,j,k,0) *= (std::pow(H_c,Real(1.5)) - std::pow(H_c-z,Real(1.5)));
 #endif
+           } else {
+               // Linear profile for lighter fluid
+#if (AMREX_SPACEDIM == 2)
+               velocity(i,j,k,0) = (H_d - y)/(H_d - H_c);
+#else
+               velocity(i,j,k,0) = (H_d - z)/(H_d - H_c);
+#endif
+               velocity(i,j,k,0) *= u_bag_max;
+           }
         } else {
-            // Linear profile for lighter fluid
-#if (AMREX_SPACEDIM == 2)
-            velocity(i,j,k,0) = (H_d - y)/(H_d - H_c);
-#else
-            velocity(i,j,k,0) = (H_d - z)/(H_d - H_c);
-#endif
-            velocity(i,j,k,0) *= u_bag_max;
+           velocity(i,j,k,0) = Real(0.0);
         }
-
         velocity(i,j,k,1) = Real(0.0);
 #if (AMREX_SPACEDIM == 3)
         velocity(i,j,k,2) = Real(0.0);

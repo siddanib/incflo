@@ -679,7 +679,7 @@ void incflo::compute_rheological_vel_forces_on_level (int lev, MultiFab& vel_for
           A_33 *= scndCoeff_arr(i,j,k,0);
 #endif
           // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
-          // BE A MINUS INFRONT OF THE TERMS
+          // BE A MINUS IN FRONT OF THE TERMS
           A_11 *= Real(-1.0); A_12 *= Real(-1.0);  A_22 *= Real(-1.0);
 #if (AMREX_SPACEDIM == 3)
           A_13 *= Real(-1.0); A_23 *= Real(-1.0); A_33 *= Real(-1.0);
