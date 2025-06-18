@@ -85,22 +85,17 @@ void incflo::update_tracer (StepType step_type, Vector<MultiFab>& tra_eta, Vecto
                 Array4<Real> const& tracer   = ld.tracer.array(mfi);
                 Real rho_1 = m_ro_0;
                 Real rho_2 = m_ro_0_second;
-                if (step_type == StepType::Predictor) {
-                    ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                    {
-                        // Clipping for tracer
-                        if (tracer(i,j,k) < Real(0.0)) {
-                            tracer(i,j,k) = Real(0.0);
-                        }
-                        if (tracer(i,j,k) > Real(1.0)) {
-                            tracer(i,j,k) = Real(1.0);
-                        }
-                        rho_new(i,j,k) = rho_1 + (rho_2-rho_1)*tracer(i,j,k,0);
-                    });
-
-                } else if (step_type == StepType::Corrector) {
-                    amrex::Abort("Two_fluid not yet implemented for Corrector step\n");
-                }
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    // Clipping for tracer
+                    if (tracer(i,j,k) < Real(0.0)) {
+                        tracer(i,j,k) = Real(0.0);
+                    }
+                    if (tracer(i,j,k) > Real(1.0)) {
+                        tracer(i,j,k) = Real(1.0);
+                    }
+                    rho_new(i,j,k) = rho_1 + (rho_2-rho_1)*tracer(i,j,k,0);
+                });
             } // mfi
         } // lev
 
