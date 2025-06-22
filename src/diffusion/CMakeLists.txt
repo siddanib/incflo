@@ -6,5 +6,7 @@ target_sources(incflo
    DiffusionScalarOp.H
    DiffusionTensorOp.cpp
    DiffusionTensorOp.H
+   NonlinearDiffusionTensorOp.cpp
+   NonlinearDiffusionTensorOp.H
    incflo_diffusion.cpp
    )

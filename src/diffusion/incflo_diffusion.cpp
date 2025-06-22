@@ -10,8 +10,11 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
                        Vector<MultiFab const*> const& eta)
 {
     if (use_tensor_correction) {
-
-        get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+        if (m_two_fluid) {
+            get_nonlin_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+        } else {
+            get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+       }
 #ifdef AMREX_USE_EB
         EB_set_covered(*divtau[0]     , 0.0);
 #endif
@@ -47,7 +50,11 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
         //                    divtau[0]->norm0(2) << std::endl;
 
     } else if (use_tensor_solve) {
-        get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+        if (m_two_fluid) {
+            get_nonlin_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+        } else {
+            get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+        }
     } else {
         get_diffusion_scalar_op()->compute_divtau(divtau, vel, density, eta);
     }
@@ -82,7 +89,11 @@ incflo::diffuse_velocity(Vector<MultiFab      *> const& vel,
         amrex::Print() << " \n ... diffuse components separately but with tensor terms added explicitly... " << std::endl;
         get_diffusion_scalar_op()->diffuse_vel_components(vel, density, eta, dt_diff);
     } else if (use_tensor_solve) {
-        get_diffusion_tensor_op()->diffuse_velocity(vel, density, eta, dt_diff);
+        if (m_two_fluid) {
+            get_nonlin_diffusion_tensor_op()->diffuse_velocity(vel, density, eta, dt_diff);
+        } else {
+            get_diffusion_tensor_op()->diffuse_velocity(vel, density, eta, dt_diff);
+        }
     } else {
         get_diffusion_scalar_op()->diffuse_vel_components(vel, density, eta, dt_diff);
     }
@@ -100,6 +111,15 @@ incflo::get_diffusion_scalar_op ()
 {
     if (!m_diffusion_scalar_op) m_diffusion_scalar_op = std::make_unique<DiffusionScalarOp>(this);
     return m_diffusion_scalar_op.get();
+}
+
+NonlinearDiffusionTensorOp*
+incflo::get_nonlin_diffusion_tensor_op ()
+{
+    if (!m_nonlin_diffusion_tensor_op) {
+        m_nonlin_diffusion_tensor_op = std::make_unique<NonlinearDiffusionTensorOp>(this);
+    }
+    return m_nonlin_diffusion_tensor_op.get();
 }
 
 Vector<Array<LinOpBCType,AMREX_SPACEDIM> >

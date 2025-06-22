@@ -24,6 +24,7 @@
 
 #include <DiffusionTensorOp.H>
 #include <DiffusionScalarOp.H>
+#include <NonlinearDiffusionTensorOp.H>
 
 enum struct StepType {
     Predictor, Corrector
@@ -35,6 +36,7 @@ public:
 
     friend DiffusionTensorOp;
     friend DiffusionScalarOp;
+    friend NonlinearDiffusionTensorOp;
 
     enum struct FluidModel {
         Newtonian, powerlaw, Bingham, HerschelBulkley, deSouzaMendesDutra,
@@ -830,6 +832,7 @@ private:
 
     std::unique_ptr<DiffusionTensorOp> m_diffusion_tensor_op;
     std::unique_ptr<DiffusionScalarOp> m_diffusion_scalar_op;
+    std::unique_ptr<NonlinearDiffusionTensorOp> m_nonlin_diffusion_tensor_op;
 
     int m_nodal_vel_eta = 0;
 #ifdef USE_AMREX_MPMD
@@ -918,6 +921,7 @@ private:
 
     DiffusionTensorOp* get_diffusion_tensor_op ();
     DiffusionScalarOp* get_diffusion_scalar_op ();
+    NonlinearDiffusionTensorOp* get_nonlin_diffusion_tensor_op ();
 
     amrex::Vector<amrex::MultiFab*> get_velocity_old () noexcept;
     amrex::Vector<amrex::MultiFab*> get_velocity_new () noexcept;
