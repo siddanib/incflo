@@ -145,6 +145,14 @@ void NonlinearDiffusionTensorOp::readParameters ()
     ParmParse pp("nonlinear_tensor_diffusion");
 
     pp.query("verbose", m_verbose);
+    pp.query("newton_max_iter", m_newton_max_iter);
+    pp.query("newton_rtol", m_newton_rtol);
+    pp.query("newton_atol", m_newton_atol);
+
+    pp.query("gmres_verbose", m_gmres_verbose);
+    pp.query("gmres_max_iter", m_gmres_max_iter);
+    pp.query("gmres_rtol", m_gmres_rtol);
+    pp.query("gmres_atol", m_gmres_atol);
     // This is for linear part of divtau
     pp.query("mg_maxorder", m_mg_maxorder);
 }
@@ -182,8 +190,55 @@ void NonlinearDiffusionTensorOp::diffuse_velocity (
         vel_incrmt_newton[ilev].setVal(Real(0.));
     }
     // Look into WarpX NewtonSolver for stopping criterion
-    bool newton_success = false;
-    for (int inewt=0; inewt < m_newton_max_iter; ++inewt) {
+    Real norm_abs = Real(0.);
+    Real norm0    = Real(1.);
+    Real norm_rel = Real(0.);
+    int inewt;
+    for (inewt=0; inewt < m_newton_max_iter;) {
+        // Evaluate current residual's norm
+        norm_abs = get_norm_of_residual();
+        if (inewt == 0) {
+            if (norm_abs > Real(0.)) {
+                norm0 = norm_abs;
+            }
+            else {
+                norm0 = Real(1.0);
+            }
+        }
+        norm_rel = norm_abs/norm0;
+        // Check for convergence criteria; Copied from WarpX - NewtonSolver.H
+        if (m_verbose || inewt == m_newton_max_iter) {
+            amrex::Print() << "Newton: iteration = " << std::setw(3) << inewt <<  ", norm = "
+                 << std::scientific << std::setprecision(5) << norm_abs << " (abs.), "
+                 << std::scientific << std::setprecision(5) << norm_rel << " (rel.)" << "\n";
+        }
+
+        if (norm_abs < m_newton_rtol) {
+            if (m_verbose) {
+                amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
+                               << ". Satisfied absolute tolerance " << m_newton_atol << "\n";
+            }
+            break;
+        }
+
+        if (norm_rel < m_newton_rtol) {
+            if (m_verbose) {
+                amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
+                               << ". Satisfied relative tolerance " << m_newton_rtol << "\n";
+            }
+            break;
+        }
+
+        if (norm_abs > Real(100.)*norm0) {
+            amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
+                 << ". SOLVER DIVERGED! relative tolerance = " << m_newton_rtol << "\n";
+            std::stringstream convergenceMsg;
+            convergenceMsg << "Newton: exiting at iteration " << std::setw(3) << inewt <<
+                              ". SOLVER DIVERGED! absolute norm = " << norm_abs <<
+                              " has increased by 100X from that after first iteration.";
+            amrex::Abort(convergenceMsg.str().c_str());
+        }
+        // Update RHS of Newton Iteration
         for (int ilev=0; ilev < nlevels; ++ilev) {
             MultiFab::Copy(rhs_newton[ilev], *m_newton_iter_func[ilev],
                            0,0,AMREX_SPACEDIM,0);
@@ -195,6 +250,25 @@ void NonlinearDiffusionTensorOp::diffuse_velocity (
 
         update_newton_iteration_multifabs(
                       GetVecOfConstPtrs(vel_incrmt_newton));
+
+        inewt++;
+        if (inewt >= m_newton_max_iter) {
+            if (m_verbose) {
+                amrex::Print() << "Newton: exiting at iter = " << std::setw(3) << inewt
+                     << ". Maximum iteration reached: iter = " << m_newton_max_iter << "\n";
+            }
+            break;
+        }
+    }  // end of Newton Iteration loop
+
+    if (m_newton_rtol > Real(0.) && inewt == m_newton_max_iter) {
+      std::stringstream convergenceMsg;
+      convergenceMsg << "Newton solver failed to converge after " << inewt <<
+                        " iterations. Relative norm is " << norm_rel <<
+                        " and the relative tolerance is " << m_newton_rtol <<
+                        ". Absolute norm is " << norm_abs <<
+                        " and the absolute tolerance is " << m_newton_atol;
+      amrex::Abort(convergenceMsg.str().c_str());
     }
 
     // Copy final newton iteration velocity
@@ -431,6 +505,20 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
     // Update m_newton_iter_func
     compute_viscous_solve_equation(GetVecOfPtrs(m_newton_iter_func),
                                    GetVecOfConstPtrs(m_newton_iter_vel));
+}
+
+// This function calculates norm2 for the non-linear function
+Real NonlinearDiffusionTensorOp::get_norm_of_residual ()
+{
+    int nlevels = m_newton_iter_func.size();
+    int numcomp = m_newton_iter_func[0]->nComp();
+    Real norm2_all = Real(0.);
+    Real norm2_tmp;
+    for (int ilev=0; ilev < nlevels; ++ilev) {
+        norm2_tmp = m_newton_iter_func[ilev]->norm2(0,numcomp);
+        norm2_all += norm2_tmp*norm2_tmp;
+    }
+    return std::sqrt(norm2_all);
 }
 
 // Putting everything needed by GMRES below

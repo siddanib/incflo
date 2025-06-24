@@ -58,17 +58,19 @@ private:
     // Needs to be called inside of Newton iteration loop
     void update_newton_iteration_multifabs (
                        amrex::Vector<amrex::MultiFab const*> const& a_vel_increment);
-
     // This will be rho*u - dt div (tau) - rhs = 0 that is solved implicitly
     void compute_viscous_solve_equation (
                        amrex::Vector<amrex::MultiFab*> const& nonlin_func,
                        amrex::Vector<amrex::MultiFab const*> const& velocity);
-
+    // This is the linear part of divtau
     void compute_linear_part_of_divtau (
                        amrex::Vector<amrex::MultiFab*> const& divtau,
                        amrex::Vector<amrex::MultiFab const*> const& velocity,
                        amrex::Vector<amrex::MultiFab const*> const& density,
                        amrex::Vector<amrex::MultiFab const*> const& eta);
+
+    // This function evaluates the norm2 of the non-linear function
+    amrex::Real get_norm_of_residual ();
 
     incflo* m_incflo;
 
@@ -85,11 +87,11 @@ private:
     int m_nghost_eta     = 1;
     int m_nghost_vel     = 2;
     // DiffusionOp verbosity
-    int m_verbose = 0;
+    int m_verbose = 1;
     // Options to control GMRES behavior
     int m_gmres_verbose = 2;
-    int m_gmres_max_iter = 100;
-    int m_newton_max_iter = 5;
+    int m_gmres_max_iter = 1000;
+    int m_newton_max_iter = 100;
 #ifdef AMREX_USE_FLOAT
     // This is for newton iterations
     amrex::Real m_newton_rtol    = amrex::Real(1.0e-4);
@@ -108,7 +110,7 @@ private:
     std::unique_ptr<amrex::MLEBTensorOp> m_eb_apply_op;
 #endif
     std::unique_ptr<amrex::MLTensorOp> m_reg_apply_op;
-    int m_mg_verbose = 0;
+    int m_mg_verbose = 1;
     int m_mg_maxorder = 2;
 #ifdef AMREX_USE_FLOAT
     amrex::Real m_gmres_rtol = amrex::Real(1.0e-4);
