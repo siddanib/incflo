@@ -60,14 +60,20 @@ private:
                        amrex::Vector<amrex::MultiFab const*> const& a_vel_increment);
     // This will be rho*u - dt div (tau) - rhs = 0 that is solved implicitly
     void compute_viscous_solve_equation (
-                       amrex::Vector<amrex::MultiFab*> const& nonlin_func,
+                       amrex::Vector<amrex::MultiFab      *> const& nonlin_func,
                        amrex::Vector<amrex::MultiFab const*> const& velocity);
     // This is the linear part of divtau
     void compute_linear_part_of_divtau (
-                       amrex::Vector<amrex::MultiFab*> const& divtau,
+                       amrex::Vector<amrex::MultiFab      *> const& divtau,
                        amrex::Vector<amrex::MultiFab const*> const& velocity,
                        amrex::Vector<amrex::MultiFab const*> const& density,
                        amrex::Vector<amrex::MultiFab const*> const& eta);
+
+    void add_non_linear_part_of_divtau (
+                       amrex::Vector<amrex::MultiFab      *> const& a_divtau,
+                       amrex::Vector<amrex::MultiFab const*> const& a_velocity,
+                       amrex::Vector<amrex::MultiFab const*> const& a_density,
+                       amrex::Vector<amrex::MultiFab const*> const& a_eta);
 
     // This function evaluates the norm2 of the non-linear function
     amrex::Real get_norm_of_residual ();
@@ -83,7 +89,7 @@ private:
                              m_newton_iter_func;
     // This will be set at the beginning of diffuse_velocity
     amrex::Real m_dt;
-    int m_nghost_density = 0;
+    int m_nghost_density = 1;
     int m_nghost_eta     = 1;
     int m_nghost_vel     = 2;
     // DiffusionOp verbosity
@@ -92,6 +98,9 @@ private:
     int m_gmres_verbose = 2;
     int m_gmres_max_iter = 1000;
     int m_newton_max_iter = 100;
+    // These are for updating the velocity
+    amrex::Real m_newton_update_alpha = amrex::Real(1.0e-3);
+    int m_newton_update_max_iter = 100;
 #ifdef AMREX_USE_FLOAT
     // This is for newton iterations
     amrex::Real m_newton_rtol    = amrex::Real(1.0e-4);

@@ -107,7 +107,7 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
             }
             // Should probably use it for every two fluid model,
             // but only using for high-order rheology for now
-            if (m_two_fluid && (m_mu_powerlaw.size() > 1) && (m_advection_type == "Godunov")) {
+            if (explicit_diffusion && m_two_fluid) {
                 diff_lev = amrex::ReduceMax(rho, vel_eta[lev], flag, 0,
                            [=] AMREX_GPU_HOST_DEVICE (Box const& b,
                                                       Array4<Real const> const& r,
@@ -184,7 +184,7 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
 
             // Should probably use it for every two fluid model,
             // but only using for high-order rheology for now
-            if (m_two_fluid && (m_mu_powerlaw.size() > 1) && (m_advection_type == "Godunov")) {
+            if (explicit_diffusion && m_two_fluid) {
                 diff_lev = amrex::ReduceMax(rho, vel_eta[lev], 0,
                            [=] AMREX_GPU_HOST_DEVICE (Box const& b,
                                                       Array4<Real const> const& r,
@@ -236,9 +236,7 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
     }
 
     Real cd_cfl;
-    if (explicit_diffusion ||
-        (m_two_fluid && (m_mu_powerlaw.size() > 1))
-       ) {
+    if (explicit_diffusion) {
         ParallelAllReduce::Max<Real>({conv_cfl,diff_cfl},
                                      ParallelContext::CommunicatorSub());
         cd_cfl = conv_cfl + diff_cfl;

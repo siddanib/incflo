@@ -237,11 +237,11 @@ public:
                                     int nghost);
 
     void compute_cc_second_fluid_conc (amrex::MultiFab* conc_second_cc,
-                                    amrex::MultiFab* rho_cc,
+                                    const amrex::MultiFab* rho_cc,
                                     int nghost) const;
 
     void compute_nodal_second_fluid_conc (amrex::MultiFab* conc_second_nd,
-                                    amrex::MultiFab* rho_cc,
+                                    const amrex::MultiFab* rho_cc,
                                     int nghost) const;
 
     void compute_gradientOfVelocity_on_level (int lev, amrex::MultiFab& gradVel,
@@ -385,17 +385,15 @@ public:
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
     void compute_mu_I_at_level (int lev, amrex::MultiFab* inertial_num,
                                 int nghost);
-    void compute_rheological_vel_forces_on_level (int lev, amrex::MultiFab& vel_forces,
+    void add_granular_high_order_divtau_on_level (int lev, amrex::MultiFab& vel_forces,
                                                   const amrex::MultiFab& velocity,
                                                   const amrex::MultiFab& density,
-                                                  const amrex::MultiFab& tracer_old,
-                                                  const amrex::MultiFab& tracer_new);
+                                                  const amrex::MultiFab& conc_second);
     void compute_granular_powerlaw_second_order_coeff (int lev,
                                                        amrex::MultiFab& scnd_coeff,
                                                        const amrex::MultiFab& velocity,
                                                        const amrex::MultiFab& density,
-                                                       const amrex::MultiFab& tracer_old,
-                                                       const amrex::MultiFab& tracer_new,
+                                                       const amrex::MultiFab& conc_second,
                                                        amrex::Geometry& lev_geom);
 
 #ifdef AMREX_USE_EB

@@ -286,6 +286,7 @@ void NonlinearDiffusionTensorOp::compute_divtau (
 {
     compute_linear_part_of_divtau(divtau, velocity, density, eta);
     // NEED TO INCLUDE HIGH-ORDER divtau TERMS HERE BEFORE THE LOOP
+    add_non_linear_part_of_divtau(divtau, velocity, density, eta);
 
     // This is to be consistent with incflo code
     bool advect_momentum = m_incflo->AdvectMomentum();
@@ -322,6 +323,9 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
                                   GetVecOfConstPtrs(m_density),
                                   GetVecOfConstPtrs(m_eta));
     // NEED TO INCLUDE HIGH-ORDER divtau TERMS HERE BEFORE THE LOOP
+    add_non_linear_part_of_divtau(nonlin_func, velocity,
+                                  GetVecOfConstPtrs(m_density),
+                                  GetVecOfConstPtrs(m_eta));
     for (int ilev=0; ilev < nlevels; ++ilev) {
         // First multiply divtau with (-dt)
         nonlin_func[ilev]->mult(Real(-1.0)*m_dt,0);
@@ -421,6 +425,40 @@ void NonlinearDiffusionTensorOp::compute_linear_part_of_divtau (Vector<MultiFab*
     }
 }
 
+// This function adds the non-linear part of divtau
+// For now, only performed if it is two-fluid
+void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*> const& a_divtau,
+                                        Vector<MultiFab const*> const& a_velocity,
+                                        Vector<MultiFab const*> const& a_density,
+                                        Vector<MultiFab const*> const& a_eta)
+{
+    if (!(m_incflo->m_two_fluid)) {return;}
+    if (m_incflo->m_mu_powerlaw.size() < 2) {return;}
+
+    int nlevels = a_velocity.size();
+    // This nghost is set based on a_eta
+    int nghost = a_eta[0]->nGrow();
+    for (int ilev = 0; ilev < nlevels; ++ilev) {
+       MultiFab conc_second(a_eta[ilev]->boxArray(),
+                            a_eta[ilev]->DistributionMap(),
+                            1,nghost);
+       if (m_incflo->m_nodal_vel_eta) {
+          m_incflo->compute_nodal_second_fluid_conc(&conc_second,
+                                                    a_density[ilev],
+                                                    nghost);
+       }
+       else
+       {
+           m_incflo->compute_cc_second_fluid_conc(&conc_second,
+                                                  a_density[ilev],
+                                                  nghost);
+       }
+       m_incflo->add_granular_high_order_divtau_on_level(ilev,
+                              *a_divtau[ilev], *a_velocity[ilev],
+                              *a_density[ilev], conc_second);
+    }
+}
+
 void NonlinearDiffusionTensorOp::update_member_multifabs (
          Vector<MultiFab const*> const& a_density,
          Vector<MultiFab const*> const& a_vel,
@@ -490,14 +528,20 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
                                    GetVecOfConstPtrs(m_newton_iter_vel));
 }
 
+// Bhargav: need to change this
 void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
                 Vector<MultiFab const*> const& a_vel_increment)
 {
     int nlevels = a_vel_increment.size();
+    int numcomp = a_vel_increment[0]->nComp();
+    Real norm_old, norm_new;
+    norm_old = get_norm_of_residual();
+    // Add the incremental velocity
     for (int ilev=0; ilev < nlevels; ++ilev) {
         // Increment without ghost cells
-        MultiFab::Add(*m_newton_iter_vel[ilev], *a_vel_increment[ilev],
-                      0,0,AMREX_SPACEDIM,0);
+        MultiFab::Add(*m_newton_iter_vel[ilev],
+                      *a_vel_increment[ilev],
+                      0,0,numcomp,0);
         // Use FillBoundary to update ghost cells
         m_newton_iter_vel[ilev]->FillBoundary(
                           m_incflo->Geom(ilev).periodicity());
@@ -505,6 +549,35 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
     // Update m_newton_iter_func
     compute_viscous_solve_equation(GetVecOfPtrs(m_newton_iter_func),
                                    GetVecOfConstPtrs(m_newton_iter_vel));
+    norm_new = get_norm_of_residual();
+
+    if (norm_new < norm_old) {return;}
+
+    // Update using a factor of lambda
+    Real lambda = Real(1.0);
+    Real alpha  = m_newton_update_alpha;
+    Real beta;
+    for (int iter=1; iter <= m_newton_update_max_iter; ++iter) {
+        norm_old = norm_new;
+        lambda *= Real(1.0) - alpha;
+        beta = Real(-1.0)*lambda/(Real(1.0)-alpha);
+        for (int ilev=0; ilev < nlevels; ++ilev) {
+            // Increment without ghost cells
+            MultiFab::Saxpy(*m_newton_iter_vel[ilev], beta,
+                            *a_vel_increment[ilev],
+                            0,0,numcomp,0);
+            // Use FillBoundary to update ghost cells
+            m_newton_iter_vel[ilev]->FillBoundary(
+                              m_incflo->Geom(ilev).periodicity());
+        }
+        // Update m_newton_iter_func
+        compute_viscous_solve_equation(GetVecOfPtrs(m_newton_iter_func),
+                                       GetVecOfConstPtrs(m_newton_iter_vel));
+        norm_new = get_norm_of_residual();
+        if (norm_new < norm_old) {
+            break;
+        }
+    }
 }
 
 // This function calculates norm2 for the non-linear function

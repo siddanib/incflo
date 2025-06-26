@@ -570,13 +570,11 @@ void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
 }
 
 // This function is to consider
-// high-order terms in Granular Rheology as additional body force terms
-// Note: compute_vel_forces is ONLY applied to valid cells
-void incflo::compute_rheological_vel_forces_on_level (int lev, MultiFab& vel_forces,
+// high-order terms in Granular Rheology
+void incflo::add_granular_high_order_divtau_on_level (int lev, MultiFab& divtau,
                                                       const MultiFab& velocity,
                                                       const MultiFab& density,
-                                                      const MultiFab& tracer_old,
-                                                      const MultiFab& tracer_new)
+                                                      const MultiFab& conc_second)
 {
    // Creating velocity gradient MultiFab
     MultiFab gradVel(velocity.boxArray(), velocity.DistributionMap(),
@@ -588,7 +586,7 @@ void incflo::compute_rheological_vel_forces_on_level (int lev, MultiFab& vel_for
     MultiFab scndOrderCoeff(velocity.boxArray(), velocity.DistributionMap(),
                             1,0);
     compute_granular_powerlaw_second_order_coeff(lev, scndOrderCoeff, velocity,
-                                                 density, tracer_old, tracer_new,
+                                                 density, conc_second,
                                                  lev_geom);
     // The following vectors are needed for divergence
     MultiFab vecX(velocity.boxArray(), velocity.DistributionMap(),
@@ -719,18 +717,16 @@ void incflo::compute_rheological_vel_forces_on_level (int lev, MultiFab& vel_for
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-    for (MFIter mfi(vel_forces,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    for (MFIter mfi(divtau,TilingIfNotGPU()); mfi.isValid(); ++mfi)
     {
             Box const& bx = mfi.tilebox();
-            Array4<Real const> const& rho_arr  = density.const_array(mfi);
             Array4<Real const> const& vecX_arr  = vecX.const_array(mfi);
             Array4<Real const> const& vecY_arr  = vecY.const_array(mfi);
 #if (AMREX_SPACEDIM == 3)
             Array4<Real const> const& vecZ_arr  = vecZ.const_array(mfi);
 #endif
-            Array4<Real const> const& trac_o_arr  = tracer_old.const_array(mfi);
-            Array4<Real const> const& trac_n_arr  = tracer_new.const_array(mfi);
-            Array4<Real      > const& vel_f_arr   = vel_forces.array(mfi);
+            Array4<Real const> const& conc_scnd_arr  = conc_second.const_array(mfi);
+            Array4<Real      > const& divtau_arr   = divtau.array(mfi);
             const Real min_conc_scnd = m_min_conc_second;
 #ifdef AMREX_USE_EB
             auto const& flag_fab = flags[mfi];
@@ -744,21 +740,18 @@ void incflo::compute_rheological_vel_forces_on_level (int lev, MultiFab& vel_for
                 auto const& flag_arr = flag_fab.const_array();
                 ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                 {
-                   Real trcr_val = Real(0.5)*(trac_o_arr(i,j,k,0)+trac_n_arr(i,j,k,0));
-                   if (trcr_val > min_conc_scnd) {
-                      vel_f_arr(i,j,k,0) += (incflo_divergenceOfVector_eb(i,j,k,
+                   Real conc_val = conc_scnd_arr(i,j,k,0);
+                   if (conc_val > min_conc_scnd) {
+                      divtau_arr(i,j,k,0) += incflo_divergenceOfVector_eb(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
-                                                              vecX_arr,flag_arr(i,j,k)))
-                                            /rho_arr(i,j,k);
-                      vel_f_arr(i,j,k,1) += (incflo_divergenceOfVector_eb(i,j,k,
+                                                              vecX_arr,flag_arr(i,j,k));
+                      divtau_arr(i,j,k,1) += incflo_divergenceOfVector_eb(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
-                                                              vecY_arr,flag_arr(i,j,k)))
-                                            /rho_arr(i,j,k);
+                                                              vecY_arr,flag_arr(i,j,k));
 #if (AMREX_SPACEDIM == 3)
-                      vel_f_arr(i,j,k,2) += (incflo_divergenceOfVector_eb(i,j,k,
+                      divtau_arr(i,j,k,2) += incflo_divergenceOfVector_eb(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
-                                                              vecZ_arr,flag_arr(i,j,k)))
-                                            /rho_arr(i,j,k);
+                                                              vecZ_arr,flag_arr(i,j,k));
 #endif
                    }
                 });
@@ -768,34 +761,29 @@ void incflo::compute_rheological_vel_forces_on_level (int lev, MultiFab& vel_for
             {
                 ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                 {
-                   Real trcr_val = Real(0.5)*(trac_o_arr(i,j,k,0)+trac_n_arr(i,j,k,0));
-                   if (trcr_val > min_conc_scnd) {
-                      vel_f_arr(i,j,k,0) += (incflo_divergenceOfVector(i,j,k,
+                   Real conc_val = conc_scnd_arr(i,j,k,0);
+                   if (conc_val > min_conc_scnd) {
+                      divtau_arr(i,j,k,0) += incflo_divergenceOfVector(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
-                                                              vecX_arr))
-                                            /rho_arr(i,j,k);
-                      vel_f_arr(i,j,k,1) += (incflo_divergenceOfVector(i,j,k,
+                                                              vecX_arr);
+                      divtau_arr(i,j,k,1) += incflo_divergenceOfVector(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
-                                                              vecY_arr))
-                                           /rho_arr(i,j,k);
+                                                              vecY_arr);
 #if (AMREX_SPACEDIM == 3)
-                      vel_f_arr(i,j,k,2) += (incflo_divergenceOfVector(i,j,k,
+                      divtau_arr(i,j,k,2) += incflo_divergenceOfVector(i,j,k,
                                                               AMREX_D_DECL(idx,idy,idz),
-                                                              vecZ_arr))
-                                            /rho_arr(i,j,k);
+                                                              vecZ_arr);
 #endif
                    }
                 });
             }
     }
-
 }
 
 void incflo::compute_granular_powerlaw_second_order_coeff (int lev, MultiFab& scnd_coeff,
                                                            const MultiFab& velocity,
                                                            const MultiFab& density,
-                                                           const MultiFab& tracer_old,
-                                                           const MultiFab& tracer_new,
+                                                           const MultiFab& conc_second,
                                                            Geometry& lev_geom)
 {
    // Create a strain-rate MultiFab
@@ -821,11 +809,10 @@ void incflo::compute_granular_powerlaw_second_order_coeff (int lev, MultiFab& sc
    for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
    {
        Box const& bx = mfi.tilebox();
-       Array4<Real const> const& sr_arr       = sr_mf.const_array(mfi);
-       Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
-       Array4<Real const> const& inrt_num_arr = inertial_num.const_array(mfi);
-       Array4<Real const> const& trac_o_arr   = tracer_old.const_array(mfi);
-       Array4<Real const> const& trac_n_arr   = tracer_new.const_array(mfi);
+       Array4<Real const> const& sr_arr         = sr_mf.const_array(mfi);
+       Array4<Real const> const& p_static_arr   = p_static.const_array(mfi);
+       Array4<Real const> const& inrt_num_arr   = inertial_num.const_array(mfi);
+       Array4<Real const> const& conc_scnd_arr  = conc_second.const_array(mfi);
        Array4<Real      > const& scnd_coeff_arr = scnd_coeff.array(mfi);
        const Real mu_const      = m_mu_powerlaw[1][0];
        const Real mu_A          = m_mu_powerlaw[1][1];
@@ -837,8 +824,8 @@ void incflo::compute_granular_powerlaw_second_order_coeff (int lev, MultiFab& sc
        // has an extra factor of 2
        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
        {
-            Real trac_val = Real(0.5)*(trac_o_arr(i,j,k,0)+trac_n_arr(i,j,k,0));
-            if (trac_val > min_conc_scnd) {
+            Real conc_val = conc_scnd_arr(i,j,k,0);
+            if (conc_val > min_conc_scnd) {
               scnd_coeff_arr(i,j,k) = mu_const +
                                       mu_A * std::pow(inrt_num_arr(i,j,k),
                                                       Real(2.0)*mu_alpha);
