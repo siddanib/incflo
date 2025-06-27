@@ -10,7 +10,7 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
                        Vector<MultiFab const*> const& eta)
 {
     if (use_tensor_correction) {
-        if (m_two_fluid) {
+        if (use_jfnk_tensor_solve) {
             get_nonlin_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
         } else {
             get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
@@ -50,7 +50,7 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
         //                    divtau[0]->norm0(2) << std::endl;
 
     } else if (use_tensor_solve) {
-        if (m_two_fluid) {
+        if (use_jfnk_tensor_solve) {
             get_nonlin_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
         } else {
             get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
@@ -89,7 +89,7 @@ incflo::diffuse_velocity(Vector<MultiFab      *> const& vel,
         amrex::Print() << " \n ... diffuse components separately but with tensor terms added explicitly... " << std::endl;
         get_diffusion_scalar_op()->diffuse_vel_components(vel, density, eta, dt_diff);
     } else if (use_tensor_solve) {
-        if (m_two_fluid) {
+        if (use_jfnk_tensor_solve) {
             get_nonlin_diffusion_tensor_op()->diffuse_velocity(vel, density, eta, dt_diff);
         } else {
             get_diffusion_tensor_op()->diffuse_velocity(vel, density, eta, dt_diff);

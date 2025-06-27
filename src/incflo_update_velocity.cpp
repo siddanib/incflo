@@ -328,7 +328,7 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
     // *************************************************************************************
     if (m_diff_type == DiffusionType::Crank_Nicolson || m_diff_type == DiffusionType::Implicit)
     {
-        const int ng_diffusion = (m_two_fluid) ? 2 : 1;
+        const int ng_diffusion = (m_mu_powerlaw.size() > 1) ? 2 : 1;
         for (int lev = 0; lev <= finest_level; ++lev) {
             fillphysbc_velocity(lev, new_time, m_leveldata[lev]->velocity, ng_diffusion);
             fillphysbc_density (lev, new_time, m_leveldata[lev]->density , ng_diffusion);

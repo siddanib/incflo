@@ -484,6 +484,9 @@ private:
     // Use tensor solve (as opposed to separate solves for each velocity component)
     bool use_tensor_solve      = true;
 
+    // Tensor Solve but with Jacobian-free Newton-Krylov that has GMRES
+    bool use_jfnk_tensor_solve = false;
+
     // Use separate solves for each velocity component with lagged tensor terms
     bool use_tensor_correction = false;
 

@@ -22,86 +22,8 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
     m_gmres->setMaxIters(m_gmres_max_iter);
     m_gmres->setVerbose(m_gmres_verbose);
 
-    // These are related to some field variables that are required
-    m_rhs_n.resize(finest_level+1);
-    m_density.resize(finest_level+1);
-    m_eta.resize(finest_level+1);
-    m_newton_iter_vel.resize(finest_level+1);
-    m_newton_iter_func.resize(finest_level+1);
-    // Setting only lev=0 here as it will not change
-#ifdef AMREX_USE_EB
-    if (!m_incflo->EBFactory(0).isAllRegular())
-    {
-        m_rhs_n[0] = std::make_unique<MultiFab>(m_incflo->boxArray(0),
-                                                m_incflo->DistributionMap(0),
-                                                AMREX_SPACEDIM, 0, MFInfo(),
-                                                m_incflo->EBFactory(0));
+    if (m_incflo->m_nodal_vel_eta) {m_nghost_eta = 0;}
 
-        m_density[0] = std::make_unique<MultiFab>(m_incflo->boxArray(0),
-                                                m_incflo->DistributionMap(0),
-                                                1, m_nghost_density, MFInfo(),
-                                                m_incflo->EBFactory(0));
-        if (m_incflo->m_nodal_vel_eta) {
-           m_nghost_eta = 0;
-           m_eta[0] = std::make_unique<MultiFab>(
-                                     amrex::convert(
-                                        m_incflo->boxArray(0),
-                                        IndexType::TheNodeType().ixType()),
-                                   m_incflo->DistributionMap(0),
-                                   1, m_nghost_eta, MFInfo(),
-                                   m_incflo->EBFactory(0));
-        }
-        else {
-           m_eta[0] = std::make_unique<MultiFab>(m_incflo->boxArray(0),
-                                              m_incflo->DistributionMap(0),
-                                              1, m_nghost_eta, MFInfo(),
-                                              m_incflo->EBFactory(0));
-        }
-
-        m_newton_iter_vel[0] = std::make_unique<MultiFab>(m_incflo->boxArray(0),
-                                                m_incflo->DistributionMap(0),
-                                                AMREX_SPACEDIM, m_nghost_vel,
-                                                MFInfo(), m_incflo->EBFactory(0));
-
-        m_newton_iter_func[0] = std::make_unique<MultiFab>(m_incflo->boxArray(0),
-                                                m_incflo->DistributionMap(0),
-                                                AMREX_SPACEDIM, 0,
-                                                MFInfo(), m_incflo->EBFactory(0));
-    }
-    else
-#endif
-    {
-        m_rhs_n[0] = std::make_unique<MultiFab>(m_incflo->boxArray(0),
-                                                m_incflo->DistributionMap(0),
-                                                AMREX_SPACEDIM, 0, MFInfo());
-
-        m_density[0] = std::make_unique<MultiFab>(m_incflo->boxArray(0),
-                                                m_incflo->DistributionMap(0),
-                                                1, m_nghost_density);
-
-        if (m_incflo->m_nodal_vel_eta) {
-           m_nghost_eta = 0;
-           m_eta[0] = std::make_unique<MultiFab>(
-                                     amrex::convert(
-                                        m_incflo->boxArray(0),
-                                        IndexType::TheNodeType().ixType()),
-                                   m_incflo->DistributionMap(0),
-                                   1, m_nghost_eta);
-        }
-        else {
-           m_eta[0] = std::make_unique<MultiFab>(m_incflo->boxArray(0),
-                                              m_incflo->DistributionMap(0),
-                                              1, m_nghost_eta);
-        }
-
-        m_newton_iter_vel[0] = std::make_unique<MultiFab>(m_incflo->boxArray(0),
-                                                m_incflo->DistributionMap(0),
-                                                AMREX_SPACEDIM, m_nghost_vel);
-
-        m_newton_iter_func[0] = std::make_unique<MultiFab>(m_incflo->boxArray(0),
-                                                m_incflo->DistributionMap(0),
-                                                AMREX_SPACEDIM, 0);
-    }
     // The below code is related to linear part of divtau
     LPInfo info_apply;
     info_apply.setMaxCoarseningLevel(0);
@@ -148,6 +70,8 @@ void NonlinearDiffusionTensorOp::readParameters ()
     pp.query("newton_max_iter", m_newton_max_iter);
     pp.query("newton_rtol", m_newton_rtol);
     pp.query("newton_atol", m_newton_atol);
+    pp.query("newton_update_alpha", m_newton_update_alpha);
+    pp.query("newton_update_max_iter", m_newton_update_max_iter);
 
     pp.query("gmres_verbose", m_gmres_verbose);
     pp.query("gmres_max_iter", m_gmres_max_iter);
@@ -467,42 +391,43 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
 {
     m_dt = a_dt;
     int nlevels = a_density.size();
+    // This is to initialize level 0 only the first time
+    const int lev_start = m_density.size() ? 1 : 0;
     // To take into account if finer levels change
-    if (nlevels > 1) {
-        m_rhs_n.resize(nlevels);
-        m_density.resize(nlevels);
-        m_newton_iter_vel.resize(nlevels);
-        m_newton_iter_func.resize(nlevels);
-        for (int ilev=1; ilev < nlevels; ++ilev) {
-            m_rhs_n[ilev] = std::make_unique<MultiFab>(a_vel[ilev]->boxArray(),
-                                            a_vel[ilev]->DistributionMap(),
-                                            AMREX_SPACEDIM, 0, MFInfo(),
-                                            a_vel[ilev]->Factory());
+    m_rhs_n.resize(nlevels);
+    m_density.resize(nlevels);
+    m_eta.resize(nlevels);
+    m_newton_iter_vel.resize(nlevels);
+    m_newton_iter_func.resize(nlevels);
+    for (int ilev = lev_start; ilev < nlevels; ++ilev) {
+        m_rhs_n[ilev] = std::make_unique<MultiFab>(a_vel[ilev]->boxArray(),
+                                        a_vel[ilev]->DistributionMap(),
+                                        AMREX_SPACEDIM, 0, MFInfo(),
+                                        a_vel[ilev]->Factory());
 
-            m_density[ilev] = std::make_unique<MultiFab>(
-                                            a_density[ilev]->boxArray(),
-                                            a_density[ilev]->DistributionMap(),
-                                            1, m_nghost_density, MFInfo(),
-                                            a_density[ilev]->Factory());
+        m_density[ilev] = std::make_unique<MultiFab>(
+                                        a_density[ilev]->boxArray(),
+                                        a_density[ilev]->DistributionMap(),
+                                        1, m_nghost_density, MFInfo(),
+                                        a_density[ilev]->Factory());
 
-            m_eta[ilev] = std::make_unique<MultiFab>(
-                                            a_eta[ilev]->boxArray(),
-                                            a_eta[ilev]->DistributionMap(),
-                                            1, m_nghost_eta, MFInfo(),
-                                            a_eta[ilev]->Factory());
+        m_eta[ilev] = std::make_unique<MultiFab>(
+                                        a_eta[ilev]->boxArray(),
+                                        a_eta[ilev]->DistributionMap(),
+                                        1, m_nghost_eta, MFInfo(),
+                                        a_eta[ilev]->Factory());
 
-            m_newton_iter_vel[ilev] = std::make_unique<MultiFab>(
-                                            a_vel[ilev]->boxArray(),
-                                            a_vel[ilev]->DistributionMap(),
-                                            AMREX_SPACEDIM, m_nghost_vel,
-                                            MFInfo(),a_vel[ilev]->Factory());
+        m_newton_iter_vel[ilev] = std::make_unique<MultiFab>(
+                                        a_vel[ilev]->boxArray(),
+                                        a_vel[ilev]->DistributionMap(),
+                                        AMREX_SPACEDIM, m_nghost_vel,
+                                        MFInfo(),a_vel[ilev]->Factory());
 
-            m_newton_iter_func[ilev] = std::make_unique<MultiFab>(
-                                            a_vel[ilev]->boxArray(),
-                                            a_vel[ilev]->DistributionMap(),
-                                            AMREX_SPACEDIM, 0, MFInfo(),
-                                            a_vel[ilev]->Factory());
-        }
+        m_newton_iter_func[ilev] = std::make_unique<MultiFab>(
+                                        a_vel[ilev]->boxArray(),
+                                        a_vel[ilev]->DistributionMap(),
+                                        AMREX_SPACEDIM, 0, MFInfo(),
+                                        a_vel[ilev]->Factory());
     }
     // Update the member variables
     for (int ilev = 0; ilev < nlevels; ++ilev) {

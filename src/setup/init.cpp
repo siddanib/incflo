@@ -107,6 +107,7 @@ void incflo::ReadParameters ()
 
         // Default is true; should we use tensor solve instead of separate solves for each component?
         pp.query("use_tensor_solve",use_tensor_solve);
+        pp.query("use_jfnk_tensor_solve", use_jfnk_tensor_solve);
         pp.query("use_tensor_correction",use_tensor_correction);
 
         if (use_tensor_solve && use_tensor_correction) {
