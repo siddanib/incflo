@@ -137,7 +137,7 @@ void NonlinearDiffusionTensorOp::diffuse_velocity (
                  << std::scientific << std::setprecision(5) << norm_rel << " (rel.)" << "\n";
         }
 
-        if (norm_abs < m_newton_rtol) {
+        if (norm_abs < m_newton_atol) {
             if (m_verbose) {
                 amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
                                << ". Satisfied absolute tolerance " << m_newton_atol << "\n";
@@ -155,7 +155,7 @@ void NonlinearDiffusionTensorOp::diffuse_velocity (
 
         if (norm_abs > Real(100.)*norm0) {
             amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
-                 << ". SOLVER DIVERGED! relative tolerance = " << m_newton_rtol << "\n";
+                 << ". SOLVER DIVERGED! relative tolerance = " << norm_rel << "\n";
             std::stringstream convergenceMsg;
             convergenceMsg << "Newton: exiting at iteration " << std::setw(3) << inewt <<
                               ". SOLVER DIVERGED! absolute norm = " << norm_abs <<
@@ -235,7 +235,6 @@ void NonlinearDiffusionTensorOp::compute_divtau (
         } // lev
     } // not m_advect_momentum
 }
-
 
 void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
                        Vector<MultiFab*> const& nonlin_func,
