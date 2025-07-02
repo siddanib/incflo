@@ -36,7 +36,7 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
 
     // Make a temporary here for vel_eta; Using for two fluid scenario
     Vector<MultiFab> vel_eta;
-    if (m_two_fluid && (m_advection_type == "Godunov")) {
+    if (explicit_diffusion && m_two_fluid) {
        for (int lev = 0; lev <= finest_level; ++lev) {
           if (m_nodal_vel_eta) {
               vel_eta.emplace_back(amrex::convert(grids[lev],

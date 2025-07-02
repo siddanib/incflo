@@ -242,7 +242,7 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
 {
     int nlevels = nonlin_func.size();
     int numcomp = nonlin_func[0]->nComp();
-    compute_linear_part_of_divtau(nonlin_func,velocity,
+    compute_linear_part_of_divtau(nonlin_func, velocity,
                                   GetVecOfConstPtrs(m_density),
                                   GetVecOfConstPtrs(m_eta));
     // NEED TO INCLUDE HIGH-ORDER divtau TERMS HERE BEFORE THE LOOP
@@ -452,7 +452,6 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
                                    GetVecOfConstPtrs(m_newton_iter_vel));
 }
 
-// Bhargav: need to change this
 void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
                 Vector<MultiFab const*> const& a_vel_increment)
 {
