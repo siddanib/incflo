@@ -56,7 +56,7 @@ INCLUDE_LOCATIONS += $(Blocs)
 VPATH_LOCATIONS   += $(Blocs)
 
 #These are the directories in AMReX
-Pdirs := Base AmrCore Boundary LinearSolvers/MLMG
+Pdirs := Base AmrCore Boundary LinearSolvers
 
 ifeq ($(USE_PARTICLES), TRUE)
   Pdirs += Particle
