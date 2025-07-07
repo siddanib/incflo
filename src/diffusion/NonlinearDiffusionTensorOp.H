@@ -15,6 +15,7 @@ class NonlinearDiffusionTensorOp
 public:
     using RT     = amrex::Real;
     using VMF    = amrex::Vector<amrex::MultiFab>;
+    using VCMFPtr = amrex::Vector<const amrex::MultiFab*>;
     using GM     = amrex::GMRES<VMF,NonlinearDiffusionTensorOp>;
 
     NonlinearDiffusionTensorOp (incflo* a_incflo);
@@ -42,6 +43,7 @@ public:
     VMF makeVecRHS ();
     VMF makeVecLHS ();
     amrex::Real norm2 (VMF const& v);
+    amrex::Real norm2 (VCMFPtr const& v);
     void precond (VMF& lhs, VMF const& rhs);
     void scale (VMF& v, amrex::Real fac);
     void setToZero (VMF& v);

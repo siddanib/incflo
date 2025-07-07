@@ -506,37 +506,20 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
 // This function calculates norm2 for the non-linear function
 Real NonlinearDiffusionTensorOp::get_norm_of_residual ()
 {
-    int nlevels = m_newton_iter_func.size();
-    int numcomp = m_newton_iter_func[0]->nComp();
-    Real norm2_all = Real(0.);
-    Real norm2_tmp;
-    for (int ilev=0; ilev < nlevels; ++ilev) {
-        norm2_tmp = m_newton_iter_func[ilev]->norm2(0,numcomp);
-        norm2_all += norm2_tmp*norm2_tmp;
-    }
-    return std::sqrt(norm2_all);
+    return norm2(GetVecOfConstPtrs(m_newton_iter_func));
 }
 
 // Putting everything needed by GMRES below
 // All these need to be public member functions
 // Jv corresponds to matrix vector product of Jacobian and increment
-// NOTE: norm2 calculations might have change when it becomes multi-level
+// NOTE: norm2 calculations might need to be changed when it becomes multi-level
 void NonlinearDiffusionTensorOp::apply (VMF& Jv, VMF& v)
 {
     int numcomp = v[0].nComp();
     int nlevels = v.size();
     Real eps_newton, old_vel_norm2, vel_incrmt_norm2;
-    old_vel_norm2 = Real(0.);
-    vel_incrmt_norm2 = Real(0.);
-    Real a_tmp;
-    for (int ilev=0; ilev < nlevels; ++ilev) {
-        a_tmp = m_newton_iter_vel[ilev]->norm2(0,numcomp);
-        old_vel_norm2 += a_tmp*a_tmp;
-        a_tmp = v[ilev].norm2(0,numcomp);
-        vel_incrmt_norm2 += a_tmp*a_tmp;
-    }
-    old_vel_norm2 = std::sqrt(old_vel_norm2);
-    vel_incrmt_norm2 = std::sqrt(vel_incrmt_norm2);
+    old_vel_norm2 = norm2(GetVecOfConstPtrs(m_newton_iter_vel));
+    vel_incrmt_norm2 = norm2(v);
 
     eps_newton = m_newton_epsilon;
     eps_newton *= (Real(1.0) + old_vel_norm2);
@@ -695,8 +678,78 @@ Real NonlinearDiffusionTensorOp::norm2 (VMF const& v)
     int numcomp = v[0].nComp();
     for (int ilev=0; ilev < nlevels; ++ilev)
     {
+#ifdef AMREX_USE_EB
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(v[ilev].Factory());
+        auto const& v_arrays    = v[ilev].const_arrays();
+        auto const& flag_arrays = factory.getMultiEBCellFlagFab().const_arrays();
+        norm2_lev = amrex::ParReduce(TypeList<ReduceOpSum>{}, TypeList<Real>{},
+                                     v[ilev],
+                    [=] AMREX_GPU_DEVICE (int box_no, int i, int j, int k)
+                    noexcept -> GpuTuple<Real>
+                    {
+                        if (!flag_arrays[box_no](i,j,k).isCovered()) {
+                            Real norm_cell = Real(0.);
+                            for (int idim=0; idim < numcomp; ++idim) {
+                                 norm_cell +=
+                                   v_arrays[box_no](i,j,k,idim)*v_arrays[box_no](i,j,k,idim);
+                            }
+                            return { norm_cell };
+                        }
+                        else {
+                            return { Real(0.)};
+                        }
+                    });
+        // ParReduce is ONLY local operation;
+        // Sum across MPI ranks
+        amrex::ParallelDescriptor::ReduceRealSum(&norm2_lev, 1);
+        norm2_all_lev += norm2_lev;
+#else
         norm2_lev = v[ilev].norm2(0,numcomp);
         norm2_all_lev += norm2_lev*norm2_lev;
+#endif
+    }
+    return std::sqrt(norm2_all_lev);
+}
+
+Real NonlinearDiffusionTensorOp::norm2 (VCMFPtr const& v)
+{
+    Real norm2_all_lev = Real(0.);
+    Real norm2_lev;
+    int nlevels = v.size();
+    int numcomp = v[0]->nComp();
+    for (int ilev=0; ilev < nlevels; ++ilev)
+    {
+#ifdef AMREX_USE_EB
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(v[ilev]->Factory());
+        auto const& v_arrays    = v[ilev]->const_arrays();
+        auto const& flag_arrays = factory.getMultiEBCellFlagFab().const_arrays();
+        norm2_lev = amrex::ParReduce(TypeList<ReduceOpSum>{}, TypeList<Real>{},
+                                     *v[ilev],
+                    [=] AMREX_GPU_DEVICE (int box_no, int i, int j, int k)
+                    noexcept -> GpuTuple<Real>
+                    {
+                        if (!flag_arrays[box_no](i,j,k).isCovered()) {
+                            Real norm_cell = Real(0.);
+                            for (int idim=0; idim < numcomp; ++idim) {
+                                 norm_cell +=
+                                   v_arrays[box_no](i,j,k,idim)*v_arrays[box_no](i,j,k,idim);
+                            }
+                            return { norm_cell };
+                        }
+                        else {
+                            return { Real(0.)};
+                        }
+                    });
+        // ParReduce is ONLY local operation;
+        // Sum across MPI ranks
+        amrex::ParallelDescriptor::ReduceRealSum(&norm2_lev, 1);
+        norm2_all_lev += norm2_lev;
+#else
+        norm2_lev = v[ilev]->norm2(0,numcomp);
+        norm2_all_lev += norm2_lev*norm2_lev;
+#endif
     }
     return std::sqrt(norm2_all_lev);
 }
