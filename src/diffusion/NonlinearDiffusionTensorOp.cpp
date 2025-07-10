@@ -249,15 +249,12 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
     add_non_linear_part_of_divtau(nonlin_func, velocity,
                                   GetVecOfConstPtrs(m_density),
                                   GetVecOfConstPtrs(m_eta));
-    for (int ilev=0; ilev < nlevels; ++ilev) {
-        // First multiply divtau with (-dt)
-        nonlin_func[ilev]->mult(Real(-1.0)*m_dt,0);
-        MultiFab::Subtract(*nonlin_func[ilev],*m_rhs_n[ilev],
-                           0,0,numcomp,0);
-        for (int idim=0; idim < numcomp; ++idim) {
-            MultiFab::AddProduct(*nonlin_func[ilev], *m_density[ilev],
-                                 0, *velocity[ilev], idim, idim, 1, 0);
-        }
+    // First multiply divtau with (-dt)
+    scale(nonlin_func, Real(-1.0)*m_dt);
+    increment(nonlin_func, GetVecOfConstPtrs(m_rhs_n), Real(-1.0));
+    for (int idim=0; idim < numcomp; ++idim) {
+        AddProduct(nonlin_func, GetVecOfConstPtrs(m_density),
+                    0, velocity, idim, idim, 1);
     }
 }
 
@@ -452,19 +449,17 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
                                    GetVecOfConstPtrs(m_newton_iter_vel));
 }
 
+// This function should NOT touch physical boundaries and covered cells
 void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
                 Vector<MultiFab const*> const& a_vel_increment)
 {
     int nlevels = a_vel_increment.size();
-    int numcomp = a_vel_increment[0]->nComp();
     Real norm_old, norm_new;
     norm_old = get_norm_of_residual();
-    // Add the incremental velocity
+    // Add the incremental velocity without ghost and covered cells
+    increment(GetVecOfPtrs(m_newton_iter_vel),
+              a_vel_increment, Real(1.0));
     for (int ilev=0; ilev < nlevels; ++ilev) {
-        // Increment without ghost cells
-        MultiFab::Add(*m_newton_iter_vel[ilev],
-                      *a_vel_increment[ilev],
-                      0,0,numcomp,0);
         // Use FillBoundary to update ghost cells
         m_newton_iter_vel[ilev]->FillBoundary(
                           m_incflo->Geom(ilev).periodicity());
@@ -484,11 +479,10 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
         norm_old = norm_new;
         lambda *= Real(1.0) - alpha;
         beta = Real(-1.0)*lambda/(Real(1.0)-alpha);
+        // Remove portion of the incremental velocity without ghost and covered cells
+        increment(GetVecOfPtrs(m_newton_iter_vel),
+                  a_vel_increment, beta);
         for (int ilev=0; ilev < nlevels; ++ilev) {
-            // Increment without ghost cells
-            MultiFab::Saxpy(*m_newton_iter_vel[ilev], beta,
-                            *a_vel_increment[ilev],
-                            0,0,numcomp,0);
             // Use FillBoundary to update ghost cells
             m_newton_iter_vel[ilev]->FillBoundary(
                               m_incflo->Geom(ilev).periodicity());
@@ -536,43 +530,109 @@ void NonlinearDiffusionTensorOp::apply (VMF& Jv, VMF& v)
         // information so copy from its ghost cells
         MultiFab::Copy(vel_jacobian[ilev],*m_newton_iter_vel[ilev],
                        0,0,numcomp,m_nghost_vel);
-        // Do NOT copy to ghost cells using v
-        MultiFab::Saxpy(vel_jacobian[ilev],
-                        eps_newton, v[ilev], 0, 0, numcomp,
-                        0);
-        // FillBoundary call for interior/periodic ghost cells
+    }
+    // Add increment only to valid and non-covered cells
+    increment(GetVecOfPtrs(vel_jacobian),GetVecOfConstPtrs(v),eps_newton);
+    // FillBoundary call for interior/periodic ghost cells
+    for (int ilev=0; ilev < nlevels; ++ilev) {
         vel_jacobian[ilev].FillBoundary(m_incflo->Geom(ilev).periodicity());
     }
-
     compute_viscous_solve_equation(GetVecOfPtrs(Jv),
                                    GetVecOfConstPtrs(vel_jacobian));
 
-    for (int ilev=0; ilev < nlevels; ++ilev) {
-        MultiFab::Subtract(Jv[ilev],*m_newton_iter_func[ilev],
-                           0,0,numcomp,0);
-        Jv[ilev].mult(Real(1.0)/(eps_newton+Real(1.0e-18)),0);
-    }
+    increment(GetVecOfPtrs(Jv),
+              GetVecOfConstPtrs(m_newton_iter_func), Real(-1.0));
+    scale(Jv, Real(1.0)/(eps_newton+Real(1.0e-18)));
 }
 
+// Does NOT touch ghost and covered cells
 void NonlinearDiffusionTensorOp::assign (VMF& lhs,
                                          VMF const& rhs)
 {
-    int numcomp = rhs[0].nComp();
+    assign(GetVecOfPtrs(lhs), GetVecOfConstPtrs(rhs));
+}
+
+// Do NOT touch ghost and covered cells
+void NonlinearDiffusionTensorOp::assign (VMFPtr const& lhs,
+                                         VCMFPtr const& rhs)
+{
+    int numcomp = rhs[0]->nComp();
     int nlevels = rhs.size();
     for (int ilev=0; ilev < nlevels; ++ilev) {
-        MultiFab::Copy(lhs[ilev],rhs[ilev],0,0,numcomp,0);
+#ifdef AMREX_USE_EB
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(rhs[ilev]->Factory());
+        auto const& flags = factory.getMultiEBCellFlagFab();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(*rhs[ilev],TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            auto const& flag_fab = flags[mfi];
+            auto const& flag_arr = flag_fab.const_array();
+            Array4<Real      > const& lhs_arr = lhs[ilev]->array(mfi);
+            Array4<Real const> const& rhs_arr = rhs[ilev]->const_array(mfi);
+            ParallelFor(bx, numcomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
+            {
+                if (!flag_arr(i,j,k).isCovered()) {
+                    lhs_arr(i,j,k,n) = rhs_arr(i,j,k,n);
+                }
+            });
+        }
+#else
+        MultiFab::Copy(*lhs[ilev],*rhs[ilev],0,0,numcomp,0);
+#endif
     }
 }
 
 Real NonlinearDiffusionTensorOp::dotProduct (VMF const& v1,
                                              VMF const& v2)
 {
+    return dotProduct(GetVecOfConstPtrs(v1),
+                      GetVecOfConstPtrs(v2));
+}
+
+// Do NOT touch ghost and covered cells
+Real NonlinearDiffusionTensorOp::dotProduct (VCMFPtr const& v1,
+                                             VCMFPtr const& v2)
+{
     Real dot_all_lev = Real(0.);
-    int numcomp = v1[0].nComp();
+    Real dot_lev;
+    int numcomp = v1[0]->nComp();
     int nlevels = v1.size();
     for (int ilev=0; ilev < nlevels; ++ilev)
     {
-        dot_all_lev += MultiFab::Dot(v1[ilev],0,v2[ilev],0,numcomp,0);
+#ifdef AMREX_USE_EB
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(v1[ilev]->Factory());
+        auto const& v1_arrays    = v1[ilev]->const_arrays();
+        auto const& v2_arrays    = v2[ilev]->const_arrays();
+        auto const& flag_arrays = factory.getMultiEBCellFlagFab().const_arrays();
+        dot_lev = amrex::ParReduce(TypeList<ReduceOpSum>{}, TypeList<Real>{},
+                                     *v1[ilev],
+                    [=] AMREX_GPU_DEVICE (int box_no, int i, int j, int k)
+                    noexcept -> GpuTuple<Real>
+                    {
+                        if (!flag_arrays[box_no](i,j,k).isCovered()) {
+                            Real dot_cell = Real(0.);
+                            for (int idim=0; idim < numcomp; ++idim) {
+                                 dot_cell +=
+                                   v1_arrays[box_no](i,j,k,idim)*v2_arrays[box_no](i,j,k,idim);
+                            }
+                            return { dot_cell };
+                        }
+                        else {
+                            return { Real(0.)};
+                        }
+                    });
+        // ParReduce is ONLY local operation;
+        // Sum across MPI ranks
+        amrex::ParallelDescriptor::ReduceRealSum(&dot_lev, 1);
+        dot_all_lev += dot_lev;
+#else
+        dot_all_lev += MultiFab::Dot(*v1[ilev],0,*v2[ilev],0,numcomp,0);
+#endif
     }
     return dot_all_lev;
 }
@@ -580,11 +640,41 @@ Real NonlinearDiffusionTensorOp::dotProduct (VMF const& v1,
 void NonlinearDiffusionTensorOp::increment (VMF& lhs,
                                             VMF const& rhs, Real a)
 {
-    int numcomp = rhs[0].nComp();
+    increment(GetVecOfPtrs(lhs), GetVecOfConstPtrs(rhs), a);
+}
+
+// Do NOT touch ghost and covered cells
+void NonlinearDiffusionTensorOp::increment (VMFPtr const& lhs,
+                                            VCMFPtr const& rhs, Real a)
+{
+    int numcomp = rhs[0]->nComp();
     int nlevels = rhs.size();
     for (int ilev=0; ilev < nlevels; ++ilev)
     {
-        MultiFab::Saxpy(lhs[ilev],a,rhs[ilev],0,0,numcomp,0);
+#ifdef AMREX_USE_EB
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(rhs[ilev]->Factory());
+        auto const& flags = factory.getMultiEBCellFlagFab();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(*rhs[ilev],TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            auto const& flag_fab = flags[mfi];
+            auto const& flag_arr = flag_fab.const_array();
+            Array4<Real      > const& lhs_arr = lhs[ilev]->array(mfi);
+            Array4<Real const> const& rhs_arr = rhs[ilev]->const_array(mfi);
+            ParallelFor(bx, numcomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
+            {
+                if (!flag_arr(i,j,k).isCovered()) {
+                    lhs_arr(i,j,k,n) += a*rhs_arr(i,j,k,n);
+                }
+            });
+        }
+#else
+        MultiFab::Saxpy(*lhs[ilev],a,*rhs[ilev],0,0,numcomp,0);
+#endif
     }
 }
 
@@ -592,12 +682,45 @@ void NonlinearDiffusionTensorOp::linComb (VMF& lhs,
                                           Real a, VMF const& rhs_a,
                                           Real b, VMF const& rhs_b)
 {
-    int numcomp = rhs_a[0].nComp();
+    linComb(GetVecOfPtrs(lhs), a, GetVecOfConstPtrs(rhs_a),
+            b, GetVecOfConstPtrs(rhs_b));
+}
+
+// Do NOT touch ghost and covered cells
+void NonlinearDiffusionTensorOp::linComb (VMFPtr const& lhs,
+                                          Real a, VCMFPtr const& rhs_a,
+                                          Real b, VCMFPtr const& rhs_b)
+{
+    int numcomp = rhs_a[0]->nComp();
     int nlevels = rhs_a.size();
     for (int ilev=0; ilev < nlevels; ++ilev)
     {
-        MultiFab::LinComb(lhs[ilev],a,rhs_a[ilev],0,
-                          b,rhs_b[ilev],0,0,numcomp,0);
+#ifdef AMREX_USE_EB
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(rhs_a[ilev]->Factory());
+        auto const& flags = factory.getMultiEBCellFlagFab();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(*rhs_a[ilev],TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            auto const& flag_fab = flags[mfi];
+            auto const& flag_arr = flag_fab.const_array();
+            Array4<Real      > const& lhs_arr   = lhs[ilev]->array(mfi);
+            Array4<Real const> const& rhs_a_arr = rhs_a[ilev]->const_array(mfi);
+            Array4<Real const> const& rhs_b_arr = rhs_b[ilev]->const_array(mfi);
+            ParallelFor(bx, numcomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
+            {
+                if (!flag_arr(i,j,k).isCovered()) {
+                    lhs_arr(i,j,k,n) = a*rhs_a_arr(i,j,k,n) + b*rhs_b_arr(i,j,k,n);
+                }
+            });
+        }
+#else
+        MultiFab::LinComb(*lhs[ilev],a,*rhs_a[ilev],0,
+                          b,*rhs_b[ilev],0,0,numcomp,0);
+#endif
     }
 }
 
@@ -672,88 +795,15 @@ Vector<MultiFab> NonlinearDiffusionTensorOp::makeVecLHS ()
 
 Real NonlinearDiffusionTensorOp::norm2 (VMF const& v)
 {
-    Real norm2_all_lev = Real(0.);
-    Real norm2_lev;
-    int nlevels = v.size();
-    int numcomp = v[0].nComp();
-    for (int ilev=0; ilev < nlevels; ++ilev)
-    {
-#ifdef AMREX_USE_EB
-        const auto& factory =
-          dynamic_cast<EBFArrayBoxFactory const&>(v[ilev].Factory());
-        auto const& v_arrays    = v[ilev].const_arrays();
-        auto const& flag_arrays = factory.getMultiEBCellFlagFab().const_arrays();
-        norm2_lev = amrex::ParReduce(TypeList<ReduceOpSum>{}, TypeList<Real>{},
-                                     v[ilev],
-                    [=] AMREX_GPU_DEVICE (int box_no, int i, int j, int k)
-                    noexcept -> GpuTuple<Real>
-                    {
-                        if (!flag_arrays[box_no](i,j,k).isCovered()) {
-                            Real norm_cell = Real(0.);
-                            for (int idim=0; idim < numcomp; ++idim) {
-                                 norm_cell +=
-                                   v_arrays[box_no](i,j,k,idim)*v_arrays[box_no](i,j,k,idim);
-                            }
-                            return { norm_cell };
-                        }
-                        else {
-                            return { Real(0.)};
-                        }
-                    });
-        // ParReduce is ONLY local operation;
-        // Sum across MPI ranks
-        amrex::ParallelDescriptor::ReduceRealSum(&norm2_lev, 1);
-        norm2_all_lev += norm2_lev;
-#else
-        norm2_lev = v[ilev].norm2(0,numcomp);
-        norm2_all_lev += norm2_lev*norm2_lev;
-#endif
-    }
-    return std::sqrt(norm2_all_lev);
+    return norm2(GetVecOfConstPtrs(v));
 }
 
 Real NonlinearDiffusionTensorOp::norm2 (VCMFPtr const& v)
 {
-    Real norm2_all_lev = Real(0.);
-    Real norm2_lev;
-    int nlevels = v.size();
-    int numcomp = v[0]->nComp();
-    for (int ilev=0; ilev < nlevels; ++ilev)
-    {
-#ifdef AMREX_USE_EB
-        const auto& factory =
-          dynamic_cast<EBFArrayBoxFactory const&>(v[ilev]->Factory());
-        auto const& v_arrays    = v[ilev]->const_arrays();
-        auto const& flag_arrays = factory.getMultiEBCellFlagFab().const_arrays();
-        norm2_lev = amrex::ParReduce(TypeList<ReduceOpSum>{}, TypeList<Real>{},
-                                     *v[ilev],
-                    [=] AMREX_GPU_DEVICE (int box_no, int i, int j, int k)
-                    noexcept -> GpuTuple<Real>
-                    {
-                        if (!flag_arrays[box_no](i,j,k).isCovered()) {
-                            Real norm_cell = Real(0.);
-                            for (int idim=0; idim < numcomp; ++idim) {
-                                 norm_cell +=
-                                   v_arrays[box_no](i,j,k,idim)*v_arrays[box_no](i,j,k,idim);
-                            }
-                            return { norm_cell };
-                        }
-                        else {
-                            return { Real(0.)};
-                        }
-                    });
-        // ParReduce is ONLY local operation;
-        // Sum across MPI ranks
-        amrex::ParallelDescriptor::ReduceRealSum(&norm2_lev, 1);
-        norm2_all_lev += norm2_lev;
-#else
-        norm2_lev = v[ilev]->norm2(0,numcomp);
-        norm2_all_lev += norm2_lev*norm2_lev;
-#endif
-    }
-    return std::sqrt(norm2_all_lev);
+    return std::sqrt(dotProduct(v, v));
 }
 
+// Do NOT touch ghost and covered cells
 void NonlinearDiffusionTensorOp::precond (VMF& lhs, VMF const& rhs)
 {
     // Currently not leveraging any custom preconditioner
@@ -761,25 +811,137 @@ void NonlinearDiffusionTensorOp::precond (VMF& lhs, VMF const& rhs)
     int numcomp = rhs[0].nComp();
     for (int ilev=0; ilev < nlevels; ++ilev)
     {
+#ifdef AMREX_USE_EB
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(rhs[ilev].Factory());
+        auto const& flags = factory.getMultiEBCellFlagFab();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(rhs[ilev],TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            auto const& flag_fab = flags[mfi];
+            auto const& flag_arr = flag_fab.const_array();
+            Array4<Real      > const& lhs_arr = lhs[ilev].array(mfi);
+            Array4<Real const> const& rhs_arr = rhs[ilev].const_array(mfi);
+            ParallelFor(bx, numcomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
+            {
+                if (!flag_arr(i,j,k).isCovered()) {
+                    lhs_arr(i,j,k,n) = rhs_arr(i,j,k,n);
+                }
+            });
+        }
+#else
         MultiFab::Copy(lhs[ilev],rhs[ilev],0,0,numcomp,0);
+#endif
     }
 }
-
 
 void NonlinearDiffusionTensorOp::scale (VMF& v, Real fac)
 {
+    scale(GetVecOfPtrs(v),fac);
+}
+
+// Do NOT touch ghost and covered cells
+void NonlinearDiffusionTensorOp::scale (VMFPtr const& v, Real fac)
+{
     int nlevels = v.size();
+    int numcomp = v[0]->nComp();
     for (int ilev=0; ilev < nlevels; ++ilev)
     {
-        v[ilev].mult(fac);
+#ifdef AMREX_USE_EB
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(v[ilev]->Factory());
+        auto const& flags = factory.getMultiEBCellFlagFab();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(*v[ilev],TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            auto const& flag_fab = flags[mfi];
+            auto const& flag_arr = flag_fab.const_array();
+            Array4<Real      > const& v_arr = v[ilev]->array(mfi);
+            ParallelFor(bx, numcomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
+            {
+                if (!flag_arr(i,j,k).isCovered()) {
+                    v_arr(i,j,k,n) *= fac;
+                }
+            });
+        }
+#else
+        v[ilev]->mult(fac, 0);
+#endif
     }
 }
 
+// Do NOT touch ghost and covered cells
 void NonlinearDiffusionTensorOp::setToZero (VMF& v)
 {
     int nlevels = v.size();
+    int numcomp = v[0].nComp();
     for (int ilev=0; ilev < nlevels; ++ilev)
     {
-        v[ilev].setVal(Real(0.));
+#ifdef AMREX_USE_EB
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(v[ilev].Factory());
+        auto const& flags = factory.getMultiEBCellFlagFab();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(v[ilev],TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            auto const& flag_fab = flags[mfi];
+            auto const& flag_arr = flag_fab.const_array();
+            Array4<Real      > const& v_arr = v[ilev].array(mfi);
+            ParallelFor(bx, numcomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
+            {
+                if (!flag_arr(i,j,k).isCovered()) {
+                    v_arr(i,j,k,n) = Real(0.);
+                }
+            });
+        }
+#else
+        v[ilev].setVal(Real(0.), 0);
+#endif
+    }
+}
+
+// Do NOT touch ghost and covered cells
+void NonlinearDiffusionTensorOp::AddProduct (VMFPtr const& dst,
+        VCMFPtr const& src1, int comp1, VCMFPtr const& src2, int comp2,
+        int dstcomp, int numcomp)
+{
+    int nlevels = src1.size();
+    for (int ilev=0; ilev < nlevels; ++ilev)
+    {
+#ifdef AMREX_USE_EB
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(src1[ilev]->Factory());
+        auto const& flags = factory.getMultiEBCellFlagFab();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(*src1[ilev],TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            auto const& flag_fab = flags[mfi];
+            auto const& flag_arr = flag_fab.const_array();
+            Array4<Real      > const& dst_arr  = dst[ilev]->array(mfi);
+            Array4<Real const> const& src1_arr = src1[ilev]->const_array(mfi);
+            Array4<Real const> const& src2_arr = src2[ilev]->const_array(mfi);
+            ParallelFor(bx, numcomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
+            {
+                if (!flag_arr(i,j,k).isCovered()) {
+                    dst_arr(i,j,k,dstcomp+n) += src1_arr(i,j,k,comp1+n)*src2_arr(i,j,k,comp2+n);
+                }
+            });
+        }
+#else
+        MultiFab::AddProduct(*dst[ilev], *src1[ilev], comp1,
+                             *src2[ilev], comp2, dstcomp, numcomp, 0);
+#endif
     }
 }

@@ -13,10 +13,11 @@ class incflo;
 class NonlinearDiffusionTensorOp
 {
 public:
-    using RT     = amrex::Real;
-    using VMF    = amrex::Vector<amrex::MultiFab>;
+    using RT      = amrex::Real;
+    using VMF     = amrex::Vector<      amrex::MultiFab>;
+    using VMFPtr  = amrex::Vector<      amrex::MultiFab*>;
     using VCMFPtr = amrex::Vector<const amrex::MultiFab*>;
-    using GM     = amrex::GMRES<VMF,NonlinearDiffusionTensorOp>;
+    using GM      = amrex::GMRES<VMF,NonlinearDiffusionTensorOp>;
 
     NonlinearDiffusionTensorOp (incflo* a_incflo);
 
@@ -35,18 +36,43 @@ public:
     // Note that most of these functions might have to be modified
     // for multi-level solve
     void apply (VMF& Ax, VMF& x);
+
     void assign (VMF& lhs, VMF const& rhs);
+
+    void assign (VMFPtr const& lhs, VCMFPtr const& rhs);
+
     amrex::Real dotProduct (VMF const& v1, VMF const& v2);
+
+    amrex::Real dotProduct (VCMFPtr const& v1, VCMFPtr const& v2);
+
     void increment (VMF& lhs, VMF const& rhs, amrex::Real a);
+
+    void increment (VMFPtr const& lhs, VCMFPtr const& rhs, amrex::Real a);
+
     void linComb (VMF& lhs, amrex::Real a, VMF const& rhs_a,
                   amrex::Real b, VMF const& rhs_b);
+
+    void linComb (VMFPtr const& lhs, amrex::Real a, VCMFPtr const& rhs_a,
+                  amrex::Real b, VCMFPtr const& rhs_b);
+
     VMF makeVecRHS ();
+
     VMF makeVecLHS ();
+
     amrex::Real norm2 (VMF const& v);
+
     amrex::Real norm2 (VCMFPtr const& v);
+
     void precond (VMF& lhs, VMF const& rhs);
+
     void scale (VMF& v, amrex::Real fac);
+
+    void scale (VMFPtr const& v, amrex::Real fac);
+
     void setToZero (VMF& v);
+
+    void AddProduct (VMFPtr const& dst, VCMFPtr const& src1, int comp1,
+                     VCMFPtr const& src2, int comp2, int dstcomp, int numcomp);
 
 private:
 
