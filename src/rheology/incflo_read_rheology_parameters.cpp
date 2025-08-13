@@ -221,7 +221,7 @@ void incflo::ReadRheologyParameters()
             // Ordering in table (const, A, alpha)
             pp_scnd.gettable("coeff_table", m_mu_powerlaw);
             // This is to get the lowe neutral inertial number
-            pp_scnd.query("low_neutral_I)", m_I_1_N_powerlaw);
+            pp_scnd.query("low_neutral_I", m_I_1_N_powerlaw);
             amrex::Print() << "Using mu(I) based on Granular Powerlaw"<<std::endl;
         }
         else
