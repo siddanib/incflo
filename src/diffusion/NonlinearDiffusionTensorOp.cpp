@@ -25,6 +25,8 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
     if (m_incflo->m_nodal_vel_eta) {m_nghost_eta = 0;}
 
     // The below code is related to linear part of divtau
+    LPInfo info_solve;
+    info_solve.setMaxCoarseningLevel(m_mg_max_coarsening_level);
     LPInfo info_apply;
     info_apply.setMaxCoarseningLevel(0);
 #ifdef AMREX_USE_EB
@@ -33,6 +35,17 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
         Vector<EBFArrayBoxFactory const*> ebfact;
         for (int lev = 0; lev <= finest_level; ++lev) {
             ebfact.push_back(&(m_incflo->EBFactory(lev)));
+        }
+
+        if (m_incflo->useTensorSolve())
+        {
+            m_eb_solve_op = std::make_unique<MLEBTensorOp>(m_incflo->Geom(0,finest_level),
+                                                 m_incflo->boxArray(0,finest_level),
+                                                 m_incflo->DistributionMap(0,finest_level),
+                                                 info_solve, ebfact);
+            m_eb_solve_op->setMaxOrder(m_mg_maxorder);
+            m_eb_solve_op->setDomainBC(m_incflo->get_diffuse_tensor_bc(Orientation::low),
+                                       m_incflo->get_diffuse_tensor_bc(Orientation::high));
         }
 
         if (m_incflo->need_divtau() || m_incflo->useTensorCorrection())
@@ -49,6 +62,18 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
     else
 #endif
     {
+        if (m_incflo->useTensorSolve())
+        {
+            m_reg_solve_op = std::make_unique<MLTensorOp>(m_incflo->Geom(0,finest_level),
+                                                m_incflo->boxArray(0,finest_level),
+                                                m_incflo->DistributionMap(0,finest_level),
+                                                info_solve);
+            m_reg_solve_op->setGaussSeidel(m_mg_use_gauss_seidel);
+            m_reg_solve_op->setMaxOrder(m_mg_maxorder);
+            m_reg_solve_op->setDomainBC(m_incflo->get_diffuse_tensor_bc(Orientation::low),
+                                        m_incflo->get_diffuse_tensor_bc(Orientation::high));
+        }
+
         if (m_incflo->need_divtau() || m_incflo->useTensorCorrection())
         {
             m_reg_apply_op = std::make_unique<MLTensorOp>(m_incflo->Geom(0,finest_level),
@@ -77,8 +102,22 @@ void NonlinearDiffusionTensorOp::readParameters ()
     pp.query("gmres_max_iter", m_gmres_max_iter);
     pp.query("gmres_rtol", m_gmres_rtol);
     pp.query("gmres_atol", m_gmres_atol);
+    pp.query("gmres_use_precond", m_gmres_use_precond);
     // This is for linear part of divtau
+    // MLMG-related
+    pp.query("mg_verbose", m_mg_verbose);
+    pp.query("mg_bottom_verbose", m_mg_bottom_verbose);
+    pp.query("mg_max_iter", m_mg_max_iter);
+    pp.query("mg_bottom_maxiter", m_mg_bottom_maxiter);
+    pp.query("mg_max_fmg_iter", m_mg_max_fmg_iter);
+    pp.query("mg_max_coarsening_level", m_mg_max_coarsening_level);
     pp.query("mg_maxorder", m_mg_maxorder);
+    pp.query("mg_rtol", m_mg_rtol);
+    pp.query("mg_atol", m_mg_atol);
+    pp.query("bottom_solver", m_bottom_solver);
+    pp.query("num_pre_smooth", m_num_pre_smooth);
+    pp.query("num_post_smooth", m_num_post_smooth);
+    pp.query("use_gauss_seidel", m_mg_use_gauss_seidel);
 }
 
 void NonlinearDiffusionTensorOp::diffuse_velocity (
@@ -174,7 +213,6 @@ void NonlinearDiffusionTensorOp::diffuse_velocity (
 
         update_newton_iteration_multifabs(
                       GetVecOfConstPtrs(vel_incrmt_newton));
-
         inewt++;
         if (inewt >= m_newton_max_iter) {
             if (m_verbose) {
@@ -240,7 +278,6 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
                        Vector<MultiFab*> const& nonlin_func,
                        Vector<MultiFab const*> const& velocity)
 {
-    int nlevels = nonlin_func.size();
     int numcomp = nonlin_func[0]->nComp();
     compute_linear_part_of_divtau(nonlin_func, velocity,
                                   GetVecOfConstPtrs(m_density),
@@ -501,6 +538,105 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
 Real NonlinearDiffusionTensorOp::get_norm_of_residual ()
 {
     return norm2(GetVecOfConstPtrs(m_newton_iter_func));
+}
+
+// This function is used in the precond of GMRES
+void NonlinearDiffusionTensorOp::diffuse_velocity_mlmg (
+                            Vector<MultiFab*> const& velocity,
+                            Vector<MultiFab*> const& density,
+                            Vector<MultiFab const*> const& eta,
+                            Vector<MultiFab const*> const& rhs,
+                            Real dt)
+{
+    //
+    //      alpha a - beta div ( b grad )   <--->   rho - dt div ( mu grad )
+    //
+    // So the constants and variable coefficients are:
+    //
+    //      alpha: 1
+    //      beta: dt
+    //      a: rho
+    //      b: mu
+    const int finest_level = m_incflo->finestLevel();
+#ifdef AMREX_USE_EB
+    if (m_eb_solve_op)
+    {
+        // For when we use the stencil for centroid values
+        // m_eb_solve_op->setPhiOnCentroid();
+
+        m_eb_solve_op->setScalars(1.0, dt);
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            m_eb_solve_op->setACoeffs(lev, *density[lev]);
+
+            Array<MultiFab,AMREX_SPACEDIM> b = m_incflo->average_velocity_eta_to_faces(lev, *eta[lev]);
+
+            m_eb_solve_op->setShearViscosity(lev, GetArrOfConstPtrs(b), MLMG::Location::FaceCentroid);
+
+            if (m_incflo->hasEBFlow()) {
+               m_eb_solve_op->setEBShearViscosityWithInflow(lev, *eta[lev], *(m_incflo->get_velocity_eb()[lev]));
+            } else {
+               m_eb_solve_op->setEBShearViscosity(lev, *eta[lev]);
+            }
+        }
+    }
+    else
+#endif
+    {
+        m_reg_solve_op->setScalars(1.0, dt);
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            m_reg_solve_op->setACoeffs(lev, *density[lev]);
+            Array<MultiFab,AMREX_SPACEDIM> b;
+            if (eta[lev]->boxArray().ixType().nodeCentered()) {
+                b = incflo::average_nodal_velocity_eta_to_faces(lev, *eta[lev]);
+            }
+            else {
+                b = m_incflo->average_velocity_eta_to_faces(lev, *eta[lev]);
+            }
+            m_reg_solve_op->setShearViscosity(lev, GetArrOfConstPtrs(b));
+        }
+    }
+
+    for (int lev = 0; lev <= finest_level; ++lev) {
+#ifdef AMREX_USE_EB
+        if (m_eb_solve_op) {
+            m_eb_solve_op->setLevelBC(lev, velocity[lev]);
+        } else
+#endif
+        {
+            m_reg_solve_op->setLevelBC(lev, velocity[lev]);
+        }
+    }
+
+#ifdef AMREX_USE_EB
+    MLMG mlmg(m_eb_solve_op ? static_cast<MLLinOp&>(*m_eb_solve_op)
+              :               static_cast<MLLinOp&>(*m_reg_solve_op));
+#else
+    MLMG mlmg(*m_reg_solve_op);
+#endif
+
+    // The default bottom solver is BiCG
+    if (m_bottom_solver == "smoother")
+    {
+        mlmg.setBottomSolver(MLMG::BottomSolver::smoother);
+    }
+    else if (m_bottom_solver == "hypre")
+    {
+        mlmg.setBottomSolver(MLMG::BottomSolver::hypre);
+    }
+    // Maximum iterations for MultiGrid / ConjugateGradients
+    mlmg.setMaxIter(m_mg_max_iter);
+    mlmg.setFixedIter(m_mg_max_iter);
+    mlmg.setMaxFmgIter(m_mg_max_fmg_iter);
+    mlmg.setBottomMaxIter(m_mg_bottom_maxiter);
+
+    // Verbosity for MultiGrid / ConjugateGradients
+    mlmg.setVerbose(m_mg_verbose);
+    mlmg.setBottomVerbose(m_mg_bottom_verbose);
+
+    mlmg.setPreSmooth(m_num_pre_smooth);
+    mlmg.setPostSmooth(m_num_post_smooth);
+
+    mlmg.solve(velocity, rhs, m_mg_rtol, m_mg_atol);
 }
 
 // Putting everything needed by GMRES below
@@ -806,35 +942,54 @@ Real NonlinearDiffusionTensorOp::norm2 (VCMFPtr const& v)
 // Do NOT touch ghost and covered cells
 void NonlinearDiffusionTensorOp::precond (VMF& lhs, VMF const& rhs)
 {
-    // Currently not leveraging any custom preconditioner
     int nlevels = rhs.size();
     int numcomp = rhs[0].nComp();
-    for (int ilev=0; ilev < nlevels; ++ilev)
-    {
+    if (m_gmres_use_precond) {
+        Vector<MultiFab> vel_mlmg(nlevels);
+        for (int ilev=0; ilev < nlevels; ++ilev) {
+            vel_mlmg[ilev].define(rhs[ilev].boxArray(),
+                                  rhs[ilev].DistributionMap(),
+                                  numcomp, 1, MFInfo(),
+                                  rhs[ilev].Factory());
+            // Setting physical boundaries to zero
+            // assumes that all of them are Dirichlet
+            vel_mlmg[ilev].setVal(Real(0.));
+        }
+        // Perform MLMG solve
+        diffuse_velocity_mlmg(GetVecOfPtrs(vel_mlmg), GetVecOfPtrs(m_density),
+                              GetVecOfConstPtrs(m_eta),
+                              GetVecOfConstPtrs(rhs), m_dt);
+        // lhs needs to be (vel_mlmg - m_newton_ter_vel)
+        assign(lhs, vel_mlmg);
+    }
+    else{
+        for (int ilev=0; ilev < nlevels; ++ilev)
+        {
 #ifdef AMREX_USE_EB
-        const auto& factory =
-          dynamic_cast<EBFArrayBoxFactory const&>(rhs[ilev].Factory());
-        auto const& flags = factory.getMultiEBCellFlagFab();
+            const auto& factory =
+              dynamic_cast<EBFArrayBoxFactory const&>(rhs[ilev].Factory());
+            auto const& flags = factory.getMultiEBCellFlagFab();
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for (MFIter mfi(rhs[ilev],TilingIfNotGPU()); mfi.isValid(); ++mfi)
-        {
-            Box const& bx = mfi.tilebox();
-            auto const& flag_fab = flags[mfi];
-            auto const& flag_arr = flag_fab.const_array();
-            Array4<Real      > const& lhs_arr = lhs[ilev].array(mfi);
-            Array4<Real const> const& rhs_arr = rhs[ilev].const_array(mfi);
-            ParallelFor(bx, numcomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
+            for (MFIter mfi(rhs[ilev],TilingIfNotGPU()); mfi.isValid(); ++mfi)
             {
-                if (!flag_arr(i,j,k).isCovered()) {
-                    lhs_arr(i,j,k,n) = rhs_arr(i,j,k,n);
-                }
-            });
-        }
+                Box const& bx = mfi.tilebox();
+                auto const& flag_fab = flags[mfi];
+                auto const& flag_arr = flag_fab.const_array();
+                Array4<Real      > const& lhs_arr = lhs[ilev].array(mfi);
+                Array4<Real const> const& rhs_arr = rhs[ilev].const_array(mfi);
+                ParallelFor(bx, numcomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
+                {
+                    if (!flag_arr(i,j,k).isCovered()) {
+                        lhs_arr(i,j,k,n) = rhs_arr(i,j,k,n);
+                    }
+                });
+            }
 #else
-        MultiFab::Copy(lhs[ilev],rhs[ilev],0,0,numcomp,0);
+            MultiFab::Copy(lhs[ilev],rhs[ilev],0,0,numcomp,0);
 #endif
+        }
     }
 }
 

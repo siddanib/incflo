@@ -106,6 +106,14 @@ private:
     // This function evaluates the norm2 of the non-linear function
     amrex::Real get_norm_of_residual ();
 
+    // This function is DiffusionTensorOp::diffuse_velocity
+    // Used as preconditioner for GMRES
+    void diffuse_velocity_mlmg (amrex::Vector<amrex::MultiFab*> const& velocity,
+                                amrex::Vector<amrex::MultiFab*> const& density,
+                                amrex::Vector<amrex::MultiFab const*> const& eta,
+                                amrex::Vector<amrex::MultiFab const*> const& rhs,
+                                amrex::Real dt);
+
     incflo* m_incflo;
 
     std::unique_ptr<GM> m_gmres;
@@ -129,33 +137,50 @@ private:
     // These are for updating the velocity
     amrex::Real m_newton_update_alpha = amrex::Real(1.0e-3);
     int m_newton_update_max_iter = 100;
+    bool m_gmres_use_precond = true;
 #ifdef AMREX_USE_FLOAT
     // This is for newton iterations
     amrex::Real m_newton_rtol    = amrex::Real(1.0e-4);
     amrex::Real m_newton_atol    = amrex::Real(1.0e-7);
     amrex::Real m_newton_epsilon = amrex::Real(1.0e-7);
+    amrex::Real m_gmres_rtol = amrex::Real(1.0e-4);
+    amrex::Real m_gmres_atol = amrex::Real(1.0e-7);
 #else
     // This is for newton iterations
     amrex::Real m_newton_rtol    = amrex::Real(1.0e-11);
     amrex::Real m_newton_atol    = amrex::Real(1.0e-14);
     amrex::Real m_newton_epsilon = amrex::Real(1.0e-16);
+    amrex::Real m_gmres_rtol = amrex::Real(1.0e-11);
+    amrex::Real m_gmres_atol = amrex::Real(1.0e-14);
 #endif
 
     // These member variables are for the linear part of divtau
     // Essentially MLMG related
 #ifdef AMREX_USE_EB
+    std::unique_ptr<amrex::MLEBTensorOp> m_eb_solve_op;
     std::unique_ptr<amrex::MLEBTensorOp> m_eb_apply_op;
 #endif
+    std::unique_ptr<amrex::MLTensorOp> m_reg_solve_op;
     std::unique_ptr<amrex::MLTensorOp> m_reg_apply_op;
+
     int m_mg_verbose = 1;
+    int m_mg_bottom_verbose = 0;
+    int m_mg_max_iter = 1;
+    int m_mg_bottom_maxiter = 100;
+    int m_mg_max_fmg_iter = 0;
+    int m_mg_max_coarsening_level = 100;
     int m_mg_maxorder = 2;
+    int m_num_pre_smooth = 2;
+    int m_num_post_smooth = 2;
 #ifdef AMREX_USE_FLOAT
-    amrex::Real m_gmres_rtol = amrex::Real(1.0e-4);
-    amrex::Real m_gmres_atol = amrex::Real(1.0e-7);
+    amrex::Real m_mg_rtol = amrex::Real(1.0e-4);
+    amrex::Real m_mg_atol = amrex::Real(1.0e-7);
 #else
-    amrex::Real m_gmres_rtol = amrex::Real(1.0e-11);
-    amrex::Real m_gmres_atol = amrex::Real(1.0e-14);
+    amrex::Real m_mg_rtol = amrex::Real(1.0e-11);
+    amrex::Real m_mg_atol = amrex::Real(1.0e-14);
 #endif
+    bool m_mg_use_gauss_seidel = true;
+    std::string m_bottom_solver = "bicgstab";
 };
 
 #endif
