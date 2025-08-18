@@ -387,9 +387,8 @@ public:
                                 int nghost);
     void add_granular_high_order_divtau_on_level (int lev, amrex::MultiFab& vel_forces,
                                                   const amrex::MultiFab& velocity,
-                                                  const amrex::MultiFab& density,
                                                   const amrex::MultiFab& conc_second,
-                                                  const amrex::MultiFab& p_static);
+                                                  const amrex::MultiFab& scndOrderCoeff);
     void compute_granular_powerlaw_second_order_coeff (int lev,
                                                        amrex::MultiFab& scnd_coeff,
                                                        const amrex::MultiFab& velocity,

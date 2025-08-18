@@ -285,9 +285,12 @@ void NonlinearDiffusionTensorOp::compute_divtau (
            }
         }
     }
+    // Here velocity is used as old_velocity as well;
+    // Reason: This is NOT used in implicit solve
     add_non_linear_part_of_divtau(divtau, velocity, density, eta,
                                   GetVecOfConstPtrs(conc_second),
-                                  GetVecOfConstPtrs(p_static));
+                                  GetVecOfConstPtrs(p_static),
+                                  velocity);
     // This is to be consistent with incflo code
     bool advect_momentum = m_incflo->AdvectMomentum();
     int finest_level = velocity.size()-1;
@@ -325,7 +328,8 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
                                   GetVecOfConstPtrs(m_density),
                                   GetVecOfConstPtrs(m_eta),
                                   GetVecOfConstPtrs(m_conc_second),
-                                  GetVecOfConstPtrs(m_p_static));
+                                  GetVecOfConstPtrs(m_p_static),
+                                  velocity);
     // First multiply divtau with (-dt)
     scale(nonlin_func, Real(-1.0)*m_dt);
     increment(nonlin_func, GetVecOfConstPtrs(m_rhs_n), Real(-1.0));
@@ -429,17 +433,27 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
                                         Vector<MultiFab const*> const& a_density,
                                         Vector<MultiFab const*> const& a_eta,
                                         Vector<MultiFab const*> const& a_conc_second,
-                                        Vector<MultiFab const*> const& a_p_static)
+                                        Vector<MultiFab const*> const& a_p_static,
+                                        Vector<MultiFab const*> const& a_old_velocity)
 {
     if (!(m_incflo->m_two_fluid)) {return;}
     if (m_incflo->m_mu_powerlaw.size() < 2) {return;}
 
     int nlevels = a_velocity.size();
     for (int ilev = 0; ilev < nlevels; ++ilev) {
-       m_incflo->add_granular_high_order_divtau_on_level(ilev,
+        // Calculate second-order rheology coefficients
+        // USING OLD VELOCITY
+        MultiFab scndOrderCoeff(a_old_velocity[ilev]->boxArray(),
+                                a_old_velocity[ilev]->DistributionMap(),
+                                1,0, MFInfo(),
+                                a_old_velocity[ilev]->Factory());
+        m_incflo->compute_granular_powerlaw_second_order_coeff(ilev,
+                                scndOrderCoeff, *a_old_velocity[ilev],
+                                *a_density[ilev], *a_conc_second[ilev],
+                                *a_p_static[ilev], m_incflo->Geom(ilev));
+        m_incflo->add_granular_high_order_divtau_on_level(ilev,
                               *a_divtau[ilev], *a_velocity[ilev],
-                              *a_density[ilev], *a_conc_second[ilev],
-                              *a_p_static[ilev]);
+                              *a_conc_second[ilev], scndOrderCoeff);
     }
 }
 

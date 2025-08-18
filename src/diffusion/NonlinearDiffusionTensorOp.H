@@ -103,7 +103,8 @@ private:
                        amrex::Vector<amrex::MultiFab const*> const& a_density,
                        amrex::Vector<amrex::MultiFab const*> const& a_eta,
                        amrex::Vector<amrex::MultiFab const*> const& a_conc_second,
-                       amrex::Vector<amrex::MultiFab const*> const& a_p_static);
+                       amrex::Vector<amrex::MultiFab const*> const& a_p_static,
+                       amrex::Vector<amrex::MultiFab const*> const& a_old_velocity);
 
     // This function evaluates the norm2 of the non-linear function
     amrex::Real get_norm_of_residual ();

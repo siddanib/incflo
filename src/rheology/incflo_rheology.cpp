@@ -573,9 +573,8 @@ void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
 // high-order terms in Granular Rheology
 void incflo::add_granular_high_order_divtau_on_level (int lev, MultiFab& divtau,
                                                       const MultiFab& velocity,
-                                                      const MultiFab& density,
                                                       const MultiFab& conc_second,
-                                                      const MultiFab& p_static)
+                                                      const MultiFab& scndOrderCoeff)
 {
    // Creating velocity gradient MultiFab
     MultiFab gradVel(velocity.boxArray(), velocity.DistributionMap(),
@@ -583,12 +582,6 @@ void incflo::add_granular_high_order_divtau_on_level (int lev, MultiFab& divtau,
     gradVel.setVal(Real(0.0),0,AMREX_SPACEDIM*AMREX_SPACEDIM,0);
     Geometry& lev_geom = geom[lev];
     compute_gradientOfVelocity_on_level(lev,gradVel,velocity,lev_geom);
-    // Calculate second-order rheology coefficients
-    MultiFab scndOrderCoeff(velocity.boxArray(), velocity.DistributionMap(),
-                            1,0);
-    compute_granular_powerlaw_second_order_coeff(lev, scndOrderCoeff, velocity,
-                                                 density, conc_second, p_static,
-                                                 lev_geom);
     // The following vectors are needed for divergence
     MultiFab vecX(velocity.boxArray(), velocity.DistributionMap(),
                   AMREX_SPACEDIM,1);
