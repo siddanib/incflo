@@ -439,6 +439,7 @@ void incflo::compute_nodal_second_fluid_conc (MultiFab* conc_second_nd,
     }
 }
 
+// This function assumes the logic that UNUSED COVERED CELLS have density = 0.
 void incflo::compute_cc_second_fluid_conc (MultiFab* conc_second_cc,
                                           const  MultiFab* rho, int nghost) const
 {
@@ -455,20 +456,25 @@ void incflo::compute_cc_second_fluid_conc (MultiFab* conc_second_cc,
        const bool rho_harmonic = m_two_fluid_rho_harmonic;
        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
        {
-          Real conc_scnd = Real(-1.0);
-          if (rho_harmonic) {
-             // Based on weighted harmonic mean for cell-centered density
-             conc_scnd =
-               ((rho_first*rho_second)/rho_arr(i,j,k)) - rho_second;
-             conc_scnd /= (rho_first-rho_second);
+          if (rho_arr(i,j,k) > Real(0.)) {
+             Real conc_scnd = Real(-1.0);
+             if (rho_harmonic) {
+                // Based on weighted harmonic mean for cell-centered density
+                conc_scnd =
+                  ((rho_first*rho_second)/rho_arr(i,j,k)) - rho_second;
+                conc_scnd /= (rho_first-rho_second);
+             }
+             else {
+                // Based on weighted arithmetic mean for cell-centered density
+                conc_scnd = (rho_arr(i,j,k)-rho_first)/(rho_second-rho_first);
+             }
+             // Put guards
+             conc_second_arr(i,j,k) =
+               amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
           }
           else {
-             // Based on weighted arithmetic mean for cell-centered density
-             conc_scnd = (rho_arr(i,j,k)-rho_first)/(rho_second-rho_first);
+             conc_second_arr(i,j,k) = Real(-10.);
           }
-          // Put guards
-          conc_second_arr(i,j,k) =
-            amrex::min(Real(1.0),amrex::max(Real(0.0),conc_scnd));
        });
    }
 }
