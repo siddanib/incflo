@@ -230,8 +230,8 @@ public:
 
     static void compute_inertial_num_at_level (int lev,
                                     amrex::MultiFab* inertial_num,
-                                    amrex::MultiFab* strainrate,
-                                    amrex::MultiFab* press,
+                                    const amrex::MultiFab* strainrate,
+                                    const amrex::MultiFab* press,
                                     amrex::Real p_eps, amrex::Real ro_grain,
                                     amrex::Real diam_grain,
                                     int nghost);
@@ -388,12 +388,14 @@ public:
     void add_granular_high_order_divtau_on_level (int lev, amrex::MultiFab& vel_forces,
                                                   const amrex::MultiFab& velocity,
                                                   const amrex::MultiFab& density,
-                                                  const amrex::MultiFab& conc_second);
+                                                  const amrex::MultiFab& conc_second,
+                                                  const amrex::MultiFab& p_static);
     void compute_granular_powerlaw_second_order_coeff (int lev,
                                                        amrex::MultiFab& scnd_coeff,
                                                        const amrex::MultiFab& velocity,
                                                        const amrex::MultiFab& density,
                                                        const amrex::MultiFab& conc_second,
+                                                       const amrex::MultiFab& p_static,
                                                        amrex::Geometry& lev_geom);
 
 #ifdef AMREX_USE_EB

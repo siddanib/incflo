@@ -345,8 +345,8 @@ void incflo::compute_cc_hydrostatic_pressure_at_level (int lev,
 
 void incflo::compute_inertial_num_at_level (int lev,
                                           MultiFab* inertial_num,
-                                          MultiFab* strainrate,
-                                          MultiFab* press,
+                                          const MultiFab* strainrate,
+                                          const MultiFab* press,
                                           Real p_eps, Real ro_grain,
                                           Real diam_grain,
                                           int nghost)

@@ -101,7 +101,9 @@ private:
                        amrex::Vector<amrex::MultiFab      *> const& a_divtau,
                        amrex::Vector<amrex::MultiFab const*> const& a_velocity,
                        amrex::Vector<amrex::MultiFab const*> const& a_density,
-                       amrex::Vector<amrex::MultiFab const*> const& a_eta);
+                       amrex::Vector<amrex::MultiFab const*> const& a_eta,
+                       amrex::Vector<amrex::MultiFab const*> const& a_conc_second,
+                       amrex::Vector<amrex::MultiFab const*> const& a_p_static);
 
     // This function evaluates the norm2 of the non-linear function
     amrex::Real get_norm_of_residual ();
@@ -121,6 +123,8 @@ private:
     // member variables because they need to be called in "apply" function
     amrex::Vector<std::unique_ptr<amrex::MultiFab>> m_rhs_n,
                              m_density, m_eta,
+                             m_conc_second,
+                             m_p_static,
                              m_newton_iter_vel,
                              m_newton_iter_func;
     // This will be set at the beginning of diffuse_velocity

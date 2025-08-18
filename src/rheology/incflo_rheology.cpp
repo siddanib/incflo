@@ -574,7 +574,8 @@ void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
 void incflo::add_granular_high_order_divtau_on_level (int lev, MultiFab& divtau,
                                                       const MultiFab& velocity,
                                                       const MultiFab& density,
-                                                      const MultiFab& conc_second)
+                                                      const MultiFab& conc_second,
+                                                      const MultiFab& p_static)
 {
    // Creating velocity gradient MultiFab
     MultiFab gradVel(velocity.boxArray(), velocity.DistributionMap(),
@@ -586,7 +587,7 @@ void incflo::add_granular_high_order_divtau_on_level (int lev, MultiFab& divtau,
     MultiFab scndOrderCoeff(velocity.boxArray(), velocity.DistributionMap(),
                             1,0);
     compute_granular_powerlaw_second_order_coeff(lev, scndOrderCoeff, velocity,
-                                                 density, conc_second,
+                                                 density, conc_second, p_static,
                                                  lev_geom);
     // The following vectors are needed for divergence
     MultiFab vecX(velocity.boxArray(), velocity.DistributionMap(),
@@ -786,17 +787,13 @@ void incflo::compute_granular_powerlaw_second_order_coeff (int lev, MultiFab& sc
                                                            const MultiFab& velocity,
                                                            const MultiFab& density,
                                                            const MultiFab& conc_second,
+                                                           const MultiFab& p_static,
                                                            Geometry& lev_geom)
 {
    // Create a strain-rate MultiFab
    MultiFab sr_mf(velocity.boxArray(), velocity.DistributionMap(),1,0);
-   // MultiFab for hydrostatic pressure
-   MultiFab p_static(velocity.boxArray(),velocity.DistributionMap(),1,0);
    // For now, NOT passing actual time
    compute_strainrate_at_level(lev,&sr_mf,&velocity,lev_geom,Real(0.0),0);
-   compute_cc_hydrostatic_pressure_at_level(lev,&p_static,&density,
-                                            m_mu_p_surf_second,
-                                            lev_geom,0);
    // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
    // NOTE: Strain-rate calculated is TWO TIMES the actual value
    // The second component will carry concentration
