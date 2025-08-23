@@ -385,10 +385,10 @@ public:
     void compute_tracer_diff_coeff (amrex::Vector<amrex::MultiFab*> const& tra_eta, int nghost);
     void compute_mu_I_at_level (int lev, amrex::MultiFab* inertial_num,
                                 int nghost);
-    void add_granular_high_order_divtau_on_level (int lev, amrex::MultiFab& vel_forces,
-                                                  const amrex::MultiFab& velocity,
-                                                  const amrex::MultiFab& conc_second,
-                                                  const amrex::MultiFab& scndOrderCoeff);
+    void compute_granular_high_order_fluxes_on_level (
+                     const amrex::Array<      amrex::MultiFab*,AMREX_SPACEDIM>& fluxes,
+                     const amrex::Array<const amrex::MultiFab*,AMREX_SPACEDIM>& gradVel,
+                     const amrex::Array<const amrex::MultiFab*,AMREX_SPACEDIM>& scndOrderCoeff);
     void compute_granular_powerlaw_second_order_coeff (int lev,
                                                        amrex::MultiFab& scnd_coeff,
                                                        const amrex::MultiFab& velocity,

@@ -569,69 +569,47 @@ void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
   }
 }
 
-// This function is to consider
-// high-order terms in Granular Rheology
-void incflo::add_granular_high_order_divtau_on_level (int lev, MultiFab& divtau,
-                                                      const MultiFab& velocity,
-                                                      const MultiFab& conc_second,
-                                                      const MultiFab& scndOrderCoeff)
+// This function is to consider high-order terms in Granular Rheology
+// Need to think of a better way to write this function
+// Different elements of fluxes (MFIter loops) can be performed asynchronously
+void
+incflo::compute_granular_high_order_fluxes_on_level (
+                     const Array<      MultiFab*,AMREX_SPACEDIM>& fluxes,
+                     const Array<const MultiFab*,AMREX_SPACEDIM>& gradVel,
+                     const Array<const MultiFab*,AMREX_SPACEDIM>& scndOrderCoeff)
 {
-   // Creating velocity gradient MultiFab
-    MultiFab gradVel(velocity.boxArray(), velocity.DistributionMap(),
-                    AMREX_SPACEDIM*AMREX_SPACEDIM,0);
-    gradVel.setVal(Real(0.0),0,AMREX_SPACEDIM*AMREX_SPACEDIM,0);
-    Geometry& lev_geom = geom[lev];
-    compute_gradientOfVelocity_on_level(lev,gradVel,velocity,lev_geom);
-    // The following vectors are needed for divergence
-    MultiFab vecX(velocity.boxArray(), velocity.DistributionMap(),
-                  AMREX_SPACEDIM,1);
-    MultiFab vecY(velocity.boxArray(), velocity.DistributionMap(),
-                  AMREX_SPACEDIM,1);
-#if (AMREX_SPACEDIM == 3)
-    MultiFab vecZ(velocity.boxArray(), velocity.DistributionMap(),
-                  AMREX_SPACEDIM,1);
-#endif
-
+    // X-flux
+    int idim = 0;
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-   for (MFIter mfi(gradVel,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+   for (MFIter mfi(*fluxes[idim],TilingIfNotGPU()); mfi.isValid(); ++mfi)
    {
        Box const& bx = mfi.tilebox();
-       Array4<Real const> const& gradVel_arr = gradVel.const_array(mfi);
-       Array4<Real const> const& scndCoeff_arr = scndOrderCoeff.const_array(mfi);
-       Array4<Real      > const& vecX_arr  = vecX.array(mfi);
-       Array4<Real      > const& vecY_arr  = vecY.array(mfi);
-#if (AMREX_SPACEDIM == 3)
-       Array4<Real      > const& vecZ_arr  = vecZ.array(mfi);
-#endif
+       Array4<Real const> const& gradVel_arr = gradVel[idim]->const_array(mfi);
+       Array4<Real const> const& scndCoeff_arr = scndOrderCoeff[idim]->const_array(mfi);
+       Array4<Real      > const& flux_arr = fluxes[idim]->array(mfi);
        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
        {
           Real ux = gradVel_arr(i,j,k,0);
-          Real uy = gradVel_arr(i,j,k,1);
+          Real vx = gradVel_arr(i,j,k,1);
 #if (AMREX_SPACEDIM == 2)
-          Real vx = gradVel_arr(i,j,k,2);
+          Real uy = gradVel_arr(i,j,k,2);
           Real vy = gradVel_arr(i,j,k,3);
 #else
-          Real uz = gradVel_arr(i,j,k,2);
-          Real vx = gradVel_arr(i,j,k,3);
+          Real wx = gradVel_arr(i,j,k,2);
+          Real uy = gradVel_arr(i,j,k,3);
           Real vy = gradVel_arr(i,j,k,4);
-          Real vz = gradVel_arr(i,j,k,5);
-          Real wx = gradVel_arr(i,j,k,6);
-          Real wy = gradVel_arr(i,j,k,7);
+          Real wy = gradVel_arr(i,j,k,5);
+          Real uz = gradVel_arr(i,j,k,6);
+          Real vz = gradVel_arr(i,j,k,7);
           Real wz = gradVel_arr(i,j,k,8);
 #endif
-
+          // A is a symmetric tensor
 #if (AMREX_SPACEDIM == 2)
           Real A_11 =  Real(0.5)*(ux*ux-vy*vy);
 
           Real A_12 =  Real(0.5)*(uy+vx)*(ux+vy);
-
-          Real A_22 =  Real(0.5)*(vy*vy-ux*ux);
-          // Multiplying the rheological coefficient
-          A_11 *= scndCoeff_arr(i,j,k,0);
-          A_12 *= scndCoeff_arr(i,j,k,0);
-          A_22 *= scndCoeff_arr(i,j,k,0);
 #else
           Real A_11 =   (uy+vx)*(uy+vx)/Real(12.0)
                         + (uz+wx)*(uz+wx)/Real(12.0)
@@ -639,12 +617,62 @@ void incflo::add_granular_high_order_divtau_on_level (int lev, MultiFab& divtau,
                         + Real(2.0)*ux*ux/Real(3.0)
                         - vy*vy/Real(3.0)
                         - wz*wz/Real(3.0);
-
           Real A_12 =   Real(0.5)*(uy+vx)*(ux+vy)
                         + Real(0.25)*(uz+wx)*(vz+wy);
-
           Real A_13 =   Real(0.25)*(uy+vx)*(vz+wy)
                         + Real(0.5)*(uz+wx)*(ux+wz);
+          // Multiplying the rheological coefficient
+          A_13 *= scndCoeff_arr(i,j,k,0);
+#endif
+          // Multiplying the rheological coefficient
+          A_11 *= scndCoeff_arr(i,j,k,0);
+          A_12 *= scndCoeff_arr(i,j,k,0);
+          // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
+          // BE A MINUS IN FRONT OF THE TERMS
+          A_11 *= Real(-1.0); A_12 *= Real(-1.0);
+          flux_arr(i,j,k,0) = A_11; flux_arr(i,j,k,1) = A_12;
+#if (AMREX_SPACEDIM == 3)
+          A_13 *= Real(-1.0);
+          flux_arr(i,j,k,2) = A_13;
+#endif
+       });
+   }
+
+    // Y-flux
+    idim = 1;
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+   for (MFIter mfi(*fluxes[idim],TilingIfNotGPU()); mfi.isValid(); ++mfi)
+   {
+       Box const& bx = mfi.tilebox();
+       Array4<Real const> const& gradVel_arr = gradVel[idim]->const_array(mfi);
+       Array4<Real const> const& scndCoeff_arr = scndOrderCoeff[idim]->const_array(mfi);
+       Array4<Real      > const& flux_arr = fluxes[idim]->array(mfi);
+
+       amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+       {
+          Real ux = gradVel_arr(i,j,k,0);
+          Real vx = gradVel_arr(i,j,k,1);
+#if (AMREX_SPACEDIM == 2)
+          Real uy = gradVel_arr(i,j,k,2);
+          Real vy = gradVel_arr(i,j,k,3);
+#else
+          Real wx = gradVel_arr(i,j,k,2);
+          Real uy = gradVel_arr(i,j,k,3);
+          Real vy = gradVel_arr(i,j,k,4);
+          Real wy = gradVel_arr(i,j,k,5);
+          Real uz = gradVel_arr(i,j,k,6);
+          Real vz = gradVel_arr(i,j,k,7);
+          Real wz = gradVel_arr(i,j,k,8);
+#endif
+          // A is a symmetric tensor
+#if (AMREX_SPACEDIM == 2)
+          Real A_12 =  Real(0.5)*(uy+vx)*(ux+vy);
+          Real A_22 =  Real(0.5)*(vy*vy-ux*ux);
+#else
+          Real A_12 =   Real(0.5)*(uy+vx)*(ux+vy)
+                        + Real(0.25)*(uz+wx)*(vz+wy);
 
           Real A_22 =   (uy+vx)*(uy+vx)/Real(12.0)
                         - (uz+wx)*(uz+wx)/Real(6.0)
@@ -652,6 +680,52 @@ void incflo::add_granular_high_order_divtau_on_level (int lev, MultiFab& divtau,
                         - ux*ux/Real(3.0)
                         + Real(2.0)*vy*vy/Real(3.0)
                         - wz*wz/Real(3.0);
+
+          Real A_23 =   Real(0.25)*(uy+vx)*(uz+wx)
+                        + Real(0.5)*(vz+wy)*(vy+wz);
+          // Multiplying the rheological coefficient
+          A_23 *= scndCoeff_arr(i,j,k,0);
+#endif
+          // Multiplying the rheological coefficient
+          A_12 *= scndCoeff_arr(i,j,k,0);
+          A_22 *= scndCoeff_arr(i,j,k,0);
+          // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
+          // BE A MINUS IN FRONT OF THE TERMS
+          A_12 *= Real(-1.0);  A_22 *= Real(-1.0);
+          flux_arr(i,j,k,0) = A_12; flux_arr(i,j,k,1) = A_22;
+#if (AMREX_SPACEDIM == 3)
+          A_23 *= Real(-1.0); flux_arr(i,j,k,2) = A_23;
+#endif
+       });
+   }
+
+#if (AMREX_SPACEDIM == 3)
+    // Z-flux
+    idim = 2;
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+   for (MFIter mfi(*fluxes[idim],TilingIfNotGPU()); mfi.isValid(); ++mfi)
+   {
+       Box const& bx = mfi.tilebox();
+       Array4<Real const> const& gradVel_arr = gradVel[idim]->const_array(mfi);
+       Array4<Real const> const& scndCoeff_arr = scndOrderCoeff[idim]->const_array(mfi);
+       Array4<Real      > const& flux_arr = fluxes[idim]->array(mfi);
+
+       amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+       {
+          Real ux = gradVel_arr(i,j,k,0);
+          Real vx = gradVel_arr(i,j,k,1);
+          Real wx = gradVel_arr(i,j,k,2);
+          Real uy = gradVel_arr(i,j,k,3);
+          Real vy = gradVel_arr(i,j,k,4);
+          Real wy = gradVel_arr(i,j,k,5);
+          Real uz = gradVel_arr(i,j,k,6);
+          Real vz = gradVel_arr(i,j,k,7);
+          Real wz = gradVel_arr(i,j,k,8);
+          // A is a symmetric tensor
+          Real A_13 =   Real(0.25)*(uy+vx)*(vz+wy)
+                        + Real(0.5)*(uz+wx)*(ux+wz);
 
           Real A_23 =   Real(0.25)*(uy+vx)*(uz+wx)
                         + Real(0.5)*(vz+wy)*(vy+wz);
@@ -663,115 +737,17 @@ void incflo::add_granular_high_order_divtau_on_level (int lev, MultiFab& divtau,
                         - vy*vy/Real(3.0)
                         + Real(2.0)*wz*wz;
           // Multiplying the rheological coefficient
-          A_11 *= scndCoeff_arr(i,j,k,0);
-          A_12 *= scndCoeff_arr(i,j,k,0);
           A_13 *= scndCoeff_arr(i,j,k,0);
-          A_22 *= scndCoeff_arr(i,j,k,0);
           A_23 *= scndCoeff_arr(i,j,k,0);
           A_33 *= scndCoeff_arr(i,j,k,0);
-#endif
           // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
           // BE A MINUS IN FRONT OF THE TERMS
-          A_11 *= Real(-1.0); A_12 *= Real(-1.0);  A_22 *= Real(-1.0);
-#if (AMREX_SPACEDIM == 3)
           A_13 *= Real(-1.0); A_23 *= Real(-1.0); A_33 *= Real(-1.0);
-#endif
-          // Populating the vectors
-          vecX_arr(i,j,k,0) = A_11;
-          vecX_arr(i,j,k,1) = A_12;
-          vecY_arr(i,j,k,0) = A_12;
-          vecY_arr(i,j,k,1) = A_22;
-#if (AMREX_SPACEDIM == 3)
-          vecX_arr(i,j,k,2) = A_13;
-          vecY_arr(i,j,k,2) = A_23;
-          vecZ_arr(i,j,k,0) = A_13;
-          vecZ_arr(i,j,k,1) = A_23;
-          vecZ_arr(i,j,k,2) = A_33;
-#endif
+          flux_arr(i,j,k,0) = A_13; flux_arr(i,j,k,1) = A_23;
+          flux_arr(i,j,k,2) = A_33;
        });
    }
-   vecX.FillBoundary(lev_geom.periodicity());
-   vecY.FillBoundary(lev_geom.periodicity());
-#if (AMREX_SPACEDIM == 3)
-   vecZ.FillBoundary(lev_geom.periodicity());
 #endif
-
-   // Divergence of each individual vector, i.e., vecX, vecY, vecZ
-#ifdef AMREX_USE_EB
-    auto const& fact = EBFactory(lev);
-    auto const& flags = fact.getMultiEBCellFlagFab();
-#endif
-
-    Real idx = Real(1.0) / lev_geom.CellSize(0);
-    Real idy = Real(1.0) / lev_geom.CellSize(1);
-#if (AMREX_SPACEDIM == 3)
-    Real idz = Real(1.0) / lev_geom.CellSize(2);
-#endif
-
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-    for (MFIter mfi(divtau,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-    {
-            Box const& bx = mfi.tilebox();
-            Array4<Real const> const& vecX_arr  = vecX.const_array(mfi);
-            Array4<Real const> const& vecY_arr  = vecY.const_array(mfi);
-#if (AMREX_SPACEDIM == 3)
-            Array4<Real const> const& vecZ_arr  = vecZ.const_array(mfi);
-#endif
-            Array4<Real const> const& conc_scnd_arr  = conc_second.const_array(mfi);
-            Array4<Real      > const& divtau_arr   = divtau.array(mfi);
-            const Real min_conc_scnd = m_min_conc_second;
-#ifdef AMREX_USE_EB
-            auto const& flag_fab = flags[mfi];
-            auto typ = flag_fab.getType(bx);
-            if (typ == FabType::covered)
-            {
-                // Do nothing
-            }
-            else if (typ == FabType::singlevalued)
-            {
-                auto const& flag_arr = flag_fab.const_array();
-                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                {
-                   Real conc_val = conc_scnd_arr(i,j,k,0);
-                   if (conc_val > min_conc_scnd) {
-                      divtau_arr(i,j,k,0) += incflo_divergenceOfVector_eb(i,j,k,
-                                                              AMREX_D_DECL(idx,idy,idz),
-                                                              vecX_arr,flag_arr(i,j,k));
-                      divtau_arr(i,j,k,1) += incflo_divergenceOfVector_eb(i,j,k,
-                                                              AMREX_D_DECL(idx,idy,idz),
-                                                              vecY_arr,flag_arr(i,j,k));
-#if (AMREX_SPACEDIM == 3)
-                      divtau_arr(i,j,k,2) += incflo_divergenceOfVector_eb(i,j,k,
-                                                              AMREX_D_DECL(idx,idy,idz),
-                                                              vecZ_arr,flag_arr(i,j,k));
-#endif
-                   }
-                });
-            }
-            else
-#endif
-            {
-                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                {
-                   Real conc_val = conc_scnd_arr(i,j,k,0);
-                   if (conc_val > min_conc_scnd) {
-                      divtau_arr(i,j,k,0) += incflo_divergenceOfVector(i,j,k,
-                                                              AMREX_D_DECL(idx,idy,idz),
-                                                              vecX_arr);
-                      divtau_arr(i,j,k,1) += incflo_divergenceOfVector(i,j,k,
-                                                              AMREX_D_DECL(idx,idy,idz),
-                                                              vecY_arr);
-#if (AMREX_SPACEDIM == 3)
-                      divtau_arr(i,j,k,2) += incflo_divergenceOfVector(i,j,k,
-                                                              AMREX_D_DECL(idx,idy,idz),
-                                                              vecZ_arr);
-#endif
-                   }
-                });
-            }
-    }
 }
 
 // Adding these high-order effects only in regions
