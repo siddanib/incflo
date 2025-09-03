@@ -5,6 +5,11 @@
 #include <AMReX_MLMG.H>
 #ifdef AMREX_USE_EB
 #include <AMReX_MLEBTensorOp.H>
+#if (AMREX_SPACEDIM == 2)
+#include <AMReX_EB_LeastSquares_2D_K.H>
+#else
+#include <AMReX_EB_LeastSquares_3D_K.H>
+#endif
 #endif
 #include <AMReX_MLTensorOp.H>
 
@@ -74,6 +79,17 @@ public:
     void AddProduct (VMFPtr const& dst, VCMFPtr const& src1, int comp1,
                      VCMFPtr const& src2, int comp2, int dstcomp, int numcomp);
 
+    // This function computes gradients on regular faces as well as EB faces
+    void compVelGrad (int amrlev,
+            amrex::MultiFab & sol, // temporary velocity
+            amrex::MLMG::Location loc, // FaceCenter or FaceCentroid
+            amrex::Array<amrex::MultiFab*, AMREX_SPACEDIM> const& gradVel // regular faces
+#ifdef AMREX_USE_EB
+            , amrex::MultiFab* gradVel_EB
+#endif
+            );
+
+
 private:
 
     void readParameters ();
@@ -101,7 +117,6 @@ private:
                        amrex::Vector<amrex::MultiFab      *> const& a_divtau,
                        amrex::Vector<amrex::MultiFab const*> const& a_velocity,
                        amrex::Vector<amrex::MultiFab const*> const& a_density,
-                       amrex::Vector<amrex::MultiFab const*> const& a_eta,
                        amrex::Vector<amrex::MultiFab const*> const& a_conc_second,
                        amrex::Vector<amrex::MultiFab const*> const& a_p_static,
                        amrex::Vector<amrex::MultiFab const*> const& a_old_velocity);
@@ -109,7 +124,7 @@ private:
     // This function evaluates the norm2 of the non-linear function
     amrex::Real get_norm_of_residual ();
 
-    // This function is DiffusionTensorOp::diffuse_velocity
+    // This function is similar to DiffusionTensorOp::diffuse_velocity
     // Used as preconditioner for GMRES
     void diffuse_velocity_mlmg (amrex::Vector<amrex::MultiFab*> const& velocity,
                                 amrex::Vector<amrex::MultiFab*> const& density,

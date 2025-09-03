@@ -569,6 +569,101 @@ void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
   }
 }
 
+void
+incflo::compute_granular_high_order_divtau_on_level (int ilev,
+            MultiFab & a_divtau,
+            Array<const MultiFab*, AMREX_SPACEDIM> const& gradVel,
+#ifdef AMREX_USE_EB
+            const MultiFab* gradVel_EB,
+#endif
+            MultiFab& scndOrderCoeff, bool already_on_centroids)
+{
+        // Face-averaged scndOrderCoeff; This handles boundary faces
+    Array<MultiFab,AMREX_SPACEDIM> fc_scndOrdr =
+                 average_velocity_eta_to_faces(ilev,scndOrderCoeff);
+    a_divtau.setVal(Real(0.));
+    // Fluxes for faces that align with (x,y,z)
+    Array<MultiFab, AMREX_SPACEDIM> fluxes;
+    for (int idim=0; idim < AMREX_SPACEDIM; ++idim) {
+        fluxes[idim].define(gradVel[idim]->boxArray(),
+                            gradVel[idim]->DistributionMap(),
+                            AMREX_SPACEDIM, 0, MFInfo(),
+                            gradVel[idim]->Factory());
+        fluxes[idim].setVal(Real(0.));
+    }
+    // Get fluxes
+    compute_granular_high_order_fluxes_on_level(amrex::GetArrOfPtrs(fluxes),
+                    gradVel, amrex::GetArrOfConstPtrs(fc_scndOrdr));
+
+    auto & lev_geom = Geom(ilev);
+    // Get divergence of fluxes
+#ifdef AMREX_USE_EB
+    if (!EBFactory(0).isAllRegular())
+    {
+        // This sums over faces that align with (x,y,z)
+        amrex::EB_computeDivergence(a_divtau,
+                    amrex::GetArrOfConstPtrs(fluxes),
+                    lev_geom, already_on_centroids);
+        // Include EB-Flux into divergence
+        MultiFab flux_eb(gradVel_EB->boxArray(),gradVel_EB->DistributionMap(),
+                         AMREX_SPACEDIM, 0);
+        compute_granular_high_order_fluxes_on_level(&flux_eb, gradVel_EB,
+                                                    &scndOrderCoeff);
+        AMREX_D_TERM(Real dx = lev_geom.CellSize(0);,
+                     Real dy = lev_geom.CellSize(1);,
+                     Real dz = lev_geom.CellSize(2););
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(a_divtau.Factory());
+        auto const& flags        = factory.getMultiEBCellFlagFab();
+        MultiFab    const& vfrac = factory.getVolFrac();
+        MultiCutFab const& bnorm = factory.getBndryNormal();
+        MultiCutFab const& barea = factory.getBndryArea();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(a_divtau,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            auto const& flag_fab = flags[mfi];
+            auto typ = flag_fab.getType(bx);
+            if (typ == FabType::singlevalued) {
+                auto const& flag_arr = flag_fab.const_array();
+                Array4<Real const> const& bnrm_arr   = bnorm.const_array(mfi);
+                Array4<Real const> const& barea_arr  = barea.const_array(mfi);
+                Array4<Real const> const& vfrac_arr  = vfrac.const_array(mfi);
+                Array4<Real const> const& fluxeb_arr = flux_eb.const_array(mfi);
+                Array4<Real      > const& divtau_arr = a_divtau.array(mfi);
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    if (flag_arr(i,j,k).isSingleValued()) {
+                        // Normal points outward
+                        AMREX_D_TERM(Real anrmx = bnrm_arr(i,j,k,0);,
+                                     Real anrmy = bnrm_arr(i,j,k,1);,
+                                     Real anrmz = bnrm_arr(i,j,k,2););
+                        Real eb_farea = anrmx*anrmx*dy*dy + anrmy*anrmy*dx*dx;
+                        Real inv_eb_vol = Real(1.0)/(dx*dy*vfrac_arr(i,j,k));
+#if (AMREX_SPACEDIM == 3)
+                        eb_farea *= dz*dz;
+                        eb_farea += anrmz*anrmz*dx*dx*dy*dy;
+                        inv_eb_vol /= dz;
+#endif
+                        eb_farea = std::sqrt(eb_farea)*barea_arr(i,j,k);
+                        AMREX_D_TERM(
+                          divtau_arr(i,j,k,0) += inv_eb_vol*eb_farea*fluxeb_arr(i,j,k,0);,
+                          divtau_arr(i,j,k,1) += inv_eb_vol*eb_farea*fluxeb_arr(i,j,k,1);,
+                          divtau_arr(i,j,k,2) += inv_eb_vol*eb_farea*fluxeb_arr(i,j,k,2););
+                    }
+                });
+            }
+        }
+    }
+    else
+#endif
+    {
+        amrex::computeDivergence(a_divtau, amrex::GetArrOfConstPtrs(fluxes), lev_geom);
+    }
+}
+
 // This function is to consider high-order terms in Granular Rheology
 // Need to think of a better way to write this function
 // Different elements of fluxes (MFIter loops) can be performed asynchronously
@@ -749,6 +844,91 @@ incflo::compute_granular_high_order_fluxes_on_level (
    }
 #endif
 }
+
+#ifdef AMREX_USE_EB
+void
+incflo::compute_granular_high_order_fluxes_on_level (MultiFab* flux_eb,
+                                          const MultiFab* gradVel_EB,
+                                          const MultiFab* scndOrderCoeff)
+{
+    flux_eb->setVal(Real(0.));
+    const auto& factory =
+      dynamic_cast<EBFArrayBoxFactory const&>(scndOrderCoeff->Factory());
+    auto const& flags        = factory.getMultiEBCellFlagFab();
+    MultiCutFab const& bnorm = factory.getBndryNormal();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(*scndOrderCoeff,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        Box const& bx = mfi.tilebox();
+        auto const& flag_fab = flags[mfi];
+        auto typ = flag_fab.getType(bx);
+        if (typ == FabType::singlevalued) {
+            auto const& flag_arr                    = flag_fab.const_array();
+            Array4<Real const> const& bnrmfab       = bnorm.const_array(mfi);
+            Array4<Real const> const& scndCoeff_arr = scndOrderCoeff->const_array(mfi);
+            Array4<Real const> const& gradVel_arr   = gradVel_EB->const_array(mfi);
+            Array4<Real      > const& flux_arr      = flux_eb->array(mfi);
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                if (flag_arr(i,j,k).isSingleValued()) {
+                    const Real eta_2 = scndCoeff_arr(i,j,k);
+                    const Real nx    = bnrmfab(i,j,k,0);
+                    const Real ny    = bnrmfab(i,j,k,1);
+                    Real ux = gradVel_arr(i,j,k,0);
+                    Real vx = gradVel_arr(i,j,k,1);
+#if (AMREX_SPACEDIM == 2)
+                    Real uy = gradVel_arr(i,j,k,2);
+                    Real vy = gradVel_arr(i,j,k,3);
+#else
+                    Real wx = gradVel_arr(i,j,k,2);
+                    Real uy = gradVel_arr(i,j,k,3);
+                    Real vy = gradVel_arr(i,j,k,4);
+                    Real wy = gradVel_arr(i,j,k,5);
+                    Real uz = gradVel_arr(i,j,k,6);
+                    Real vz = gradVel_arr(i,j,k,7);
+                    Real wz = gradVel_arr(i,j,k,8);
+                    const Real nz    = bnrmfab(i,j,k,2);
+#endif
+#if (AMREX_SPACEDIM == 2)
+                    Real A_11 =  Real(0.5)*(ux*ux-vy*vy);
+                    Real A_12 =  Real(0.5)*(uy+vx)*(ux+vy);
+                    Real A_22 =  Real(0.5)*(vy*vy-ux*ux);
+                    A_11 *= Real(-1.0)*eta_2; A_12 *= Real(-1.0)*eta_2; A_22 *= Real(-1.0)*eta_2;
+                    flux_arr(i,j,k,0) = A_11*nx + A_12*ny;
+                    flux_arr(i,j,k,1) = A_12*nx + A_22*ny;
+#else
+                    Real A_11 =   (uy+vx)*(uy+vx)/Real(12.0) + (uz+wx)*(uz+wx)/Real(12.0)
+                                  - (vz+wy)*(vz+wy)/Real(6.0) + Real(2.0)*ux*ux/Real(3.0)
+                                  - vy*vy/Real(3.0) - wz*wz/Real(3.0);
+
+                    Real A_12 =   Real(0.5)*(uy+vx)*(ux+vy) + Real(0.25)*(uz+wx)*(vz+wy);
+
+                    Real A_13 =   Real(0.25)*(uy+vx)*(vz+wy) + Real(0.5)*(uz+wx)*(ux+wz);
+
+                    Real A_22 =   (uy+vx)*(uy+vx)/Real(12.0) - (uz+wx)*(uz+wx)/Real(6.0)
+                                  + (vz+wy)*(vz+wy)/Real(12.0) - ux*ux/Real(3.0)
+                                  + Real(2.0)*vy*vy/Real(3.0) - wz*wz/Real(3.0);
+
+                    Real A_23 =   Real(0.25)*(uy+vx)*(uz+wx) + Real(0.5)*(vz+wy)*(vy+wz);
+
+                    Real A_33 =   -(uy+vx)*(uy+vx)/Real(6.0) + (uz+wx)*(uz+wx)/Real(12.0)
+                                  + (vz+wy)*(vz+wy)/Real(12.0) - ux*ux/Real(3.0)
+                                  - vy*vy/Real(3.0) + Real(2.0)*wz*wz;
+
+                    A_11 *= Real(-1.0)*eta_2; A_12 *= Real(-1.0)*eta_2; A_13 *= Real(-1.0)*eta_2;
+                    A_22 *= Real(-1.0)*eta_2; A_23 *= Real(-1.0)*eta_2; A_33 *= Real(-1.0)*eta_2;
+                    flux_arr(i,j,k,0) = A_11*nx + A_12*ny + A_13*nz;
+                    flux_arr(i,j,k,1) = A_12*nx + A_22*ny + A_23*nz;
+                    flux_arr(i,j,k,2) = A_13*nx + A_23*ny + A_33*nz;
+#endif
+                }
+            });
+        }
+    }
+}
+#endif
 
 // Adding these high-order effects only in regions
 // with Inertial number greater than Neutral Inertial Number

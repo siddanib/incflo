@@ -96,6 +96,7 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
         amrex::Abort(
           "High-order effects require Cell-centered Viscosity.\n");
     }
+    AMREX_ALWAYS_ASSERT(!m_incflo->hasEBFlow());
 #endif
 }
 
@@ -258,8 +259,7 @@ void NonlinearDiffusionTensorOp::compute_divtau (
                          Vector<MultiFab const*> const& density,
                          Vector<MultiFab const*> const& eta)
 {
-    compute_linear_part_of_divtau(divtau, velocity, density, eta);
-    // NEED TO INCLUDE HIGH-ORDER divtau TERMS HERE BEFORE THE LOOP
+    // Preparation for two_fluid scenario
     Vector<std::unique_ptr<MultiFab>> conc_second, p_static;
     if (m_incflo->m_two_fluid) {
         int nlevels = velocity.size();
@@ -297,15 +297,50 @@ void NonlinearDiffusionTensorOp::compute_divtau (
            }
         }
     }
-    // Here velocity is used as old_velocity as well;
-    // Reason: This is NOT used in implicit solve
-    add_non_linear_part_of_divtau(divtau, velocity, density, eta,
-                                  GetVecOfConstPtrs(conc_second),
-                                  GetVecOfConstPtrs(p_static),
-                                  velocity);
+    // Evaluation of linear and nonlinear divtau contributions
+    int finest_level = velocity.size()-1;
+#ifdef AMREX_USE_EB
+    if (m_eb_apply_op)
+    {
+        Vector<MultiFab> divtau_tmp(finest_level+1);
+        int tmp_comp = (m_incflo->m_redistribution_type == "StateRedist") ? 3 : 2;
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            divtau_tmp[lev].define(divtau[lev]->boxArray(),
+                                   divtau[lev]->DistributionMap(),
+                                   AMREX_SPACEDIM, tmp_comp, MFInfo(),
+                                   divtau[lev]->Factory());
+            divtau_tmp[lev].setVal(0.0);
+        }
+        compute_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
+                                      density, eta);
+        // Here velocity is used as old_velocity as well;
+        // Reason: This is NOT used in implicit solve
+        add_non_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
+                                      density,
+                                      GetVecOfConstPtrs(conc_second),
+                                      GetVecOfConstPtrs(p_static),
+                                      velocity);
+        // Redistribution
+        for(int lev = 0; lev <= finest_level; lev++)
+        {
+           amrex::single_level_redistribute(divtau_tmp[lev],
+                   *divtau[lev], 0, AMREX_SPACEDIM, m_incflo->Geom(lev));
+        }
+    }
+    else
+#endif
+    {
+        compute_linear_part_of_divtau(divtau, velocity, density, eta);
+        // Here velocity is used as old_velocity as well;
+        // Reason: This is NOT used in implicit solve
+        add_non_linear_part_of_divtau(divtau, velocity, density,
+                                      GetVecOfConstPtrs(conc_second),
+                                      GetVecOfConstPtrs(p_static),
+                                      velocity);
+    }
+
     // This is to be consistent with incflo code
     bool advect_momentum = m_incflo->AdvectMomentum();
-    int finest_level = velocity.size()-1;
     if (!advect_momentum) {
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -338,7 +373,6 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
     // NEED TO INCLUDE HIGH-ORDER divtau TERMS HERE BEFORE THE LOOP
     add_non_linear_part_of_divtau(nonlin_func, velocity,
                                   GetVecOfConstPtrs(m_density),
-                                  GetVecOfConstPtrs(m_eta),
                                   GetVecOfConstPtrs(m_conc_second),
                                   GetVecOfConstPtrs(m_p_static),
                                   velocity);
@@ -373,16 +407,6 @@ void NonlinearDiffusionTensorOp::compute_linear_part_of_divtau (Vector<MultiFab*
 #ifdef AMREX_USE_EB
     if (m_eb_apply_op)
     {
-        Vector<MultiFab> divtau_tmp(finest_level+1);
-        int tmp_comp = (m_incflo->m_redistribution_type == "StateRedist") ? 3 : 2;
-        for (int lev = 0; lev <= finest_level; ++lev) {
-            divtau_tmp[lev].define(a_divtau[lev]->boxArray(),
-                                   a_divtau[lev]->DistributionMap(),
-                                   AMREX_SPACEDIM, tmp_comp, MFInfo(),
-                                   a_divtau[lev]->Factory());
-            divtau_tmp[lev].setVal(0.0);
-        }
-
         // We want to return div (mu grad)) phi
         m_eb_apply_op->setScalars(0.0, -1.0);
 
@@ -405,15 +429,7 @@ void NonlinearDiffusionTensorOp::compute_linear_part_of_divtau (Vector<MultiFab*
         }
 
         MLMG mlmg(*m_eb_apply_op);
-        mlmg.apply(GetVecOfPtrs(divtau_tmp), GetVecOfPtrs(velocity));
-
-        for(int lev = 0; lev <= finest_level; lev++)
-        {
-        amrex::single_level_redistribute( divtau_tmp[lev], *a_divtau[lev], 0, AMREX_SPACEDIM, m_incflo->Geom(lev));
-            // auto const& bc = m_incflo->get_velocity_bcrec_device_ptr();
-            // m_incflo->redistribute_term(*a_divtau[lev], divtau_tmp[lev], *a_velocity[lev],
-        //                 bc, lev);
-        }
+        mlmg.apply(a_divtau, GetVecOfPtrs(velocity));
     }
     else
 #endif
@@ -443,40 +459,33 @@ void NonlinearDiffusionTensorOp::compute_linear_part_of_divtau (Vector<MultiFab*
 void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*> const& a_divtau,
                                         Vector<MultiFab const*> const& a_velocity,
                                         Vector<MultiFab const*> const& a_density,
-                                        Vector<MultiFab const*> const& a_eta,
                                         Vector<MultiFab const*> const& a_conc_second,
                                         Vector<MultiFab const*> const& a_p_static,
                                         Vector<MultiFab const*> const& a_old_velocity)
 {
     if (!(m_incflo->m_two_fluid) || (m_incflo->m_mu_powerlaw.size() < 2)) {return;}
     int nlevels = a_velocity.size();
-    Vector<MultiFab> a_high_order_divtau;
-    a_high_order_divtau.resize(nlevels);
-    //auto loc = MLMG::Location::FaceCenter;
     auto loc = MLMG::Location::FaceCentroid;
     bool already_on_centroids = (loc == MLMG::Location::FaceCentroid);
+    Vector<MultiFab> ho_divtau;
+    ho_divtau.resize(nlevels);
     for (int ilev = 0; ilev < nlevels; ++ilev) {
+        ho_divtau[ilev].define(a_divtau[ilev]->boxArray(),
+                               a_divtau[ilev]->DistributionMap(),
+                               AMREX_SPACEDIM, a_divtau[ilev]->nGrow(),
+                               MFInfo(), a_divtau[ilev]->Factory());
+        ho_divtau[ilev].setVal(Real(0.));
         // Calculate second-order rheology coefficients
         // USING OLD VELOCITY with 1 ghost cell
         MultiFab scndOrderCoeff(a_old_velocity[ilev]->boxArray(),
                                 a_old_velocity[ilev]->DistributionMap(),
-                                1,1, MFInfo(),
-                                a_old_velocity[ilev]->Factory());
-        scndOrderCoeff.setBndry(Real(0.));
+                                1,1, MFInfo(), a_old_velocity[ilev]->Factory());
+        scndOrderCoeff.setVal(Real(0.));
         // This function only deals with valid cells
         m_incflo->compute_granular_powerlaw_second_order_coeff(ilev,
                                 scndOrderCoeff, *a_old_velocity[ilev],
                                 *a_density[ilev], *a_conc_second[ilev],
                                 *a_p_static[ilev], m_incflo->Geom(ilev));
-        // Face-averaged scndOrderCoeff; This handles boundary faces
-        Array<MultiFab,AMREX_SPACEDIM> fc_scndOrdr =
-                     m_incflo->average_velocity_eta_to_faces(ilev,scndOrderCoeff);
-
-        MultiFab divtau_tmp(a_divtau[ilev]->boxArray(),
-                            a_divtau[ilev]->DistributionMap(),
-                            AMREX_SPACEDIM, a_divtau[ilev]->nGrow(),
-                            MFInfo(), a_divtau[ilev]->Factory());
-        divtau_tmp.setVal(Real(0.));
         MultiFab velocity_tmp(a_velocity[ilev]->boxArray(),
                               a_velocity[ilev]->DistributionMap(),
                               AMREX_SPACEDIM, a_velocity[ilev]->nGrow(),
@@ -484,77 +493,38 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
         MultiFab::Copy(velocity_tmp, *a_velocity[ilev], 0, 0, AMREX_SPACEDIM,
                        a_velocity[ilev]->nGrow());
 
-        Array<MultiFab, AMREX_SPACEDIM> gradVel, fluxes;
+        Array<MultiFab, AMREX_SPACEDIM> gradVel;
         for (int idim=0; idim < AMREX_SPACEDIM; ++idim) {
             gradVel[idim].define(amrex::convert(a_velocity[ilev]->boxArray(),
                                  IntVect::TheDimensionVector(idim)),
                                  a_velocity[ilev]->DistributionMap(),
-                                 AMREX_SPACEDIM*AMREX_SPACEDIM,
-                                 IntVect(1)-IntVect::TheDimensionVector(idim),
+                                 AMREX_SPACEDIM*AMREX_SPACEDIM, 0,
                                  MFInfo(),a_velocity[ilev]->Factory());
             gradVel[idim].setVal(Real(0.));
-            fluxes[idim].define(amrex::convert(a_velocity[ilev]->boxArray(),
-                                IntVect::TheDimensionVector(idim)),
-                                a_velocity[ilev]->DistributionMap(),
-                                AMREX_SPACEDIM,
-                                IntVect(1)-IntVect::TheDimensionVector(idim),
-                                MFInfo(),a_velocity[ilev]->Factory());
-            fluxes[idim].setVal(Real(0.));
         }
-        // Compute gradVel
 #ifdef AMREX_USE_EB
+        MultiFab gradVel_EB;
         if (m_eb_apply_op)
         {
-            m_eb_apply_op->compVelGrad(ilev, amrex::GetArrOfPtrs(gradVel),
-                    velocity_tmp, loc);
+            gradVel_EB.define(a_velocity[ilev]->boxArray(),
+                              a_velocity[ilev]->DistributionMap(),
+                              AMREX_SPACEDIM*AMREX_SPACEDIM, 0,
+                              MFInfo(),a_velocity[ilev]->Factory());
         }
-        else
+        compVelGrad(ilev, velocity_tmp, loc, amrex::GetArrOfPtrs(gradVel),
+                    &gradVel_EB);
+        m_incflo->compute_granular_high_order_divtau_on_level(ilev, ho_divtau[ilev],
+                   amrex::GetArrOfConstPtrs(gradVel), &gradVel_EB,
+                   scndOrderCoeff, already_on_centroids);
+#else
+        compVelGrad(ilev, velocity_tmp, loc, amrex::GetArrOfPtrs(gradVel));
+        m_incflo->compute_granular_high_order_divtau_on_level(ilev, ho_divtau[ilev],
+                   amrex::GetArrOfConstPtrs(gradVel),
+                   scndOrderCoeff, already_on_centroids);
 #endif
-        {
-            m_reg_apply_op->compVelGrad(ilev, amrex::GetArrOfPtrs(gradVel),
-                    velocity_tmp, loc);
-        }
-        // Get fluxes
-        m_incflo->compute_granular_high_order_fluxes_on_level(
-                              amrex::GetArrOfPtrs(fluxes),
-                              amrex::GetArrOfConstPtrs(gradVel),
-                              amrex::GetArrOfConstPtrs(fc_scndOrdr));
-        // Get divergence of fluxes
-#ifdef AMREX_USE_EB
-        if (m_eb_apply_op)
-        {
-
-            int tmp_comp = (m_incflo->m_redistribution_type == "StateRedist") ? 3 : 2;
-            MultiFab eb_divtau_tmp(a_divtau[ilev]->boxArray(),
-                                a_divtau[ilev]->DistributionMap(),
-                                AMREX_SPACEDIM, tmp_comp, MFInfo(),
-                                a_divtau[ilev]->Factory());
-            eb_divtau_tmp.setVal(Real(0.));
-            if (m_incflo->hasEBFlow()) {
-                amrex::EB_computeDivergence(eb_divtau_tmp, GetArrOfConstPtrs(fluxes),
-                        m_incflo->Geom(ilev), already_on_centroids,
-                        *(m_incflo->get_velocity_eb()[ilev]));
-            }
-            else {
-                amrex::EB_computeDivergence(eb_divtau_tmp, GetArrOfConstPtrs(fluxes),
-                        m_incflo->Geom(ilev), already_on_centroids);
-            }
-            // Need to understand this, but doing it because
-            // similar operation is perfomed in linear part
-            amrex::single_level_redistribute(eb_divtau_tmp, divtau_tmp, 0,
-                                             AMREX_SPACEDIM, m_incflo->Geom(ilev));
-        }
-        else
-#endif
-        {
-            amrex::computeDivergence(divtau_tmp, amrex::GetArrOfConstPtrs(fluxes),
-                                     m_incflo->Geom(ilev));
-        }
-        a_high_order_divtau[ilev] = std::move(divtau_tmp);
     }
     // Increment only in valid and non-covered cells
-    increment(a_divtau, GetVecOfConstPtrs(a_high_order_divtau),
-            Real(1.0));
+    increment(a_divtau, GetVecOfConstPtrs(ho_divtau), Real(1.0));
 }
 
 void NonlinearDiffusionTensorOp::update_member_multifabs (
@@ -755,11 +725,13 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_mlmg (
 
             m_eb_solve_op->setShearViscosity(lev, GetArrOfConstPtrs(b), MLMG::Location::FaceCentroid);
 
-            if (m_incflo->hasEBFlow()) {
-               m_eb_solve_op->setEBShearViscosityWithInflow(lev, *eta[lev], *(m_incflo->get_velocity_eb()[lev]));
-            } else {
-               m_eb_solve_op->setEBShearViscosity(lev, *eta[lev]);
-            }
+            //if (m_incflo->hasEBFlow()) {
+            //   m_eb_solve_op->setEBShearViscosityWithInflow(lev, *eta[lev], *(m_incflo->get_velocity_eb()[lev]));
+            //} else {
+            //   m_eb_solve_op->setEBShearViscosity(lev, *eta[lev]);
+            //}
+            // Preconditioner is solving for delta u; so DIRICHLET IS ALWAYS HOMOGENEOUS
+            m_eb_solve_op->setEBShearViscosity(lev, *eta[lev]);
         }
     }
     else
@@ -1048,27 +1020,6 @@ Vector<MultiFab> NonlinearDiffusionTensorOp::makeVecRHS ()
     int nlevels = m_incflo->finestLevel()+1;
     Vector<MultiFab> rhs;
     rhs.resize(nlevels);
-    /*
-#ifdef AMREX_USE_EB
-    if (!m_incflo->EBFactory(0).isAllRegular())
-    {
-        for (int ilev = 0; ilev < nlevels; ++ilev) {
-            rhs[ilev].define(m_incflo->boxArray(ilev),
-                             m_incflo->DistributionMap(ilev),
-                             AMREX_SPACEDIM,0,MFInfo(),
-                             m_incflo->EBFactory(ilev));
-        }
-    } else
-#endif
-    {
-        for (int ilev = 0; ilev < nlevels; ++ilev) {
-            rhs[ilev].define(m_incflo->boxArray(ilev),
-                             m_incflo->DistributionMap(ilev),
-                             AMREX_SPACEDIM,0);
-        }
-
-    }
-    */
     for (int ilev = 0; ilev < nlevels; ++ilev) {
         rhs[ilev].define(m_newton_iter_vel[ilev]->boxArray(),
                          m_newton_iter_vel[ilev]->DistributionMap(),
@@ -1083,26 +1034,6 @@ Vector<MultiFab> NonlinearDiffusionTensorOp::makeVecLHS ()
     int nlevels = m_incflo->finestLevel()+1;
     Vector<MultiFab> lhs;
     lhs.resize(nlevels);
-    /*
-#ifdef AMREX_USE_EB
-    if (!m_incflo->EBFactory(0).isAllRegular())
-    {
-        for (int ilev = 0; ilev < nlevels; ++ilev) {
-            lhs[ilev].define(m_incflo->boxArray(ilev),
-                             m_incflo->DistributionMap(ilev),
-                             AMREX_SPACEDIM,m_nghost_vel,MFInfo(),
-                             m_incflo->EBFactory(ilev));
-        }
-    } else
-#endif
-    {
-        for (int ilev = 0; ilev < nlevels; ++ilev) {
-            lhs[ilev].define(m_incflo->boxArray(ilev),
-                             m_incflo->DistributionMap(ilev),
-                             AMREX_SPACEDIM,m_nghost_vel);
-        }
-    }
-    */
     for (int ilev = 0; ilev < nlevels; ++ilev) {
         lhs[ilev].define(m_newton_iter_vel[ilev]->boxArray(),
                          m_newton_iter_vel[ilev]->DistributionMap(),
@@ -1280,5 +1211,96 @@ void NonlinearDiffusionTensorOp::AddProduct (VMFPtr const& dst,
         MultiFab::AddProduct(*dst[ilev], *src1[ilev], comp1,
                              *src2[ilev], comp2, dstcomp, numcomp, 0);
 #endif
+    }
+}
+
+
+void NonlinearDiffusionTensorOp::compVelGrad (int amrlev,
+            MultiFab & sol, // temporary velocity
+            MLMG::Location loc,
+            Array<MultiFab*, AMREX_SPACEDIM> const& gradVel // regular faces
+#ifdef AMREX_USE_EB
+            , MultiFab* gradVel_EB
+#endif
+            )
+{
+#ifdef AMREX_USE_EB
+    if (m_eb_apply_op)
+    {
+        m_eb_apply_op->compVelGrad(amrlev, gradVel, sol, loc);
+        // Population of gradVel_EB
+        gradVel_EB->setVal(Real(0.));
+        // Create a null vel_eb; as it needs to be zero
+        Array4<Real const> vel_eb_arr;
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(sol.Factory());
+        auto const& flags        = factory.getMultiEBCellFlagFab();
+        MultiCutFab const& bcent = factory.getBndryCent();
+        MultiCutFab const& ccent = factory.getCentroid();
+        MultiCutFab const& bnorm = factory.getBndryNormal();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(sol,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            auto const& flag_fab = flags[mfi];
+            auto typ = flag_fab.getType(bx);
+            if (typ == FabType::singlevalued) {
+                auto const& flag_arr = flag_fab.const_array();
+                Array4<Real const> const& bcfab      = bcent.const_array(mfi);
+                Array4<Real const> const& ccfab      = ccent.const_array(mfi);
+                Array4<Real const> const& bnrmfab    = bnorm.const_array(mfi);
+                Array4<Real const> const& vel_arr    = sol.const_array(mfi);
+                Array4<Real      > const& gradVel_arr = gradVel_EB->array(mfi);
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    if (flag_arr(i,j,k).isSingleValued()) {
+                        // Normal points outward
+                        AMREX_D_TERM(Real anrmx = bnrmfab(i,j,k,0);,
+                                     Real anrmy = bnrmfab(i,j,k,1);,
+                                     Real anrmz = bnrmfab(i,j,k,2););
+
+                        AMREX_D_TERM(
+                          Real un = amrex::grad_eb_of_phi_on_centroids(i,j,k,0,
+                                           vel_arr, vel_eb_arr, flag_arr,
+                                           ccfab, bcfab,
+                                           AMREX_D_DECL(anrmx, anrmy, anrmz),
+                                           false);,
+                          Real vn = amrex::grad_eb_of_phi_on_centroids(i,j,k,1,
+                                           vel_arr, vel_eb_arr, flag_arr,
+                                           ccfab, bcfab,
+                                           AMREX_D_DECL(anrmx, anrmy, anrmz),
+                                           false);,
+                          Real wn = amrex::grad_eb_of_phi_on_centroids(i,j,k,2,
+                                           vel_arr, vel_eb_arr, flag_arr,
+                                           ccfab, bcfab,
+                                           AMREX_D_DECL(anrmx, anrmy, anrmz),
+                                           false););
+// The derivatives are put in the array with the following order:
+// component: 0    ,  1    ,  2    ,  3    ,  4    , 5    ,  6    ,  7    ,  8
+// in 2D:     dU/dx,  dV/dx,  dU/dy,  dV/dy
+// in 3D:     dU/dx,  dV/dx,  dW/dx,  dU/dy,  dV/dy, dW/dy,  dU/dz,  dV/dz,  dW/dz
+// THIS RECONSTRUCTION IS ONLY VALID FOR NO-SLIP, NO-PENETRATION, TRANSLATING RIGID EB SURFACE
+#if (AMREX_SPACEDIM == 2)
+                        gradVel_arr(i,j,k,0) = un*anrmx; gradVel_arr(i,j,k,1) = vn*anrmx;
+                        gradVel_arr(i,j,k,2) = un*anrmy; gradVel_arr(i,j,k,3) = vn*anrmy;
+#else
+                        gradVel_arr(i,j,k,0) = un*anrmx; gradVel_arr(i,j,k,1) = vn*anrmx;
+                        gradVel_arr(i,j,k,2) = wn*anrmx;
+                        gradVel_arr(i,j,k,3) = un*anrmy; gradVel_arr(i,j,k,4) = vn*anrmy;
+                        gradVel_arr(i,j,k,5) = wn*anrmy;
+                        gradVel_arr(i,j,k,6) = un*anrmz; gradVel_arr(i,j,k,7) = vn*anrmz;
+                        gradVel_arr(i,j,k,8) = wn*anrmz;
+#endif
+                    }
+                });
+            }
+        }
+    }
+    else
+#endif
+    {
+        m_reg_apply_op->compVelGrad(amrlev, gradVel, sol, loc);
     }
 }
