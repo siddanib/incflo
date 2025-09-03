@@ -486,6 +486,7 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
                                 scndOrderCoeff, *a_old_velocity[ilev],
                                 *a_density[ilev], *a_conc_second[ilev],
                                 *a_p_static[ilev], m_incflo->Geom(ilev));
+        scndOrderCoeff.FillBoundary(m_incflo->Geom(ilev).periodicity());
         MultiFab velocity_tmp(a_velocity[ilev]->boxArray(),
                               a_velocity[ilev]->DistributionMap(),
                               AMREX_SPACEDIM, a_velocity[ilev]->nGrow(),
