@@ -375,7 +375,7 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
                                   GetVecOfConstPtrs(m_density),
                                   GetVecOfConstPtrs(m_conc_second),
                                   GetVecOfConstPtrs(m_p_static),
-                                  velocity);
+                                  GetVecOfConstPtrs(m_newton_iter_vel));
     // First multiply divtau with (-dt)
     scale(nonlin_func, Real(-1.0)*m_dt);
     increment(nonlin_func, GetVecOfConstPtrs(m_rhs_n), Real(-1.0));

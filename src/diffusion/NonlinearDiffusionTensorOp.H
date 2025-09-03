@@ -147,7 +147,7 @@ private:
     amrex::Real m_dt;
     int m_nghost_density = 1;
     int m_nghost_eta     = 1;
-    int m_nghost_vel     = 2;
+    int m_nghost_vel     = 1;
     // DiffusionOp verbosity
     int m_verbose = 1;
     // Options to control GMRES behavior
