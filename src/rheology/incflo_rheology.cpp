@@ -967,7 +967,6 @@ void incflo::compute_granular_powerlaw_second_order_coeff (int lev, MultiFab& sc
        const Real mu_alpha      = m_mu_powerlaw[1][2];
        const Real min_conc_scnd = m_min_conc_second;
        const Real eps           = m_mu_sr_eps_second;
-       const Real I_neutral     = m_I_1_N_powerlaw;
        // Note: sr_mf contains TWO TIMES strain rate
        // Note: Inertial number in Rauter 2021 (Eq. 2.29)
        // has an extra factor of 2
@@ -975,18 +974,13 @@ void incflo::compute_granular_powerlaw_second_order_coeff (int lev, MultiFab& sc
        {
             Real conc_val = conc_scnd_arr(i,j,k,0);
             Real inrt_num_val = inrt_num_arr(i,j,k);
-            if (conc_val > min_conc_scnd &&
-                inrt_num_val > I_neutral) {
-              scnd_coeff_arr(i,j,k) = mu_const +
-                                      mu_A * std::pow(inrt_num_val,
-                                                      Real(2.0)*mu_alpha);
-              scnd_coeff_arr(i,j,k) *= p_static_arr(i,j,k);
-              scnd_coeff_arr(i,j,k) /= ((Real(0.5)*sr_arr(i,j,k) + eps)
-                                       * (Real(0.5)*sr_arr(i,j,k) + eps));
-            }
-            else {
-               scnd_coeff_arr(i,j,k) = Real(0.);
-            }
+            scnd_coeff_arr(i,j,k) = mu_const +
+                                    mu_A * std::pow(inrt_num_val,
+                                                    Real(2.0)*mu_alpha);
+            scnd_coeff_arr(i,j,k) *= p_static_arr(i,j,k);
+            scnd_coeff_arr(i,j,k) /= ((Real(0.5)*sr_arr(i,j,k) + eps)
+                                     * (Real(0.5)*sr_arr(i,j,k) + eps));
+            scnd_coeff_arr(i,j,k) *= conc_val;
        });
    }
 }
