@@ -930,6 +930,28 @@ incflo::compute_granular_high_order_fluxes_on_level (MultiFab* flux_eb,
 }
 #endif
 
+void incflo::compute_second_order_coeff (int lev, MultiFab& scnd_coeff,
+                                          const MultiFab& velocity,
+                                          const MultiFab& density,
+                                          const MultiFab& conc_second,
+                                          const MultiFab& p_static,
+                                          Geometry& lev_geom)
+{
+    if (m_mu_powerlaw.size() > 1) {
+        compute_granular_powerlaw_second_order_coeff(lev, scnd_coeff,
+                velocity, density, conc_second, p_static, lev_geom);
+    }
+    else if (m_probtype == 538) {
+        scnd_coeff.setVal(Real(1.));
+    }
+    else {
+        scnd_coeff.setVal(Real(0.));
+    }
+    // Take care of ghost cells
+    if (scnd_coeff.nGrow() > 0) {
+        scnd_coeff.FillBoundary(lev_geom.periodicity());
+    }
+}
 // Adding these high-order effects only in regions
 // with Inertial number greater than Neutral Inertial Number
 void incflo::compute_granular_powerlaw_second_order_coeff (int lev, MultiFab& scnd_coeff,

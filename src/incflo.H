@@ -401,6 +401,13 @@ public:
                                                       const amrex::MultiFab* gradVel_EB,
                                                       const amrex::MultiFab* scndOrderCoeff);
 #endif
+    void compute_second_order_coeff (int lev,
+                                     amrex::MultiFab& scnd_coeff,
+                                     const amrex::MultiFab& velocity,
+                                     const amrex::MultiFab& density,
+                                     const amrex::MultiFab& conc_second,
+                                     const amrex::MultiFab& p_static,
+                                     amrex::Geometry& lev_geom);
     void compute_granular_powerlaw_second_order_coeff (int lev,
                                                        amrex::MultiFab& scnd_coeff,
                                                        const amrex::MultiFab& velocity,

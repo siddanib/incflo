@@ -566,3 +566,17 @@ void incflo::smooth_double_layer_inclined_plane_granular (Box const& vbx, Box co
     if (m_initial_iterations == 0 )
         amrex::Abort("Include non-zero initial_iterations as pressure is not set");
 }
+
+void incflo::initialize_entire_domain_with_second_fluid (Box const& vbx,
+                                   Array4<Real> const& density,
+                                   Array4<Real> const& tracer) const
+{
+    // Ensure it is set to two_fluid
+    if (!m_two_fluid) amrex::Abort("probtype 538 requires two_fluid");
+    Real rho_2 = m_ro_0_second;
+    amrex::ParallelFor(vbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+    {
+        tracer(i,j,k,0) = Real(1.0);
+        density(i,j,k)  = rho_2;
+    });
+}

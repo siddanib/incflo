@@ -463,7 +463,9 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
                                         Vector<MultiFab const*> const& a_p_static,
                                         Vector<MultiFab const*> const& a_old_velocity)
 {
-    if (!(m_incflo->m_two_fluid) || (m_incflo->m_mu_powerlaw.size() < 2)) {return;}
+    if (!(m_incflo->m_two_fluid)) {
+        return;
+    }
     int nlevels = a_velocity.size();
     auto loc = MLMG::Location::FaceCentroid;
     bool already_on_centroids = (loc == MLMG::Location::FaceCentroid);
@@ -480,13 +482,11 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
         MultiFab scndOrderCoeff(a_old_velocity[ilev]->boxArray(),
                                 a_old_velocity[ilev]->DistributionMap(),
                                 1,1, MFInfo(), a_old_velocity[ilev]->Factory());
-        scndOrderCoeff.setVal(Real(0.));
-        // This function only deals with valid cells
-        m_incflo->compute_granular_powerlaw_second_order_coeff(ilev,
+        // This function takes care of ghost cells
+        m_incflo->compute_second_order_coeff(ilev,
                                 scndOrderCoeff, *a_old_velocity[ilev],
                                 *a_density[ilev], *a_conc_second[ilev],
                                 *a_p_static[ilev], m_incflo->Geom(ilev));
-        scndOrderCoeff.FillBoundary(m_incflo->Geom(ilev).periodicity());
         MultiFab velocity_tmp(a_velocity[ilev]->boxArray(),
                               a_velocity[ilev]->DistributionMap(),
                               AMREX_SPACEDIM, a_velocity[ilev]->nGrow(),
