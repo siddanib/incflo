@@ -60,6 +60,12 @@ void incflo::compute_strainrate_at_level (int /*lev*/,
                      Real idy = Real(1.0) / lev_geom.CellSize(1);,
                      Real idz = Real(1.0) / lev_geom.CellSize(2););
 
+        const Dim3 dlo = amrex::lbound(lev_geom.Domain());
+        const Dim3 dhi = amrex::ubound(lev_geom.Domain());
+        GpuArray<bool, AMREX_SPACEDIM> is_periodic;
+        AMREX_D_TERM(is_periodic[0] = lev_geom.isPeriodic(0);,
+                     is_periodic[1] = lev_geom.isPeriodic(1);,
+                     is_periodic[2] = lev_geom.isPeriodic(2););
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -83,7 +89,9 @@ void incflo::compute_strainrate_at_level (int /*lev*/,
                     auto const& flag_arr = flag_fab.const_array();
                     ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                     {
-                        sr_arr(i,j,k) = incflo_strainrate_eb(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr,flag_arr(i,j,k));
+                        sr_arr(i,j,k) = incflo_strainrate_eb(i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                                             vel_arr,flag_arr(i,j,k), dlo, dhi,
+                                                             is_periodic);
                     });
                 }
                 else
@@ -91,7 +99,8 @@ void incflo::compute_strainrate_at_level (int /*lev*/,
                 {
                     ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                     {
-                        sr_arr(i,j,k) = incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr);
+                        sr_arr(i,j,k) = incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                                          vel_arr, dlo, dhi, is_periodic);
                     });
                 }
         }

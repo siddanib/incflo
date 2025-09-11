@@ -7,31 +7,89 @@
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real incflo_strainrate (int i, int j, int k,
                                AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
-                               amrex::Array4<amrex::Real const> const& vel) noexcept
+                               amrex::Array4<amrex::Real const> const& vel,
+                               const amrex::Dim3& dlo, const amrex::Dim3& dhi,
+                               const amrex::GpuArray<bool, AMREX_SPACEDIM> is_periodic) noexcept
 {
     using namespace amrex;
 
 #if (AMREX_SPACEDIM == 3)
-    Real ux = amrex::Real(0.5) * (vel(i+1,j,k,0) - vel(i-1,j,k,0)) * idx;
-    Real vx = amrex::Real(0.5) * (vel(i+1,j,k,1) - vel(i-1,j,k,1)) * idx;
-    Real wx = amrex::Real(0.5) * (vel(i+1,j,k,2) - vel(i-1,j,k,2)) * idx;
+    Real xm = amrex::Real(-1.0)/idx; Real xp = amrex::Real(1.0)/idx;
+    if (i == dlo.x && (!is_periodic[0])) { xm *= Real(0.5);}
+    if (i == dhi.x && (!is_periodic[0])) { xp *= Real(0.5);}
+    Real ym = amrex::Real(-1.0)/idy; Real yp = amrex::Real(1.0)/idy;
+    if (j == dlo.y && (!is_periodic[1])) { ym *= Real(0.5);}
+    if (j == dhi.y && (!is_periodic[1])) { yp *= Real(0.5);}
+    Real zm = amrex::Real(-1.0)/idz; Real zp = amrex::Real(1.0)/idz;
+    if (k == dlo.z && (!is_periodic[2])) { zm *= Real(0.5);}
+    if (k == dhi.z && (!is_periodic[2])) { zp *= Real(0.5);}
 
-    Real uy = amrex::Real(0.5) * (vel(i,j+1,k,0) - vel(i,j-1,k,0)) * idy;
-    Real vy = amrex::Real(0.5) * (vel(i,j+1,k,1) - vel(i,j-1,k,1)) * idy;
-    Real wy = amrex::Real(0.5) * (vel(i,j+1,k,2) - vel(i,j-1,k,2)) * idy;
+    Real ux = vel(i-1, j, k, 0)*(xp/(xm*(xm-xp))) +
+              vel(i  , j, k, 0)*((xm+xp)/(xm*xp)) +
+              vel(i+1, j, k, 0)*(xm/((xp-xm)*xp));
+    ux *= amrex::Real(-1.0);
+    Real vx = vel(i-1, j, k, 1)*(xp/(xm*(xm-xp))) +
+              vel(i  , j, k, 1)*((xm+xp)/(xm*xp)) +
+              vel(i+1, j, k, 1)*(xm/((xp-xm)*xp));
+    vx *= amrex::Real(-1.0);
+    Real wx = vel(i-1, j, k, 2)*(xp/(xm*(xm-xp))) +
+              vel(i  , j, k, 2)*((xm+xp)/(xm*xp)) +
+              vel(i+1, j, k, 2)*(xm/((xp-xm)*xp));
+    wx *= amrex::Real(-1.0);
 
-    Real uz = amrex::Real(0.5) * (vel(i,j,k+1,0) - vel(i,j,k-1,0)) * idz;
-    Real vz = amrex::Real(0.5) * (vel(i,j,k+1,1) - vel(i,j,k-1,1)) * idz;
-    Real wz = amrex::Real(0.5) * (vel(i,j,k+1,2) - vel(i,j,k-1,2)) * idz;
+    Real uy = vel(i, j-1, k, 0)*(yp/(ym*(ym-yp))) +
+              vel(i, j  , k, 0)*((ym+yp)/(ym*yp)) +
+              vel(i, j+1, k, 0)*(ym/((yp-ym)*yp));
+    uy *= amrex::Real(-1.0);
+    Real vy = vel(i, j-1, k, 1)*(yp/(ym*(ym-yp))) +
+              vel(i, j  , k, 1)*((ym+yp)/(ym*yp)) +
+              vel(i, j+1, k, 1)*(ym/((yp-ym)*yp));
+    vy *= amrex::Real(-1.0);
+    Real wy = vel(i, j-1, k, 2)*(yp/(ym*(ym-yp))) +
+              vel(i, j  , k, 2)*((ym+yp)/(ym*yp)) +
+              vel(i, j+1, k, 2)*(ym/((yp-ym)*yp));
+    wy *= amrex::Real(-1.0);
+
+    Real uz = vel(i, j, k-1, 0)*(zp/(zm*(zm-zp))) +
+              vel(i, j, k  , 0)*((zm+zp)/(zm*zp)) +
+              vel(i, j, k+1, 0)*(zm/((zp-zm)*zp));
+    uz *= amrex::Real(-1.0);
+    Real vz = vel(i, j, k-1, 1)*(zp/(zm*(zm-zp))) +
+              vel(i, j, k  , 1)*((zm+zp)/(zm*zp)) +
+              vel(i, j, k+1, 1)*(zm/((zp-zm)*zp));
+    vz *= amrex::Real(-1.0);
+    Real wz = vel(i, j, k-1, 2)*(zp/(zm*(zm-zp))) +
+              vel(i, j, k  , 2)*((zm+zp)/(zm*zp)) +
+              vel(i, j, k+1, 2)*(zm/((zp-zm)*zp));
+    wz *= amrex::Real(-1.0);
 
     return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy + amrex::Real(2.0) * wz*wz
                      + (uy+vx)*(uy+vx) + (vz+wy)*(vz+wy) + (wx+uz)*(wx+uz));
 #else
-    Real ux = amrex::Real(0.5) * (vel(i+1,j,k,0) - vel(i-1,j,k,0)) * idx;
-    Real vx = amrex::Real(0.5) * (vel(i+1,j,k,1) - vel(i-1,j,k,1)) * idx;
+    Real xm = amrex::Real(-1.0)/idx; Real xp = amrex::Real(1.0)/idx;
+    if (i == dlo.x && (!is_periodic[0])) { xm *= Real(0.5);}
+    if (i == dhi.x && (!is_periodic[0])) { xp *= Real(0.5);}
+    Real ym = amrex::Real(-1.0)/idy; Real yp = amrex::Real(1.0)/idy;
+    if (j == dlo.y && (!is_periodic[1])) { ym *= Real(0.5);}
+    if (j == dhi.y && (!is_periodic[1])) { yp *= Real(0.5);}
 
-    Real uy = amrex::Real(0.5) * (vel(i,j+1,k,0) - vel(i,j-1,k,0)) * idy;
-    Real vy = amrex::Real(0.5) * (vel(i,j+1,k,1) - vel(i,j-1,k,1)) * idy;
+    Real ux = vel(i-1, j, k, 0)*(xp/(xm*(xm-xp))) +
+              vel(i  , j, k, 0)*((xm+xp)/(xm*xp)) +
+              vel(i+1, j, k, 0)*(xm/((xp-xm)*xp));
+    ux *= amrex::Real(-1.0);
+    Real vx = vel(i-1, j, k, 1)*(xp/(xm*(xm-xp))) +
+              vel(i  , j, k, 1)*((xm+xp)/(xm*xp)) +
+              vel(i+1, j, k, 1)*(xm/((xp-xm)*xp));
+    vx *= amrex::Real(-1.0);
+
+    Real uy = vel(i, j-1, k, 0)*(yp/(ym*(ym-yp))) +
+              vel(i, j  , k, 0)*((ym+yp)/(ym*yp)) +
+              vel(i, j+1, k, 0)*(ym/((yp-ym)*yp));
+    uy *= amrex::Real(-1.0);
+    Real vy = vel(i, j-1, k, 1)*(yp/(ym*(ym-yp))) +
+              vel(i, j  , k, 1)*((ym+yp)/(ym*yp)) +
+              vel(i, j+1, k, 1)*(ym/((yp-ym)*yp));
+    vy *= amrex::Real(-1.0);
 
     return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
                      + (uy+vx)*(uy+vx));
@@ -566,12 +624,15 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real incflo_strainrate_eb (int i, int j, int k,
                                   AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
                                   amrex::Array4<amrex::Real const> const& vel,
-                                  amrex::EBCellFlag flag) noexcept
+                                  amrex::EBCellFlag flag,
+                                  const amrex::Dim3& dlo, const amrex::Dim3& dhi,
+                                  const amrex::GpuArray<bool, AMREX_SPACEDIM> is_periodic) noexcept
 {
     using namespace amrex;
 
     if (flag.isRegular()) {
-        return incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),vel);
+        return incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),vel, dlo, dhi,
+                                is_periodic);
     } else if (flag.isSingleValued()) {
         constexpr Real c0 = -1.5;
         constexpr Real c1 =  amrex::Real(2.0);

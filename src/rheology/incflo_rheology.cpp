@@ -453,43 +453,51 @@ void incflo::compute_cc_non_newtonian_viscosity (int lev,
 #if (AMREX_SPACEDIM == 3)
     Real idz = Real(1.0) / lev_geom.CellSize(2);
 #endif
-
+    const Dim3 dlo = amrex::lbound(lev_geom.Domain());
+    const Dim3 dhi = amrex::ubound(lev_geom.Domain());
+    GpuArray<bool, AMREX_SPACEDIM> is_periodic;
+    AMREX_D_TERM(is_periodic[0] = lev_geom.isPeriodic(0);,
+                 is_periodic[1] = lev_geom.isPeriodic(1);,
+                 is_periodic[2] = lev_geom.isPeriodic(2););
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
     for (MFIter mfi(*vel_eta,TilingIfNotGPU()); mfi.isValid(); ++mfi)
     {
-            Box const& bx = mfi.growntilebox(nghost);
-            Array4<Real> const& eta_arr = vel_eta->array(mfi);
-            Array4<Real const> const& vel_arr = vel->const_array(mfi);
+        Box const& bx = mfi.growntilebox(nghost);
+        Array4<Real> const& eta_arr = vel_eta->array(mfi);
+        Array4<Real const> const& vel_arr = vel->const_array(mfi);
 #ifdef AMREX_USE_EB
-            auto const& flag_fab = flags[mfi];
-            auto typ = flag_fab.getType(bx);
-            if (typ == FabType::covered)
+        auto const& flag_fab = flags[mfi];
+        auto typ = flag_fab.getType(bx);
+        if (typ == FabType::covered)
+        {
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
-                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                {
-                    eta_arr(i,j,k) = Real(0.0);
-                });
-            }
-            else if (typ == FabType::singlevalued)
+                eta_arr(i,j,k) = Real(0.0);
+            });
+        }
+        else if (typ == FabType::singlevalued)
+        {
+            auto const& flag_arr = flag_fab.const_array();
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
-                auto const& flag_arr = flag_fab.const_array();
-                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                {
-                    Real sr = incflo_strainrate_eb(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr,flag_arr(i,j,k));
-                    eta_arr(i,j,k) = non_newtonian_viscosity(sr);
-                });
-            }
-            else
+                Real sr = incflo_strainrate_eb(i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                               vel_arr,flag_arr(i,j,k), dlo, dhi,
+                                               is_periodic);
+                eta_arr(i,j,k) = non_newtonian_viscosity(sr);
+            });
+        }
+        else
 #endif
+        {
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
-                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                {
-                    Real sr = incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),vel_arr);
-                    eta_arr(i,j,k) = non_newtonian_viscosity(sr);
-                });
-            }
+                Real sr = incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),
+                                            vel_arr, dlo, dhi, is_periodic);
+                eta_arr(i,j,k) = non_newtonian_viscosity(sr);
+            });
+        }
     }
 }
 
