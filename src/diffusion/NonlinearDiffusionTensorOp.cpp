@@ -110,6 +110,7 @@ void NonlinearDiffusionTensorOp::readParameters ()
     pp.query("newton_atol", m_newton_atol);
     pp.query("newton_update_alpha", m_newton_update_alpha);
     pp.query("newton_update_max_iter", m_newton_update_max_iter);
+    pp.query("use_eta_from_prev_time", m_use_eta_from_prev_time);
 
     pp.query("gmres_verbose", m_gmres_verbose);
     pp.query("gmres_max_iter", m_gmres_max_iter);
@@ -482,6 +483,7 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
         MultiFab scndOrderCoeff(a_old_velocity[ilev]->boxArray(),
                                 a_old_velocity[ilev]->DistributionMap(),
                                 1,1, MFInfo(), a_old_velocity[ilev]->Factory());
+        scndOrderCoeff.setVal(0.);
         // This function takes care of ghost cells
         m_incflo->compute_second_order_coeff(ilev,
                                 scndOrderCoeff, *a_old_velocity[ilev],
@@ -660,31 +662,39 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
                                    GetVecOfConstPtrs(m_newton_iter_vel));
     norm_new = get_norm_of_residual();
 
-    if (norm_new < norm_old) {return;}
+    if (norm_new >= norm_old) {
+        // Update using a factor of lambda
+        Real lambda = Real(1.0);
+        Real alpha  = m_newton_update_alpha;
+        Real beta;
+        for (int iter=1; iter <= m_newton_update_max_iter; ++iter) {
+            norm_old = norm_new;
+            lambda *= Real(1.0) - alpha;
+            beta = Real(-1.0)*lambda/(Real(1.0)-alpha);
+            // Remove portion of the incremental velocity without ghost and covered cells
+            increment(GetVecOfPtrs(m_newton_iter_vel),
+                      a_vel_increment, beta);
+            for (int ilev=0; ilev < nlevels; ++ilev) {
+                // Use FillBoundary to update ghost cells
+                m_newton_iter_vel[ilev]->FillBoundary(
+                                  m_incflo->Geom(ilev).periodicity());
+            }
+            // Update m_newton_iter_func
+            compute_viscous_solve_equation(GetVecOfPtrs(m_newton_iter_func),
+                                           GetVecOfConstPtrs(m_newton_iter_vel));
+            norm_new = get_norm_of_residual();
+            if (norm_new < norm_old) {
+                break;
+            }
+        }
+    }
 
-    // Update using a factor of lambda
-    Real lambda = Real(1.0);
-    Real alpha  = m_newton_update_alpha;
-    Real beta;
-    for (int iter=1; iter <= m_newton_update_max_iter; ++iter) {
-        norm_old = norm_new;
-        lambda *= Real(1.0) - alpha;
-        beta = Real(-1.0)*lambda/(Real(1.0)-alpha);
-        // Remove portion of the incremental velocity without ghost and covered cells
-        increment(GetVecOfPtrs(m_newton_iter_vel),
-                  a_vel_increment, beta);
-        for (int ilev=0; ilev < nlevels; ++ilev) {
-            // Use FillBoundary to update ghost cells
-            m_newton_iter_vel[ilev]->FillBoundary(
-                              m_incflo->Geom(ilev).periodicity());
-        }
-        // Update m_newton_iter_func
-        compute_viscous_solve_equation(GetVecOfPtrs(m_newton_iter_func),
-                                       GetVecOfConstPtrs(m_newton_iter_vel));
-        norm_new = get_norm_of_residual();
-        if (norm_new < norm_old) {
-            break;
-        }
+    if (!m_use_eta_from_prev_time) {
+        // Update m_eta based on m_newton_iter_vel
+        m_incflo->compute_viscosity(GetVecOfPtrs(m_eta),
+                                    GetVecOfPtrs(m_density),
+                                    GetVecOfPtrs(m_newton_iter_vel),
+                                    m_incflo->m_cur_time, m_nghost_eta);
     }
 }
 

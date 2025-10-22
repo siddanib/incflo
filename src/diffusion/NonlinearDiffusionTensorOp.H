@@ -148,6 +148,7 @@ private:
     int m_nghost_density = 1;
     int m_nghost_eta     = 1;
     int m_nghost_vel     = 1;
+    bool m_use_eta_from_prev_time = true;
     // DiffusionOp verbosity
     int m_verbose = 1;
     // Options to control GMRES behavior
