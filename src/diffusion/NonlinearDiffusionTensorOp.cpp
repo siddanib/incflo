@@ -1238,6 +1238,12 @@ void NonlinearDiffusionTensorOp::compVelGrad (int amrlev,
 #ifdef AMREX_USE_EB
     if (m_eb_apply_op)
     {
+        AMREX_D_TERM(Real lev_dx =m_incflo->Geom(amrlev).CellSize(0);,
+                     Real lev_dy =m_incflo->Geom(amrlev).CellSize(1);,
+                     Real lev_dz =m_incflo->Geom(amrlev).CellSize(2););
+        AMREX_D_TERM(Real lev_mn_dx = lev_dx,+lev_dy,+lev_dz);
+        lev_mn_dx /= Real(AMREX_SPACEDIM);
+
         m_eb_apply_op->compVelGrad(amrlev, gradVel, sol, loc);
         // Population of gradVel_EB
         gradVel_EB->setVal(Real(0.));
@@ -1288,6 +1294,11 @@ void NonlinearDiffusionTensorOp::compVelGrad (int amrlev,
                                            ccfab, bcfab,
                                            AMREX_D_DECL(anrmx, anrmy, anrmz),
                                            false););
+                        // Note that the values returned by grad_eb_of_phi_on_centroids
+                        // are NOT scaled by dx = dy = dz
+                        AMREX_D_TERM(un /= lev_mn_dx;,
+                                     vn /= lev_mn_dx;,
+                                     wn /= lev_mn_dx;);
 // The derivatives are put in the array with the following order:
 // component: 0    ,  1    ,  2    ,  3    ,  4    , 5    ,  6    ,  7    ,  8
 // in 2D:     dU/dx,  dV/dx,  dU/dy,  dV/dy
