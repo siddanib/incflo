@@ -54,6 +54,9 @@ void incflo::compute_strainrate_at_level (int /*lev*/,
 #ifdef AMREX_USE_EB
         auto const& fact = EBFactory(lev);
         auto const& flags = fact.getMultiEBCellFlagFab();
+        MultiCutFab const& bcent = fact.getBndryCent();
+        MultiCutFab const& ccent = fact.getCentroid();
+        MultiCutFab const& bnorm = fact.getBndryNormal();
 #endif
 
         AMREX_D_TERM(Real idx = Real(1.0) / lev_geom.CellSize(0);,
@@ -77,6 +80,9 @@ void incflo::compute_strainrate_at_level (int /*lev*/,
 #ifdef AMREX_USE_EB
                 auto const& flag_fab = flags[mfi];
                 auto typ = flag_fab.getType(bx);
+                Array4<Real const> const& bcfab      = bcent.const_array(mfi);
+                Array4<Real const> const& ccfab      = ccent.const_array(mfi);
+                Array4<Real const> const& bnrmfab    = bnorm.const_array(mfi);
                 if (typ == FabType::covered)
                 {
                     ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -90,8 +96,11 @@ void incflo::compute_strainrate_at_level (int /*lev*/,
                     ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                     {
                         sr_arr(i,j,k) = incflo_strainrate_eb(i,j,k,AMREX_D_DECL(idx,idy,idz),
-                                                             vel_arr,flag_arr(i,j,k), dlo, dhi,
-                                                             is_periodic);
+                                                             vel_arr,flag_arr, dlo, dhi,
+                                                             is_periodic, true, ccfab, bcfab,
+                                                             AMREX_D_DECL(bnrmfab(i,j,k,0),
+                                                                          bnrmfab(i,j,k,1),
+                                                                          bnrmfab(i,j,k,2)));
                     });
                 }
                 else

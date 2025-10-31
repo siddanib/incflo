@@ -620,20 +620,85 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
 }
 
 #ifdef AMREX_USE_EB
+// This only handles singleValued EB cells
+// Currently, this function evaluates strainrate at EB-cut FaceCentroid,
+// BUT uses it at the Cell-Centroid
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real incflo_strainrate_eb_granular (int i, int j, int k,
+                    AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
+                    amrex::Array4<amrex::Real const> const& vel_arr,
+                    amrex::Array4<amrex::EBCellFlag const> const& flag_arr,
+                    amrex::Array4<amrex::Real const> const& ccfab_arr,
+                    amrex::Array4<amrex::Real const> const& bcfab_arr,
+                    AMREX_D_DECL(amrex::Real anrmx, amrex::Real anrmy, amrex::Real anrmz)
+                    ) noexcept
+{
+    using namespace amrex;
+    // Create a null vel_eb; as it needs to be zero
+    Array4<Real const> vel_eb_arr;
+    AMREX_D_TERM(Real lev_mn_dx = 1.0/idx,+1.0/idy,+1.0/idz);
+    lev_mn_dx /= Real(AMREX_SPACEDIM);
+
+    AMREX_D_TERM(
+      Real un = amrex::grad_eb_of_phi_on_centroids(i,j,k,0,
+                       vel_arr, vel_eb_arr, flag_arr,
+                       ccfab_arr, bcfab_arr,
+                       AMREX_D_DECL(anrmx, anrmy, anrmz),
+                       false);,
+      Real vn = amrex::grad_eb_of_phi_on_centroids(i,j,k,1,
+                       vel_arr, vel_eb_arr, flag_arr,
+                       ccfab_arr, bcfab_arr,
+                       AMREX_D_DECL(anrmx, anrmy, anrmz),
+                       false);,
+      Real wn = amrex::grad_eb_of_phi_on_centroids(i,j,k,2,
+                       vel_arr, vel_eb_arr, flag_arr,
+                       ccfab_arr, bcfab_arr,
+                       AMREX_D_DECL(anrmx, anrmy, anrmz),
+                       false););
+      // Note that the values returned by grad_eb_of_phi_on_centroids
+      // are NOT scaled by dx = dy = dz
+      AMREX_D_TERM(un /= lev_mn_dx;,
+                   vn /= lev_mn_dx;,
+                   wn /= lev_mn_dx;);
+// THIS RECONSTRUCTION IS ONLY VALID FOR NO-SLIP, NO-PENETRATION RIGID EB SURFACE
+#if (AMREX_SPACEDIM == 2)
+    Real ux = un*anrmx; Real vx = vn*anrmx;
+    Real uy = un*anrmy; Real vy= vn*anrmy;
+    return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
+                   + (uy+vx)*(uy+vx));
+#else
+    Real ux = un*anrmx; Real vx = vn*anrmx; Real wx = wn*anrmx;
+    Real uy = un*anrmy; Real vy = vn*anrmy; Real wy = wn*anrmy;
+    Real uz = un*anrmz; Real vz = vn*anrmz; Real wz = wn*anrmz;
+    return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
+                     + amrex::Real(2.0) * wz*wz
+                     + (uy+vx)*(uy+vx) + (vz+wy)*(vz+wy) + (wx+uz)*(wx+uz));
+#endif
+}
+#endif
+
+#ifdef AMREX_USE_EB
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real incflo_strainrate_eb (int i, int j, int k,
-                                  AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
-                                  amrex::Array4<amrex::Real const> const& vel,
-                                  amrex::EBCellFlag flag,
-                                  const amrex::Dim3& dlo, const amrex::Dim3& dhi,
-                                  const amrex::GpuArray<bool, AMREX_SPACEDIM> is_periodic) noexcept
+                    AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
+                    amrex::Array4<amrex::Real const> const& vel,
+                    amrex::Array4<amrex::EBCellFlag const> const& flag_arr,
+                    const amrex::Dim3& dlo, const amrex::Dim3& dhi,
+                    const amrex::GpuArray<bool, AMREX_SPACEDIM> is_periodic,
+                    bool granular_case,
+                    amrex::Array4<amrex::Real const> const& ccfab_arr,
+                    amrex::Array4<amrex::Real const> const& bcfab_arr,
+                    AMREX_D_DECL(amrex::Real anrmx, amrex::Real anrmy, amrex::Real anrmz)
+                    ) noexcept
 {
     using namespace amrex;
 
+    amrex::EBCellFlag flag = flag_arr(i,j,k);
     if (flag.isRegular()) {
         return incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),vel, dlo, dhi,
                                 is_periodic);
-    } else if (flag.isSingleValued()) {
+    }
+    else if (flag.isSingleValued()) {
         constexpr Real c0 = -1.5;
         constexpr Real c1 =  amrex::Real(2.0);
         constexpr Real c2 = -amrex::Real(0.5);
@@ -751,13 +816,23 @@ amrex::Real incflo_strainrate_eb (int i, int j, int k,
             wz = amrex::Real(0.5) * (vel(i,j,k+1,2) - vel(i,j,k-1,2)) * idz;
         }
 
-        return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy + amrex::Real(2.0) * wz*wz
+        Real sr =  std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy + amrex::Real(2.0) * wz*wz
                          + (uy+vx)*(uy+vx) + (vz+wy)*(vz+wy) + (wx+uz)*(wx+uz));
 #else
-        return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
+        Real sr = std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
                          + (uy+vx)*(uy+vx));
 #endif
-    } else {
+        if (granular_case) {
+        sr += incflo_strainrate_eb_granular(i, j, k,
+                                            AMREX_D_DECL(idx, idy, idz),
+                                            vel, flag_arr, ccfab_arr,
+                                            bcfab_arr,
+                                            AMREX_D_DECL(anrmx, anrmy, anrmz));
+        sr *= 0.5;
+        }
+        return sr;
+    }
+    else {
         return 0.0;
     }
 }
