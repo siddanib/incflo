@@ -636,44 +636,259 @@ amrex::Real incflo_strainrate_eb_granular (int i, int j, int k,
     using namespace amrex;
     // Create a null vel_eb; as it needs to be zero
     Array4<Real const> vel_eb_arr;
-    AMREX_D_TERM(Real lev_mn_dx = 1.0/idx,+1.0/idy,+1.0/idz);
-    lev_mn_dx /= Real(AMREX_SPACEDIM);
 
-    AMREX_D_TERM(
-      Real un = amrex::grad_eb_of_phi_on_centroids(i,j,k,0,
-                       vel_arr, vel_eb_arr, flag_arr,
-                       ccfab_arr, bcfab_arr,
-                       AMREX_D_DECL(anrmx, anrmy, anrmz),
-                       false);,
-      Real vn = amrex::grad_eb_of_phi_on_centroids(i,j,k,1,
-                       vel_arr, vel_eb_arr, flag_arr,
-                       ccfab_arr, bcfab_arr,
-                       AMREX_D_DECL(anrmx, anrmy, anrmz),
-                       false);,
-      Real wn = amrex::grad_eb_of_phi_on_centroids(i,j,k,2,
-                       vel_arr, vel_eb_arr, flag_arr,
-                       ccfab_arr, bcfab_arr,
-                       AMREX_D_DECL(anrmx, anrmy, anrmz),
-                       false););
-      // Note that the values returned by grad_eb_of_phi_on_centroids
-      // are NOT scaled by dx = dy = dz
-      AMREX_D_TERM(un /= lev_mn_dx;,
-                   vn /= lev_mn_dx;,
-                   wn /= lev_mn_dx;);
-// THIS RECONSTRUCTION IS ONLY VALID FOR NO-SLIP, NO-PENETRATION RIGID EB SURFACE
+    // Full gradients at cell centroids using EB-aware least squares.
+    Real ux, uy, vx, vy;
+#if (AMREX_SPACEDIM == 3)
+    Real uz, vz, wx, wy, wz;
+#endif
+
+    incflo_grad_eb_of_phi_on_cellcentroids(i, j, k, 0,
+                                           vel_arr, vel_eb_arr,
+                                           flag_arr, ccfab_arr, bcfab_arr,
+                                           AMREX_D_DECL(ux, uy, uz),
+                                           false);
+    incflo_grad_eb_of_phi_on_cellcentroids(i, j, k, 1,
+                                           vel_arr, vel_eb_arr,
+                                           flag_arr, ccfab_arr, bcfab_arr,
+                                           AMREX_D_DECL(vx, vy, vz),
+                                           false);
+#if (AMREX_SPACEDIM == 3)
+    incflo_grad_eb_of_phi_on_cellcentroids(i, j, k, 2,
+                                           vel_arr, vel_eb_arr,
+                                           flag_arr, ccfab_arr, bcfab_arr,
+                                           AMREX_D_DECL(wx, wy, wz),
+                                           false);
+#endif
+
+    // Scale from cell units to physical units.
+    ux *= idx; uy *= idy;
+    vx *= idx; vy *= idy;
+#if (AMREX_SPACEDIM == 3)
+    uz *= idz; vz *= idz;
+    wx *= idx; wy *= idy; wz *= idz;
+#endif
+
 #if (AMREX_SPACEDIM == 2)
-    Real ux = un*anrmx; Real vx = vn*anrmx;
-    Real uy = un*anrmy; Real vy= vn*anrmy;
     return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
                    + (uy+vx)*(uy+vx));
 #else
-    Real ux = un*anrmx; Real vx = vn*anrmx; Real wx = wn*anrmx;
-    Real uy = un*anrmy; Real vy = vn*anrmy; Real wy = wn*anrmy;
-    Real uz = un*anrmz; Real vz = vn*anrmz; Real wz = wn*anrmz;
     return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
                      + amrex::Real(2.0) * wz*wz
                      + (uy+vx)*(uy+vx) + (vz+wy)*(vz+wy) + (wx+uz)*(wx+uz));
 #endif
+}
+#endif
+
+#ifdef AMREX_USE_EB
+// Least-squares gradient at the cell centroid (ccent) using EB-aware stencil.
+// Returns full gradient components (not projected along the EB normal).
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+void incflo_grad_eb_of_phi_on_cellcentroids (int i, int j, int k, int n,
+                    amrex::Array4<amrex::Real const> const& phi,
+                    amrex::Array4<amrex::Real const> const& phieb,
+                    amrex::Array4<amrex::EBCellFlag const> const& flag,
+                    amrex::Array4<amrex::Real const> const& ccent,
+                    amrex::Array4<amrex::Real const> const& bcent,
+                    AMREX_D_DECL(amrex::Real& gx,
+                                 amrex::Real& gy,
+                                 amrex::Real& gz),
+                    bool is_eb_inhomog,
+                    amrex::Real eb_cc_tol) noexcept
+{
+    using namespace amrex;
+#if (AMREX_SPACEDIM == 2)
+    Array2D<Real,0,17,0,5> Amatrix;
+    Array1D<Real,0, 5    > rhs;
+
+    // Order of column -- first 9 are cell centroids, next 9 are EB centroids
+    for (int irow = 0; irow < 18; irow++) {
+        for (int icol = 0; icol < 6; icol++) {
+            Amatrix(irow,icol) = Real(0.0);
+        }
+    }
+
+    // Columns 0-2: [e x y]
+    for (int ii = i-1; ii <= i+1; ii++) {
+        for (int jj = j-1; jj <= j+1; jj++) {
+            if (!flag(ii,jj,k).isCovered())
+            {
+                int a_ind  = (jj-(j-1)) + 3*(ii-(i-1));
+
+                Real x_off = static_cast<Real>(ii-i);
+                Real y_off = static_cast<Real>(jj-j);
+
+                if (flag(i,j,k).isConnected((ii-i),(jj-j),0))
+                {
+                    Amatrix(a_ind,0) = Real(1.0);
+                    Amatrix(a_ind,1) = x_off + ccent(ii,jj,k,0) - ccent(i,j,k,0);
+                    Amatrix(a_ind,2) = y_off + ccent(ii,jj,k,1) - ccent(i,j,k,1);
+                }
+
+                const Real dcx_ij = bcent(ii,jj,k,0) - ccent(ii,jj,k,0);
+                const Real dcy_ij = bcent(ii,jj,k,1) - ccent(ii,jj,k,1);
+                const Real dist2_ij = dcx_ij*dcx_ij + dcy_ij*dcy_ij;
+                const bool use_eb_rows_ij = (dist2_ij >= eb_cc_tol*eb_cc_tol);
+                if (use_eb_rows_ij &&
+                    flag(i,j,k).isConnected((ii-i),(jj-j),0) &&
+                    !flag(ii,jj,k).isRegular())
+                {
+                    Amatrix(a_ind+9,0) = Real(1.0);
+                    Amatrix(a_ind+9,1) = x_off + bcent(ii,jj,k,0) - ccent(i,j,k,0);
+                    Amatrix(a_ind+9,2) = y_off + bcent(ii,jj,k,1) - ccent(i,j,k,1);
+                }
+            }
+        }
+    }
+
+    // Columns 3-5: [x*x  x*y  y*y]
+    for (int irow = 0; irow < 18; irow++)
+    {
+        Amatrix(irow,3) =  Amatrix(irow,1) * Amatrix(irow,1);
+        Amatrix(irow,4) =  Amatrix(irow,1) * Amatrix(irow,2);
+        Amatrix(irow,5) =  Amatrix(irow,2) * Amatrix(irow,2);
+    }
+
+    // Make the RHS = A^T v
+    for (int irow = 0; irow < 6; irow++)
+    {
+        rhs(irow) = Real(0.0);
+
+        for (int ii = i-1; ii <= i+1; ii++) {
+            for (int jj = j-1; jj <= j+1; jj++) {
+                if (!flag(ii,jj,k).isCovered())
+                {
+                    int a_ind  = (jj-(j-1)) + 3*(ii-(i-1));
+                    rhs(irow) += Amatrix(a_ind,irow) * phi(ii,jj,k,n);
+                    const Real dcx_ij = bcent(ii,jj,k,0) - ccent(ii,jj,k,0);
+                    const Real dcy_ij = bcent(ii,jj,k,1) - ccent(ii,jj,k,1);
+                    const Real dist2_ij = dcx_ij*dcx_ij + dcy_ij*dcy_ij;
+                    const bool use_eb_rows_ij = (dist2_ij >= eb_cc_tol*eb_cc_tol);
+                    if (use_eb_rows_ij &&
+                        flag(ii,jj,k).isSingleValued() && is_eb_inhomog) {
+                        rhs(irow) += Amatrix(a_ind+9,irow) * phieb(ii,jj,k,n);
+                    }
+                }
+            }
+        }
+    }
+
+    cholsol_for_eb(Amatrix, rhs);
+
+    gx = rhs(1);
+    gy = rhs(2);
+#else
+    Array2D<Real,0,53,0,9> Amatrix;
+    Array1D<Real,0, 9    > rhs;
+
+    // Order of column -- first 27 are cell centroids, second 27 are EB centroids
+    for (int irow = 0; irow < 54; irow++) {
+        for (int icol = 0; icol < 10; icol++) {
+            Amatrix(irow,icol) =  Real(0.0);
+        }
+    }
+
+    // Columns 0-3: [e x y z]
+    for (int kk = k-1; kk <= k+1; kk++) {
+        for (int jj = j-1; jj <= j+1; jj++) {
+            for (int ii = i-1; ii <= i+1; ii++)
+            {
+                if (!flag(ii,jj,kk).isCovered())
+                {
+                    int a_ind  = (ii-(i-1)) + 3*(jj-(j-1)) + 9*(kk-(k-1));
+
+                    Real x_off = static_cast<Real>(ii-i);
+                    Real y_off = static_cast<Real>(jj-j);
+                    Real z_off = static_cast<Real>(kk-k);
+
+                    Amatrix(a_ind,0) = Real(1.0);
+                    Amatrix(a_ind,1) = x_off + ccent(ii,jj,kk,0) - ccent(i,j,k,0);
+                    Amatrix(a_ind,2) = y_off + ccent(ii,jj,kk,1) - ccent(i,j,k,1);
+                    Amatrix(a_ind,3) = z_off + ccent(ii,jj,kk,2) - ccent(i,j,k,2);
+
+                    const Real dcx_ijk = bcent(ii,jj,kk,0) - ccent(ii,jj,kk,0);
+                    const Real dcy_ijk = bcent(ii,jj,kk,1) - ccent(ii,jj,kk,1);
+                    const Real dcz_ijk = bcent(ii,jj,kk,2) - ccent(ii,jj,kk,2);
+                    const Real dist2_ijk = dcx_ijk*dcx_ijk + dcy_ijk*dcy_ijk + dcz_ijk*dcz_ijk;
+                    const bool use_eb_rows_ijk = (dist2_ijk >= eb_cc_tol*eb_cc_tol);
+                    if (use_eb_rows_ijk && !flag(ii,jj,kk).isRegular())
+                    {
+                        Amatrix(a_ind+27,0) = Real(1.0);
+                        Amatrix(a_ind+27,1) = x_off + bcent(ii,jj,kk,0) - ccent(i,j,k,0);
+                        Amatrix(a_ind+27,2) = y_off + bcent(ii,jj,kk,1) - ccent(i,j,k,1);
+                        Amatrix(a_ind+27,3) = z_off + bcent(ii,jj,kk,2) - ccent(i,j,k,2);
+                    }
+                }
+            }
+        }
+    }
+
+    // Columns 4-9: [x*x  x*y  y*y  x*z  y*z  z*z]
+    for (int irow = 0; irow < 54; irow++)
+    {
+        Amatrix(irow,4) =  Amatrix(irow,1) * Amatrix(irow,1);
+        Amatrix(irow,5) =  Amatrix(irow,1) * Amatrix(irow,2);
+        Amatrix(irow,6) =  Amatrix(irow,2) * Amatrix(irow,2);
+        Amatrix(irow,7) =  Amatrix(irow,1) * Amatrix(irow,3);
+        Amatrix(irow,8) =  Amatrix(irow,2) * Amatrix(irow,3);
+        Amatrix(irow,9) =  Amatrix(irow,3) * Amatrix(irow,3);
+    }
+
+    // Make the RHS = A^T v
+    for (int irow = 0; irow < 10; irow++)
+    {
+        rhs(irow) = Real(0.0);
+
+        for (int kk = k-1; kk <= k+1; kk++) {
+            for (int jj = j-1; jj <= j+1; jj++) {
+                for (int ii = i-1; ii <= i+1; ii++) {
+                    if (!flag(ii,jj,kk).isCovered())
+                    {
+                    int a_ind  = (ii-(i-1)) + 3*(jj-(j-1)) + 9*(kk-(k-1));
+                    rhs(irow) += Amatrix(a_ind,irow) * phi(ii,jj,kk,n);
+                    const Real dcx_ijk = bcent(ii,jj,kk,0) - ccent(ii,jj,kk,0);
+                    const Real dcy_ijk = bcent(ii,jj,kk,1) - ccent(ii,jj,kk,1);
+                    const Real dcz_ijk = bcent(ii,jj,kk,2) - ccent(ii,jj,kk,2);
+                    const Real dist2_ijk = dcx_ijk*dcx_ijk + dcy_ijk*dcy_ijk + dcz_ijk*dcz_ijk;
+                    const bool use_eb_rows_ijk = (dist2_ijk >= eb_cc_tol*eb_cc_tol);
+                    if (use_eb_rows_ijk &&
+                        flag(ii,jj,kk).isSingleValued() && is_eb_inhomog) {
+                        rhs(irow) += Amatrix(a_ind+27,irow) * phieb(ii,jj,kk,n);
+                    }
+                }
+            }
+            }
+        }
+    }
+
+    cholsol_for_eb(Amatrix, rhs);
+
+    gx = rhs(1);
+    gy = rhs(2);
+    gz = rhs(3);
+#endif
+}
+#endif
+
+#ifdef AMREX_USE_EB
+// Default tolerance wrapper (cell units).
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+void incflo_grad_eb_of_phi_on_cellcentroids (int i, int j, int k, int n,
+                    amrex::Array4<amrex::Real const> const& phi,
+                    amrex::Array4<amrex::Real const> const& phieb,
+                    amrex::Array4<amrex::EBCellFlag const> const& flag,
+                    amrex::Array4<amrex::Real const> const& ccent,
+                    amrex::Array4<amrex::Real const> const& bcent,
+                    AMREX_D_DECL(amrex::Real& gx,
+                                 amrex::Real& gy,
+                                 amrex::Real& gz),
+                    bool is_eb_inhomog) noexcept
+{
+    constexpr amrex::Real kDefaultEbCcTol = amrex::Real(1.0e-3);
+    incflo_grad_eb_of_phi_on_cellcentroids(i, j, k, n, phi, phieb, flag,
+                                        ccent, bcent,
+                                        AMREX_D_DECL(gx, gy, gz),
+                                        is_eb_inhomog, kDefaultEbCcTol);
 }
 #endif
 
@@ -697,6 +912,14 @@ amrex::Real incflo_strainrate_eb (int i, int j, int k,
     if (flag.isRegular()) {
         return incflo_strainrate(i,j,k,AMREX_D_DECL(idx,idy,idz),vel, dlo, dhi,
                                 is_periodic);
+    }
+    else if (flag.isSingleValued() && granular_case) {
+        sr = incflo_strainrate_eb_granular(i, j, k,
+                            AMREX_D_DECL(idx, idy, idz),
+                            vel, flag_arr, ccfab_arr,
+                            bcfab_arr,
+                            AMREX_D_DECL(anrmx, anrmy, anrmz));
+        return sr;
     }
     else if (flag.isSingleValued()) {
         constexpr Real c0 = -1.5;
@@ -822,14 +1045,6 @@ amrex::Real incflo_strainrate_eb (int i, int j, int k,
         Real sr = std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
                          + (uy+vx)*(uy+vx));
 #endif
-        if (granular_case) {
-        sr += incflo_strainrate_eb_granular(i, j, k,
-                                            AMREX_D_DECL(idx, idy, idz),
-                                            vel, flag_arr, ccfab_arr,
-                                            bcfab_arr,
-                                            AMREX_D_DECL(anrmx, anrmy, anrmz));
-        sr *= 0.5;
-        }
         return sr;
     }
     else {
