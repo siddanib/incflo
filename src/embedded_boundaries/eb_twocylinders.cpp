@@ -59,9 +59,9 @@ void incflo::make_eb_twocylinders()
     amrex::Print() << "\n Offset:          " << offset << std::endl;
 
     // Build the implicit function as a union of two cylinders
-    EB2::CylinderIF cyl1(radius1, direction1, center1, false);
+    EB2::CylinderIF cyl1(radius1, direction1, center1, true);
     EB2::CylinderIF cyl2(radius2, direction2, center2, false);
-    auto twocylinders = inside ? EB2::makeComplement(EB2::makeUnion(cyl1, cyl2))
+    auto twocylinders = inside ? EB2::makeUnion(cyl1, cyl2)
                                : EB2::makeUnion(cyl1, cyl2);
 
     // Generate GeometryShop

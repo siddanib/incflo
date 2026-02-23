@@ -580,3 +580,46 @@ void incflo::initialize_entire_domain_with_second_fluid (Box const& vbx,
         density(i,j,k)  = rho_2;
     });
 }
+
+void incflo::init_taylor_couette (Box const& vbx,
+                                  Array4<Real> const& velocity,
+                                  GpuArray<Real, AMREX_SPACEDIM> const& dx,
+                                  GpuArray<Real, AMREX_SPACEDIM> const& problo) const
+{
+     if (!m_eb_flow.has_rotation) {
+         amrex::Abort("This probtype needs rotation\n");
+     }
+     Real l_rf_omega = m_eb_flow.omega_mag;
+     GpuArray<Real,3> l_rf_axis{m_eb_flow.omega_unit_vec[0],
+                                m_eb_flow.omega_unit_vec[1],
+                                m_eb_flow.omega_unit_vec[2]};
+
+     GpuArray<Real,3> l_rf_center{m_eb_flow.rotation_center[0],
+                                  m_eb_flow.rotation_center[1],
+                                  m_eb_flow.rotation_center[2]};
+     // Hard-coded values
+     Real l_r1 = 0.30; Real l_r2 = 0.375;
+     Real l_eta = l_r1/l_r2;
+     Real l_A = -l_rf_omega*(l_eta*l_eta/(1.0-l_eta*l_eta));
+     Real l_B = (l_rf_omega*l_r1*l_r1)/(1.0-l_eta*l_eta);
+
+     amrex::ParallelFor(vbx, [=]
+         AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+         {
+           Real l_x = problo[0] + (i+0.5)*dx[0] - l_rf_center[0];
+           Real l_y = problo[1] + (j+0.5)*dx[1] - l_rf_center[1];
+           Real l_z = problo[2] + (k+0.5)*dx[2] - l_rf_center[2];
+           // Get projected radius
+           Real r_x = l_rf_axis[1]*l_z - l_rf_axis[2]*l_y;
+           Real r_y = l_rf_axis[2]*l_x - l_rf_axis[0]*l_z;
+           Real r_z = l_rf_axis[0]*l_y - l_rf_axis[1]*l_x;
+           Real r_mag = std::sqrt(r_x*r_x + r_y*r_y + r_z*r_z);
+
+           if (r_mag > 0.) {
+             Real vel_mag = l_A*r_mag + l_B/r_mag;
+             velocity(i,j,k,0) = (vel_mag/r_mag)*(l_rf_axis[1]*l_z - l_rf_axis[2]*l_y);
+             velocity(i,j,k,1) = (vel_mag/r_mag)*(l_rf_axis[2]*l_x - l_rf_axis[0]*l_z);
+             velocity(i,j,k,2) = (vel_mag/r_mag)*(l_rf_axis[0]*l_y - l_rf_axis[1]*l_x);
+           }
+         });
+}

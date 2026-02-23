@@ -57,6 +57,11 @@ void incflo::MakeEBGeometry()
     amrex::Print() << "\n Building tuscan geometry." << std::endl;
         make_eb_tuscan();
     }
+    else if(geom_type == "parabolic_channel")
+    {
+    amrex::Print() << "\n Building parabolic channel geometry." << std::endl;
+        make_eb_parabolic_channel();
+    }
 #endif
     else if(geom_type == "annulus")
     {

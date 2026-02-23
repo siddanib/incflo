@@ -170,7 +170,7 @@ private:
     // This is for newton iterations
     amrex::Real m_newton_rtol    = amrex::Real(1.0e-11);
     amrex::Real m_newton_atol    = amrex::Real(1.0e-14);
-    amrex::Real m_newton_epsilon = amrex::Real(1.0e-16);
+    amrex::Real m_newton_epsilon = amrex::Real(1.0e-18);
     amrex::Real m_gmres_rtol = amrex::Real(1.0e-11);
     amrex::Real m_gmres_atol = amrex::Real(1.0e-14);
 #endif

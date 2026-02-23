@@ -1088,6 +1088,7 @@ private:
     void make_eb_spherecube ();
     void make_eb_cyl_tuscan ();
     void make_eb_tuscan ();
+    void make_eb_parabolic_channel ();
     void make_eb_chkptfile ();
 #ifdef CSG_EB
     void make_eb_csg (const std::string& csg_file);

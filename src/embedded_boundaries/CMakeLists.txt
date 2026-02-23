@@ -18,6 +18,7 @@ if (INCFLO_DIM EQUAL 3)
       eb_spherecube.cpp
       eb_tuscan.cpp
       eb_twocylinders.cpp
+      eb_parabolic_channel.cpp
       writeEBsurface.cpp)
 endif()
 

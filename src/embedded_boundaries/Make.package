@@ -10,6 +10,7 @@ ifeq ($(DIM), 3)
   CEXE_sources += eb_spherecube.cpp
   CEXE_sources += eb_tuscan.cpp
   CEXE_sources += eb_twocylinders.cpp
+  CEXE_sources += eb_parabolic_channel.cpp
 endif
 CEXE_sources += writeEBsurface.cpp
 
