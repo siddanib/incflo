@@ -620,67 +620,6 @@ amrex::Real incflo_strainrate_nodal (int i, int j, int k,
 }
 
 #ifdef AMREX_USE_EB
-// This only handles singleValued EB cells
-// Currently, this function evaluates strainrate at EB-cut FaceCentroid,
-// BUT uses it at the Cell-Centroid
-AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-amrex::Real incflo_strainrate_eb_granular (int i, int j, int k,
-                    AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
-                    amrex::Array4<amrex::Real const> const& vel_arr,
-                    amrex::Array4<amrex::EBCellFlag const> const& flag_arr,
-                    amrex::Array4<amrex::Real const> const& ccfab_arr,
-                    amrex::Array4<amrex::Real const> const& bcfab_arr,
-                    AMREX_D_DECL(amrex::Real anrmx, amrex::Real anrmy, amrex::Real anrmz)
-                    ) noexcept
-{
-    using namespace amrex;
-    // Create a null vel_eb; as it needs to be zero
-    Array4<Real const> vel_eb_arr;
-
-    // Full gradients at cell centroids using EB-aware least squares.
-    Real ux, uy, vx, vy;
-#if (AMREX_SPACEDIM == 3)
-    Real uz, vz, wx, wy, wz;
-#endif
-
-    incflo_grad_eb_of_phi_on_cellcentroids(i, j, k, 0,
-                                           vel_arr, vel_eb_arr,
-                                           flag_arr, ccfab_arr, bcfab_arr,
-                                           AMREX_D_DECL(ux, uy, uz),
-                                           false);
-    incflo_grad_eb_of_phi_on_cellcentroids(i, j, k, 1,
-                                           vel_arr, vel_eb_arr,
-                                           flag_arr, ccfab_arr, bcfab_arr,
-                                           AMREX_D_DECL(vx, vy, vz),
-                                           false);
-#if (AMREX_SPACEDIM == 3)
-    incflo_grad_eb_of_phi_on_cellcentroids(i, j, k, 2,
-                                           vel_arr, vel_eb_arr,
-                                           flag_arr, ccfab_arr, bcfab_arr,
-                                           AMREX_D_DECL(wx, wy, wz),
-                                           false);
-#endif
-
-    // Scale from cell units to physical units.
-    ux *= idx; uy *= idy;
-    vx *= idx; vy *= idy;
-#if (AMREX_SPACEDIM == 3)
-    uz *= idz; vz *= idz;
-    wx *= idx; wy *= idy; wz *= idz;
-#endif
-
-#if (AMREX_SPACEDIM == 2)
-    return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
-                   + (uy+vx)*(uy+vx));
-#else
-    return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
-                     + amrex::Real(2.0) * wz*wz
-                     + (uy+vx)*(uy+vx) + (vz+wy)*(vz+wy) + (wx+uz)*(wx+uz));
-#endif
-}
-#endif
-
-#ifdef AMREX_USE_EB
 // Least-squares gradient at the cell centroid (ccent) using EB-aware stencil.
 // Returns full gradient components (not projected along the EB normal).
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
@@ -893,6 +832,67 @@ void incflo_grad_eb_of_phi_on_cellcentroids (int i, int j, int k, int n,
 #endif
 
 #ifdef AMREX_USE_EB
+// This only handles singleValued EB cells
+// Currently, this function evaluates strainrate at EB-cut FaceCentroid,
+// BUT uses it at the Cell-Centroid
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real incflo_strainrate_eb_granular (int i, int j, int k,
+                    AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
+                    amrex::Array4<amrex::Real const> const& vel_arr,
+                    amrex::Array4<amrex::EBCellFlag const> const& flag_arr,
+                    amrex::Array4<amrex::Real const> const& ccfab_arr,
+                    amrex::Array4<amrex::Real const> const& bcfab_arr,
+                    AMREX_D_DECL(amrex::Real anrmx, amrex::Real anrmy, amrex::Real anrmz)
+                    ) noexcept
+{
+    using namespace amrex;
+    // Create a null vel_eb; as it needs to be zero
+    Array4<Real const> vel_eb_arr;
+
+    // Full gradients at cell centroids using EB-aware least squares.
+    Real ux, uy, vx, vy;
+#if (AMREX_SPACEDIM == 3)
+    Real uz, vz, wx, wy, wz;
+#endif
+
+    incflo_grad_eb_of_phi_on_cellcentroids(i, j, k, 0,
+                                           vel_arr, vel_eb_arr,
+                                           flag_arr, ccfab_arr, bcfab_arr,
+                                           AMREX_D_DECL(ux, uy, uz),
+                                           false);
+    incflo_grad_eb_of_phi_on_cellcentroids(i, j, k, 1,
+                                           vel_arr, vel_eb_arr,
+                                           flag_arr, ccfab_arr, bcfab_arr,
+                                           AMREX_D_DECL(vx, vy, vz),
+                                           false);
+#if (AMREX_SPACEDIM == 3)
+    incflo_grad_eb_of_phi_on_cellcentroids(i, j, k, 2,
+                                           vel_arr, vel_eb_arr,
+                                           flag_arr, ccfab_arr, bcfab_arr,
+                                           AMREX_D_DECL(wx, wy, wz),
+                                           false);
+#endif
+
+    // Scale from cell units to physical units.
+    ux *= idx; uy *= idy;
+    vx *= idx; vy *= idy;
+#if (AMREX_SPACEDIM == 3)
+    uz *= idz; vz *= idz;
+    wx *= idx; wy *= idy; wz *= idz;
+#endif
+
+#if (AMREX_SPACEDIM == 2)
+    return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
+                   + (uy+vx)*(uy+vx));
+#else
+    return std::sqrt(amrex::Real(2.0) * ux*ux + amrex::Real(2.0) * vy*vy
+                     + amrex::Real(2.0) * wz*wz
+                     + (uy+vx)*(uy+vx) + (vz+wy)*(vz+wy) + (wx+uz)*(wx+uz));
+#endif
+}
+#endif
+
+#ifdef AMREX_USE_EB
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real incflo_strainrate_eb (int i, int j, int k,
                     AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
@@ -914,7 +914,7 @@ amrex::Real incflo_strainrate_eb (int i, int j, int k,
                                 is_periodic);
     }
     else if (flag.isSingleValued() && granular_case) {
-        sr = incflo_strainrate_eb_granular(i, j, k,
+        Real sr = incflo_strainrate_eb_granular(i, j, k,
                             AMREX_D_DECL(idx, idy, idz),
                             vel, flag_arr, ccfab_arr,
                             bcfab_arr,
