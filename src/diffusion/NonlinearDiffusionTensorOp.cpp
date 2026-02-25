@@ -668,7 +668,6 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
         Real alpha  = m_newton_update_alpha;
         Real beta;
         for (int iter=1; iter <= m_newton_update_max_iter; ++iter) {
-            norm_old = norm_new;
             lambda *= Real(1.0) - alpha;
             beta = Real(-1.0)*lambda/(Real(1.0)-alpha);
             // Remove portion of the incremental velocity without ghost and covered cells
