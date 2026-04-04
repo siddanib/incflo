@@ -67,27 +67,9 @@ incflo::incflo_correct_small_cells (Vector<MultiFab*      > const& vel_in,
                                     Real w_avg = (apz_fab(i,j,k) * wmac_fab(i,j,k) + apz_fab(i,j,k+1) * wmac_fab(i,j,k+1))
                                                / (apz_fab(i,j,k) + apz_fab(i,j,k+1)););
 
-                       AMREX_D_TERM(
-                         Real u_old = ccvel_fab(i,j,k,0);
-                         Real u_lo = amrex::min(u_avg, 0.0_rt);
-                         Real u_hi = amrex::max(u_avg, 0.0_rt);
-                         if (u_old < u_lo || u_old > u_hi) {
-                             ccvel_fab(i,j,k,0) = amrex::Clamp(u_old, u_lo, u_hi);
-                         }
-                         ,
-                         Real v_old = ccvel_fab(i,j,k,1);
-                         Real v_lo = amrex::min(v_avg, 0.0_rt);
-                         Real v_hi = amrex::max(v_avg, 0.0_rt);
-                         if (v_old < v_lo || v_old > v_hi) {
-                             ccvel_fab(i,j,k,1) = amrex::Clamp(v_old, v_lo, v_hi);
-                         }
-                         ,
-                         Real w_old = ccvel_fab(i,j,k,2);
-                         Real w_lo = amrex::min(w_avg, 0.0_rt);
-                         Real w_hi = amrex::max(w_avg, 0.0_rt);
-                         if (w_old < w_lo || w_old > w_hi) {
-                             ccvel_fab(i,j,k,2) = amrex::Clamp(w_old, w_lo, w_hi);
-                         });
+                       AMREX_D_TERM(ccvel_fab(i,j,k,0) = u_avg;,
+                                    ccvel_fab(i,j,k,1) = v_avg;,
+                                    ccvel_fab(i,j,k,2) = w_avg;);
 
                     }
                 });
