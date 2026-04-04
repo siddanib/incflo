@@ -138,6 +138,7 @@ void incflo::ReadParameters ()
         if (m_nodal_vel_eta) {
             amrex::Print() << "Leveraging Node-based vel_eta" << std::endl;
         }
+        pp.query("eb_ccvel_repair_vfrac", m_eb_ccvel_repair_vfrac);
 
         // Initial conditions
         pp.query("probtype", m_probtype);

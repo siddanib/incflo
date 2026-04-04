@@ -514,6 +514,7 @@ private:
     int m_refine_particles = 1;
     int m_refine_cutcells = 1;
     int m_regrid_int = -1;
+    amrex::Real m_eb_ccvel_repair_vfrac = amrex::Real(1.0e-4);
 
     // ***************************************************************
     // MAC projection
