@@ -752,13 +752,21 @@ incflo::compute_granular_high_order_divtau_on_level (int ilev,
 #ifdef AMREX_USE_EB
     if (!EBFactory(0).isAllRegular())
     {
+        MultiFab divtau_regfaces(a_divtau.boxArray(), a_divtau.DistributionMap(),
+                                 AMREX_SPACEDIM, a_divtau.nGrow(), MFInfo(),
+                                 a_divtau.Factory());
+        divtau_regfaces.setVal(Real(0.));
         // This sums over faces that align with (x,y,z)
-        amrex::EB_computeDivergence(a_divtau,
+        amrex::EB_computeDivergence(divtau_regfaces,
                     amrex::GetArrOfConstPtrs(fluxes),
                     lev_geom, already_on_centroids);
         // Include EB-Flux into divergence
         MultiFab flux_eb(gradVel_EB->boxArray(),gradVel_EB->DistributionMap(),
                          AMREX_SPACEDIM, 0);
+        MultiFab divtau_ebfaces(a_divtau.boxArray(), a_divtau.DistributionMap(),
+                                AMREX_SPACEDIM, a_divtau.nGrow(), MFInfo(),
+                                a_divtau.Factory());
+        divtau_ebfaces.setVal(Real(0.));
         compute_granular_high_order_fluxes_on_level(&flux_eb, gradVel_EB,
                                                     &scndOrderCoeff);
         AMREX_D_TERM(Real dx = lev_geom.CellSize(0);,
@@ -770,6 +778,7 @@ incflo::compute_granular_high_order_divtau_on_level (int ilev,
         MultiFab    const& vfrac = factory.getVolFrac();
         MultiCutFab const& bnorm = factory.getBndryNormal();
         MultiCutFab const& barea = factory.getBndryArea();
+        const Real ho_vfrac_threshold = m_eb_ho_vfrac_threshold;
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -784,10 +793,17 @@ incflo::compute_granular_high_order_divtau_on_level (int ilev,
                 Array4<Real const> const& barea_arr  = barea.const_array(mfi);
                 Array4<Real const> const& vfrac_arr  = vfrac.const_array(mfi);
                 Array4<Real const> const& fluxeb_arr = flux_eb.const_array(mfi);
-                Array4<Real      > const& divtau_arr = a_divtau.array(mfi);
+                Array4<Real      > const& divtau_reg_arr = divtau_regfaces.array(mfi);
+                Array4<Real      > const& divtau_eb_arr  = divtau_ebfaces.array(mfi);
                 ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                 {
                     if (flag_arr(i,j,k).isSingleValued()) {
+                        if (vfrac_arr(i,j,k) <= ho_vfrac_threshold) {
+                            AMREX_D_TERM(divtau_reg_arr(i,j,k,0) = Real(0.0);,
+                                         divtau_reg_arr(i,j,k,1) = Real(0.0);,
+                                         divtau_reg_arr(i,j,k,2) = Real(0.0););
+                            return;
+                        }
                         // Normal points outward
                         AMREX_D_TERM(Real anrmx = bnrm_arr(i,j,k,0);,
                                      Real anrmy = bnrm_arr(i,j,k,1);,
@@ -801,13 +817,15 @@ incflo::compute_granular_high_order_divtau_on_level (int ilev,
 #endif
                         eb_farea = std::sqrt(eb_farea)*barea_arr(i,j,k);
                         AMREX_D_TERM(
-                          divtau_arr(i,j,k,0) += inv_eb_vol*eb_farea*fluxeb_arr(i,j,k,0);,
-                          divtau_arr(i,j,k,1) += inv_eb_vol*eb_farea*fluxeb_arr(i,j,k,1);,
-                          divtau_arr(i,j,k,2) += inv_eb_vol*eb_farea*fluxeb_arr(i,j,k,2););
+                          divtau_eb_arr(i,j,k,0) += inv_eb_vol*eb_farea*fluxeb_arr(i,j,k,0);,
+                          divtau_eb_arr(i,j,k,1) += inv_eb_vol*eb_farea*fluxeb_arr(i,j,k,1);,
+                          divtau_eb_arr(i,j,k,2) += inv_eb_vol*eb_farea*fluxeb_arr(i,j,k,2););
                     }
                 });
             }
         }
+        MultiFab::Copy(a_divtau, divtau_regfaces, 0, 0, AMREX_SPACEDIM, a_divtau.nGrow());
+        MultiFab::Add(a_divtau, divtau_ebfaces, 0, 0, AMREX_SPACEDIM, a_divtau.nGrow());
     }
     else
 #endif

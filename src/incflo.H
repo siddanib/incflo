@@ -673,6 +673,7 @@ private:
 #ifdef AMREX_USE_EB
     bool m_eb_smooth_cutcell_viscosity = false;
     amrex::Real m_eb_smooth_cutcell_viscosity_blend = amrex::Real(0.5);
+    amrex::Real m_eb_ho_vfrac_threshold = amrex::Real(0.0);
 #endif
     // Adding properties for a second fluid
     bool m_two_fluid = false;

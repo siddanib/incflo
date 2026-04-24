@@ -15,6 +15,9 @@ void incflo::ReadRheologyParameters()
      pp.query("eb_smooth_cutcell_viscosity_blend", m_eb_smooth_cutcell_viscosity_blend);
      m_eb_smooth_cutcell_viscosity_blend =
          amrex::Clamp(m_eb_smooth_cutcell_viscosity_blend, amrex::Real(0.0), amrex::Real(1.0));
+     pp.query("eb_ho_vfrac_threshold", m_eb_ho_vfrac_threshold);
+     m_eb_ho_vfrac_threshold =
+         amrex::Clamp(m_eb_ho_vfrac_threshold, amrex::Real(0.0), amrex::Real(1.0));
 #endif
 
      if(fluid_model_s == "newtonian")
@@ -112,6 +115,10 @@ void incflo::ReadRheologyParameters()
      if (m_eb_smooth_cutcell_viscosity) {
          amrex::Print() << "EB cut-cell viscosity smoothing enabled with blend = "
                         << m_eb_smooth_cutcell_viscosity_blend << std::endl;
+     }
+     if (m_eb_ho_vfrac_threshold > amrex::Real(0.0)) {
+         amrex::Print() << "EB high-order rheology vfrac threshold = "
+                        << m_eb_ho_vfrac_threshold << std::endl;
      }
 #endif
 
