@@ -142,6 +142,9 @@ private:
                              m_conc_second,
                              m_p_static,
                              m_newton_iter_vel,
+                             // Frozen copy of the velocity passed into diffuse_velocity;
+                             // not updated during Newton iterations.
+                             m_old_iter_vel,
                              m_newton_iter_func;
     // This will be set at the beginning of diffuse_velocity
     amrex::Real m_dt;
@@ -149,6 +152,7 @@ private:
     int m_nghost_eta     = 1;
     int m_nghost_vel     = 1;
     bool m_use_eta_from_prev_time = true;
+    bool m_use_ho_coeff_from_prev_time = false;
     // DiffusionOp verbosity
     int m_verbose = 1;
     // Options to control GMRES behavior

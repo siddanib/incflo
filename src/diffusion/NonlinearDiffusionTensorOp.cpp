@@ -111,6 +111,7 @@ void NonlinearDiffusionTensorOp::readParameters ()
     pp.query("newton_update_alpha", m_newton_update_alpha);
     pp.query("newton_update_max_iter", m_newton_update_max_iter);
     pp.query("use_eta_from_prev_time", m_use_eta_from_prev_time);
+    pp.query("use_ho_coeff_from_prev_time", m_use_ho_coeff_from_prev_time);
 
     pp.query("gmres_verbose", m_gmres_verbose);
     pp.query("gmres_max_iter", m_gmres_max_iter);
@@ -367,6 +368,9 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
                        Vector<MultiFab*> const& nonlin_func,
                        Vector<MultiFab const*> const& velocity)
 {
+    auto const& ho_coeff_velocity = m_use_ho_coeff_from_prev_time
+        ? GetVecOfConstPtrs(m_old_iter_vel)
+        : GetVecOfConstPtrs(m_newton_iter_vel);
     int numcomp = nonlin_func[0]->nComp();
     compute_linear_part_of_divtau(nonlin_func, velocity,
                                   GetVecOfConstPtrs(m_density),
@@ -376,7 +380,7 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
                                   GetVecOfConstPtrs(m_density),
                                   GetVecOfConstPtrs(m_conc_second),
                                   GetVecOfConstPtrs(m_p_static),
-                                  GetVecOfConstPtrs(m_newton_iter_vel));
+                                  ho_coeff_velocity);
     // First multiply divtau with (-dt)
     scale(nonlin_func, Real(-1.0)*m_dt);
     increment(nonlin_func, GetVecOfConstPtrs(m_rhs_n), Real(-1.0));
@@ -549,6 +553,7 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
         m_p_static.resize(nlevels);
     }
     m_newton_iter_vel.resize(nlevels);
+    m_old_iter_vel.resize(nlevels);
     m_newton_iter_func.resize(nlevels);
     for (int ilev = lev_start; ilev < nlevels; ++ilev) {
         m_rhs_n[ilev] = std::make_unique<MultiFab>(a_vel[ilev]->boxArray(),
@@ -587,6 +592,12 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
                                         AMREX_SPACEDIM, m_nghost_vel,
                                         MFInfo(),a_vel[ilev]->Factory());
 
+        m_old_iter_vel[ilev] = std::make_unique<MultiFab>(
+                                        a_vel[ilev]->boxArray(),
+                                        a_vel[ilev]->DistributionMap(),
+                                        AMREX_SPACEDIM, m_nghost_vel,
+                                        MFInfo(),a_vel[ilev]->Factory());
+
         m_newton_iter_func[ilev] = std::make_unique<MultiFab>(
                                         a_vel[ilev]->boxArray(),
                                         a_vel[ilev]->DistributionMap(),
@@ -602,6 +613,11 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
                        0,0,1,m_nghost_eta);
 
         MultiFab::Copy(*m_newton_iter_vel[ilev],*a_vel[ilev],
+                       0,0,AMREX_SPACEDIM,m_nghost_vel);
+
+        // Store the initial velocity passed into diffuse_velocity.
+        // This stays fixed for the full Newton solve when requested.
+        MultiFab::Copy(*m_old_iter_vel[ilev],*a_vel[ilev],
                        0,0,AMREX_SPACEDIM,m_nghost_vel);
 
         MultiFab::Copy(*m_rhs_n[ilev],*a_vel[ilev],
