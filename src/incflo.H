@@ -400,6 +400,9 @@ public:
     void compute_granular_high_order_fluxes_on_level (amrex::MultiFab* flux_eb,
                                                       const amrex::MultiFab* gradVel_EB,
                                                       const amrex::MultiFab* scndOrderCoeff);
+    void smooth_eb_cell_centered_coeff (int lev,
+                                        amrex::MultiFab& mf,
+                                        amrex::Geometry& lev_geom);
 #endif
     void compute_second_order_coeff (int lev,
                                      amrex::MultiFab& scnd_coeff,
@@ -667,6 +670,10 @@ private:
     amrex::Real m_eta_0 = 0.0;
     amrex::Real m_eta_min = amrex::Real(0.0);
     amrex::Real m_eta_max = amrex::Real(1.0e+20);
+#ifdef AMREX_USE_EB
+    bool m_eb_smooth_cutcell_viscosity = false;
+    amrex::Real m_eb_smooth_cutcell_viscosity_blend = amrex::Real(0.5);
+#endif
     // Adding properties for a second fluid
     bool m_two_fluid = false;
     bool m_two_fluid_rho_harmonic = true;

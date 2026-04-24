@@ -10,6 +10,12 @@ void incflo::ReadRheologyParameters()
      pp.query("fluid_model", fluid_model_s);
      pp.query("min_eta", m_eta_min);
      pp.query("max_eta", m_eta_max);
+#ifdef AMREX_USE_EB
+     pp.query("eb_smooth_cutcell_viscosity", m_eb_smooth_cutcell_viscosity);
+     pp.query("eb_smooth_cutcell_viscosity_blend", m_eb_smooth_cutcell_viscosity_blend);
+     m_eb_smooth_cutcell_viscosity_blend =
+         amrex::Clamp(m_eb_smooth_cutcell_viscosity_blend, amrex::Real(0.0), amrex::Real(1.0));
+#endif
 
      if(fluid_model_s == "newtonian")
      {
@@ -102,6 +108,12 @@ void incflo::ReadRheologyParameters()
          amrex::Print() << "Clamps for the fluid eta are = [ " << m_eta_min
              <<" , " << m_eta_max << " ]" << std::endl;
      }
+#ifdef AMREX_USE_EB
+     if (m_eb_smooth_cutcell_viscosity) {
+         amrex::Print() << "EB cut-cell viscosity smoothing enabled with blend = "
+                        << m_eb_smooth_cutcell_viscosity_blend << std::endl;
+     }
+#endif
 
      if (m_two_fluid) {
         amrex::ParmParse pp_scnd("incflo.second_fluid");

@@ -245,6 +245,9 @@ void incflo::compute_viscosity_at_level (int lev,
          }
        }
     }
+#ifdef AMREX_USE_EB
+    smooth_eb_cell_centered_coeff(lev, *vel_eta, lev_geom);
+#endif
 }
 
 void incflo::compute_second_fluid_viscosity_at_level (int lev,
@@ -585,6 +588,138 @@ void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
       });
   }
 }
+
+#ifdef AMREX_USE_EB
+void incflo::smooth_eb_cell_centered_coeff (int lev,
+                                            MultiFab& mf,
+                                            Geometry& lev_geom)
+{
+    if (!m_eb_smooth_cutcell_viscosity || EBFactory(lev).isAllRegular()) {
+        return;
+    }
+
+    if (mf.nGrow() > 0) {
+        mf.FillBoundary(lev_geom.periodicity());
+    }
+
+    MultiFab mf_smooth(mf.boxArray(), mf.DistributionMap(), mf.nComp(), mf.nGrow(),
+                       MFInfo(), mf.Factory());
+    MultiFab::Copy(mf_smooth, mf, 0, 0, mf.nComp(), mf.nGrow());
+
+    const auto& fact = EBFactory(lev);
+    auto const& flags = fact.getMultiEBCellFlagFab();
+    const Dim3 dlo = amrex::lbound(lev_geom.Domain());
+    const Dim3 dhi = amrex::ubound(lev_geom.Domain());
+    GpuArray<bool, AMREX_SPACEDIM> is_periodic;
+    AMREX_D_TERM(is_periodic[0] = lev_geom.isPeriodic(0);,
+                 is_periodic[1] = lev_geom.isPeriodic(1);,
+                 is_periodic[2] = lev_geom.isPeriodic(2););
+    const Real blend = m_eb_smooth_cutcell_viscosity_blend;
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        Box const& bx = mfi.tilebox();
+        auto const& flag_fab = flags[mfi];
+        auto typ = flag_fab.getType(bx);
+        if (typ != FabType::singlevalued) {
+            continue;
+        }
+
+        auto const& flag_arr = flag_fab.const_array();
+        const Dim3 flo = amrex::lbound(flag_fab.box());
+        const Dim3 fhi = amrex::ubound(flag_fab.box());
+        Array4<Real const> const& src_arr = mf.const_array(mfi);
+        Array4<Real> const& dst_arr = mf_smooth.array(mfi);
+        const int ncomp = mf.nComp();
+
+        ParallelFor(bx, ncomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
+        {
+            if (!flag_arr(i,j,k).isSingleValued()) {
+                return;
+            }
+
+            Real regular_sum = Real(0.0);
+            Real valid_sum = Real(0.0);
+            int regular_count = 0;
+            int valid_count = 0;
+
+#if (AMREX_SPACEDIM == 2)
+            for (int jj = -1; jj <= 1; ++jj) {
+                for (int ii = -1; ii <= 1; ++ii) {
+                    if (ii == 0 && jj == 0) { continue; }
+                    int ni = i + ii;
+                    int nj = j + jj;
+                    int nk = k;
+                    if ((!is_periodic[0] && (ni < dlo.x || ni > dhi.x)) ||
+                        (!is_periodic[1] && (nj < dlo.y || nj > dhi.y)) ||
+                        ni < flo.x || ni > fhi.x ||
+                        nj < flo.y || nj > fhi.y) {
+                        continue;
+                    }
+                    auto nflag = flag_arr(ni,nj,nk);
+                    if (nflag.isCovered()) {
+                        continue;
+                    }
+                    Real nval = src_arr(ni,nj,nk,n);
+                    valid_sum += nval;
+                    ++valid_count;
+                    if (nflag.isRegular()) {
+                        regular_sum += nval;
+                        ++regular_count;
+                    }
+                }
+            }
+#else
+            for (int kk = -1; kk <= 1; ++kk) {
+                for (int jj = -1; jj <= 1; ++jj) {
+                    for (int ii = -1; ii <= 1; ++ii) {
+                        if (ii == 0 && jj == 0 && kk == 0) { continue; }
+                        int ni = i + ii;
+                        int nj = j + jj;
+                        int nk = k + kk;
+                        if ((!is_periodic[0] && (ni < dlo.x || ni > dhi.x)) ||
+                            (!is_periodic[1] && (nj < dlo.y || nj > dhi.y)) ||
+                            (!is_periodic[2] && (nk < dlo.z || nk > dhi.z)) ||
+                            ni < flo.x || ni > fhi.x ||
+                            nj < flo.y || nj > fhi.y ||
+                            nk < flo.z || nk > fhi.z) {
+                            continue;
+                        }
+                        auto nflag = flag_arr(ni,nj,nk);
+                        if (nflag.isCovered()) {
+                            continue;
+                        }
+                        Real nval = src_arr(ni,nj,nk,n);
+                        valid_sum += nval;
+                        ++valid_count;
+                        if (nflag.isRegular()) {
+                            regular_sum += nval;
+                            ++regular_count;
+                        }
+                    }
+                }
+            }
+#endif
+
+            if (regular_count > 0) {
+                Real avg = regular_sum / Real(regular_count);
+                dst_arr(i,j,k,n) = (Real(1.0)-blend)*src_arr(i,j,k,n) + blend*avg;
+            } else if (valid_count > 0) {
+                Real avg = valid_sum / Real(valid_count);
+                dst_arr(i,j,k,n) = (Real(1.0)-blend)*src_arr(i,j,k,n) + blend*avg;
+            }
+        });
+    }
+
+    MultiFab::Copy(mf, mf_smooth, 0, 0, mf.nComp(), mf.nGrow());
+    if (mf.nGrow() > 0) {
+        mf.FillBoundary(lev_geom.periodicity());
+    }
+}
+#endif
 
 void
 incflo::compute_granular_high_order_divtau_on_level (int ilev,
@@ -968,6 +1103,9 @@ void incflo::compute_second_order_coeff (int lev, MultiFab& scnd_coeff,
     if (scnd_coeff.nGrow() > 0) {
         scnd_coeff.FillBoundary(lev_geom.periodicity());
     }
+#ifdef AMREX_USE_EB
+    smooth_eb_cell_centered_coeff(lev, scnd_coeff, lev_geom);
+#endif
 }
 // Adding these high-order effects only in regions
 // with Inertial number greater than Neutral Inertial Number
