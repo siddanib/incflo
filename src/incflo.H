@@ -692,6 +692,8 @@ private:
     amrex::Real m_eta_0_second = 0.0;
     amrex::Real m_eta_min_second = amrex::Real(0.);
     amrex::Real m_eta_max_second = amrex::Real(1.0e+20);
+    amrex::Real m_eta_ho_min_second = amrex::Real(0.);
+    amrex::Real m_eta_ho_max_second = amrex::Real(1.0e+20);
     amrex::Real m_diam_second = amrex::Real(0.);
     amrex::Real m_min_conc_second = amrex::Real(0.); // Used to limit expensive particle-sims
     // These are specifically for Rauter_2021

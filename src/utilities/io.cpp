@@ -434,6 +434,9 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
             // hydrostatic pressure
             ++ncomp;
         }
+        else if (vars[n] == "eta_ho") {
+            ++ncomp;
+        }
         else { ncomp++; }
     }
 
@@ -854,6 +857,37 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
                 }
             }
             pltscaVarsName.push_back("mu_I");
+            ++icomp;
+        }
+        else if (vars[n] == "eta_ho") {
+            if (m_nodal_vel_eta) {
+                amrex::Abort("incflo::WritePlotfileVariables : plotfile variable 'eta_ho' requires cell-centered viscosity");
+            }
+            if (m_fluid_model_second != FluidModel::GranularPowerlaw || m_mu_powerlaw.size() <= 1) {
+                amrex::Abort("incflo::WritePlotfileVariables : plotfile variable 'eta_ho' requires granularpowerlaw second-fluid high-order coefficients");
+            }
+            for (int lev = 0; lev <= finest_level; ++lev) {
+                MultiFab conc_second(mf[lev].boxArray(),
+                                     mf[lev].DistributionMap(), 1, 0);
+                MultiFab p_static(mf[lev].boxArray(),
+                                  mf[lev].DistributionMap(), 1, 0);
+                MultiFab eta_ho(mf[lev], amrex::make_alias, icomp, 1);
+
+                compute_cc_second_fluid_conc(&conc_second,
+                                             &m_leveldata[lev]->density,
+                                             0);
+                compute_cc_hydrostatic_pressure_at_level(lev, &p_static,
+                                                         &m_leveldata[lev]->density,
+                                                         m_mu_p_surf_second,
+                                                         Geom(lev), 0);
+                compute_second_order_coeff(lev, eta_ho,
+                                           m_leveldata[lev]->velocity,
+                                           m_leveldata[lev]->density,
+                                           conc_second,
+                                           p_static,
+                                           Geom(lev));
+            }
+            pltscaVarsName.push_back("eta_ho");
             ++icomp;
         }
         else if (vars[n]=="hydrostatic_p") {

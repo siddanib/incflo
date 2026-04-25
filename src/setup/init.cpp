@@ -407,6 +407,10 @@ void incflo::ReadIOParameters()
         Warning("amr.plt_* is depreciated. Please use amr.plotVariables");
         update_plotVars("mu_I",plt_var);
     }
+    if ( pp.query("plt_eta_ho",plt_var ) ) {
+        Warning("amr.plt_* is depreciated. Please use amr.plotVariables");
+        update_plotVars("eta_ho",plt_var);
+    }
 
 #ifdef INCFLO_USE_PARTICLES
     if ( pp.query("plt_particle_count", plt_var ) ) {

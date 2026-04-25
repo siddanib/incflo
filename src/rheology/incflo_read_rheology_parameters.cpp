@@ -241,6 +241,10 @@ void incflo::ReadRheologyParameters()
             pp_scnd.gettable("coeff_table", m_mu_powerlaw);
             // This is to get the lowe neutral inertial number
             pp_scnd.query("low_neutral_I", m_I_1_N_powerlaw);
+            pp_scnd.query("mu_p_eps_second",m_mu_p_eps_second);
+            pp_scnd.query("mu_sr_eps_second",m_mu_sr_eps_second);
+            pp_scnd.query("min_eta_ho", m_eta_ho_min_second);
+            pp_scnd.query("max_eta_ho", m_eta_ho_max_second);
             amrex::Print() << "Using mu(I) based on Granular Powerlaw"<<std::endl;
         }
         else
@@ -250,6 +254,11 @@ void incflo::ReadRheologyParameters()
         if (fluid_model_s_snd != "newtonian") {
             amrex::Print() << "Clamps for the fluid eta are = [ " << m_eta_min_second
                 <<" , " << m_eta_max_second << " ]" << std::endl;
+        }
+        if (fluid_model_s_snd == "granularpowerlaw" && m_mu_powerlaw.size() > 1) {
+            amrex::Print() << "Clamps for the high-order fluid eta are = [ "
+                           << m_eta_ho_min_second << " , "
+                           << m_eta_ho_max_second << " ]" << std::endl;
         }
      }
 }

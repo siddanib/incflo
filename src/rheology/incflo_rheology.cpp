@@ -1,5 +1,6 @@
 #include <incflo.H>
 #include <incflo_derive_K.H>
+#include <cmath>
 
 using namespace amrex;
 
@@ -642,9 +643,11 @@ void incflo::smooth_eb_cell_centered_coeff (int lev,
             }
 
             Real regular_sum = Real(0.0);
-            Real valid_sum = Real(0.0);
             int regular_count = 0;
-            int valid_count = 0;
+            const Real eta_min = m_eta_min;
+            const Real eta_max = m_eta_max;
+            const Real src_val = src_arr(i,j,k,n);
+            const bool src_ok = amrex::isfinite(src_val);
 
 #if (AMREX_SPACEDIM == 2)
             for (int jj = -1; jj <= 1; ++jj) {
@@ -664,9 +667,9 @@ void incflo::smooth_eb_cell_centered_coeff (int lev,
                         continue;
                     }
                     Real nval = src_arr(ni,nj,nk,n);
-                    valid_sum += nval;
-                    ++valid_count;
-                    if (nflag.isRegular()) {
+                    if (nflag.isRegular() &&
+                        amrex::isfinite(nval) &&
+                        nval >= eta_min && nval <= eta_max) {
                         regular_sum += nval;
                         ++regular_count;
                     }
@@ -693,9 +696,9 @@ void incflo::smooth_eb_cell_centered_coeff (int lev,
                             continue;
                         }
                         Real nval = src_arr(ni,nj,nk,n);
-                        valid_sum += nval;
-                        ++valid_count;
-                        if (nflag.isRegular()) {
+                        if (nflag.isRegular() &&
+                            amrex::isfinite(nval) &&
+                            nval >= eta_min && nval <= eta_max) {
                             regular_sum += nval;
                             ++regular_count;
                         }
@@ -704,12 +707,10 @@ void incflo::smooth_eb_cell_centered_coeff (int lev,
             }
 #endif
 
-            if (regular_count > 0) {
+            if (src_ok && regular_count > 0) {
                 Real avg = regular_sum / Real(regular_count);
-                dst_arr(i,j,k,n) = (Real(1.0)-blend)*src_arr(i,j,k,n) + blend*avg;
-            } else if (valid_count > 0) {
-                Real avg = valid_sum / Real(valid_count);
-                dst_arr(i,j,k,n) = (Real(1.0)-blend)*src_arr(i,j,k,n) + blend*avg;
+                Real blended = (Real(1.0)-blend)*src_val + blend*avg;
+                dst_arr(i,j,k,n) = amrex::Clamp(blended, eta_min, eta_max);
             }
         });
     }
@@ -1124,6 +1125,23 @@ void incflo::compute_second_order_coeff (int lev, MultiFab& scnd_coeff,
 #ifdef AMREX_USE_EB
     smooth_eb_cell_centered_coeff(lev, scnd_coeff, lev_geom);
 #endif
+    // Clamp the high-order granular coefficient with its own limiter range.
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(scnd_coeff,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        Box const& bx = mfi.growntilebox(scnd_coeff.nGrow());
+        Array4<Real> const& scnd_coeff_arr = scnd_coeff.array(mfi);
+        const Real eta_ho_min_scnd = m_eta_ho_min_second;
+        const Real eta_ho_max_scnd = m_eta_ho_max_second;
+        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+            scnd_coeff_arr(i,j,k) = amrex::Clamp(scnd_coeff_arr(i,j,k),
+                                                 eta_ho_min_scnd,
+                                                 eta_ho_max_scnd);
+        });
+    }
 }
 // Adding these high-order effects only in regions
 // with Inertial number greater than Neutral Inertial Number
