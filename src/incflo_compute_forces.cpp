@@ -33,6 +33,7 @@ void incflo::compute_tem_forces (Real time, Vector<MultiFab*> const& tem_forces)
     auto vel_old = get_velocity_old_const();
     auto rho_old = get_density_old_const();
     auto tem_old = get_temperature_old_const();
+    auto tra_old = get_tracer_old_const();
 
     for (int lev = 0; lev <= finest_level; ++lev) {
         auto const& ba = tem_forces[lev]->boxArray();
@@ -59,6 +60,7 @@ void incflo::compute_tem_forces (Real time, Vector<MultiFab*> const& tem_forces)
             Array4<Real> const& tem_f = tem_forces[lev]->array(mfi);
             Array4<Real const> const& inrt_num = inertial_num.const_array(mfi);
             Array4<Real const> const& temp_old = tem_old[lev]->const_array(mfi);
+            Array4<Real const> const& trac_old = tra_old[lev]->const_array(mfi);
             const Real coll_dissp = m_gran_temp_collisional_dissipation;
             const Real fluc_prod = m_gran_temp_local_fluctuation_production;
 
@@ -67,8 +69,9 @@ void incflo::compute_tem_forces (Real time, Vector<MultiFab*> const& tem_forces)
             {
                 // Granular temperature forcing is modeled as a function of
                 // old-state inertial number and old-state temperature.
-                tem_f(i,j,k) = fluc_prod * inrt_num(i,j,k)
-                               - coll_dissp* temp_old(i,j,k);
+                tem_f(i,j,k) = trac_old(i,j,k,0) *
+                               (fluc_prod * inrt_num(i,j,k)
+                                - coll_dissp * temp_old(i,j,k));
             });
         }
     }

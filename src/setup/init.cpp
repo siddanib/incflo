@@ -194,6 +194,9 @@ void incflo::ReadParameters ()
             // Temperature is used as Granular Temperature
             amrex::Abort("use_temperature also needs to be true");
         }
+        if (m_use_granular_temperature && (!m_two_fluid)) {
+            amrex::Abort("use_granular_temperature needs to be used with two_fluid");
+        }    
 
     } // end prefix incflo
 
