@@ -149,6 +149,7 @@ void incflo::ReadParameters ()
         if ( !pp.queryarr("ic_t", m_ic_t, 0, m_ntrac) ) {
             m_ic_t.resize(m_ntrac, 0.);
         }
+        pp.query("ic_tem", m_ic_tem);
 
         // Viscosity (if constant)
         pp.query("mu", m_mu);
@@ -171,6 +172,22 @@ void incflo::ReadParameters ()
         for (int i = 0; i < m_ntrac; i++) {
             amrex::Print() << "Tracer diffusion coeff: " << i << ":" << m_mu_s[i] << std::endl;
         }
+
+        pp.query("use_temperature", m_use_temperature);
+        // Checks for things not yet implemented/checked
+        if (m_use_temperature && m_advection_type == "MOL") {
+            // temperature equation not added to the corrector
+            amrex::Abort("Temperature equation not yet implemented with MOL option");
+        }
+#ifdef AMREX_USE_EB
+        std::string geom_type = "all_regular";
+        pp.query("geometry", geom_type);
+#endif
+
+        // Thermal diffusivity (if constant)
+        pp.query("mu_T", m_mu_T);
+        pp.query("cp", m_cp);
+
     } // end prefix incflo
 
     ReadIOParameters();
@@ -196,8 +213,14 @@ void incflo::ReadParameters ()
 
        pp_eb_flow.query("density", m_eb_flow.density);
 
-       m_eb_flow.tracer.resize(m_ntrac, 0.0);
-       pp_eb_flow.queryarr("tracer", m_eb_flow.tracer, 0, m_ntrac);
+       if (m_advect_tracer) {
+           m_eb_flow.tracer.resize(m_ntrac, 0.0);
+           pp_eb_flow.queryarr("tracer", m_eb_flow.tracer);
+       }
+
+       if (m_use_temperature) {
+           pp_eb_flow.queryarr("temperature", m_eb_flow.temperature);
+       }
 
        if (pp_eb_flow.contains("vel_mag")) {
           m_eb_flow.enabled = true;
@@ -229,6 +252,13 @@ void incflo::ReadParameters ()
           m_eb_flow.omega_unit_vec.resize(AMREX_SPACEDIM);
           pp_eb_flow.queryarr("omega_unit_vec",
                               m_eb_flow.omega_unit_vec,0,AMREX_SPACEDIM);
+       }
+
+       if (m_advect_tracer && m_eb_flow.enabled && m_eb_flow.tracer.empty()) {
+           Abort("Must specify tracer EB value for flow through EB");
+       }
+       if (m_use_temperature && m_eb_flow.enabled && m_eb_flow.temperature.empty()) {
+           Abort("Must specify temperature EB value for flow through EB");
        }
     } // end prefix eb_flow
 #endif
@@ -282,6 +312,11 @@ void incflo::ReadIOParameters()
 #ifdef INCFLO_USE_PARTICLES
         m_plotVars.push_back("particle_count");
 #endif
+    }
+
+    if (m_use_temperature) {
+        // Add temperature to the default list
+        m_plotVars.push_back("temperature");
     }
 
     // Helper function to update m_plotVars according to m_plt_* flags
@@ -450,6 +485,7 @@ void incflo::InitialIterations ()
     copy_from_new_to_old_velocity();
     copy_from_new_to_old_density();
     copy_from_new_to_old_tracer();
+    copy_from_new_to_old_temperature();
 
     int initialisation = 1;
     bool explicit_diffusion = (m_diff_type == DiffusionType::Explicit);
@@ -472,6 +508,9 @@ void incflo::InitialIterations ()
         if (m_advect_tracer) {
             fillpatch_tracer(lev, m_t_old[lev], m_leveldata[lev]->tracer_o, ng);
         }
+        if (m_use_temperature) {
+            fillpatch_temperature(lev, m_t_old[lev], m_leveldata[lev]->temperature_o, ng);
+        }
     }
 
     for (int iter = 0; iter < m_initial_iterations; ++iter)
@@ -483,6 +522,7 @@ void incflo::InitialIterations ()
         copy_from_old_to_new_velocity();
         copy_from_old_to_new_density();
         copy_from_old_to_new_tracer();
+        copy_from_old_to_new_temperature();
     }
 
     // Reset dt to get initial step as specified, otherwise we can see increase to dt
@@ -650,6 +690,12 @@ incflo::InitialRedistribution ()
             MultiFab::Copy(ld.tracer_o, ld.tracer, 0, 0, m_ntrac, ld.tracer.nGrow());
             fillpatch_tracer(lev, m_t_new[lev], ld.tracer_o, 3);
         }
+        if (m_use_temperature)
+        {
+            ld.temperature.FillBoundary(geom[lev].periodicity());
+            MultiFab::Copy(ld.temperature_o, ld.temperature, 0, 0, 1, ld.temperature.nGrow());
+            fillpatch_temperature(lev, m_t_new[lev], ld.temperature_o, 3);
+        }
 
         for (MFIter mfi(ld.density,TilingIfNotGPU()); mfi.isValid(); ++mfi)
         {
@@ -700,6 +746,16 @@ incflo::InitialRedistribution ()
                                               AMREX_D_DECL(fcx, fcy, fcz), ccc,
                                               bc_tra, geom[lev], m_redistribution_type);
                 }
+                if (m_use_temperature)
+                {
+                    ncomp = 1;
+                    auto const& bc_T = get_temperature_bcrec_device_ptr();
+                    ApplyInitialRedistribution( bx,ncomp,
+                                              ld.temperature.array(mfi), ld.temperature_o.array(mfi),
+                                              flag, AMREX_D_DECL(apx, apy, apz), vfrac,
+                                              AMREX_D_DECL(fcx, fcy, fcz), ccc,
+                                              bc_T, geom[lev], m_redistribution_type);
+                }
             }
         }
 
@@ -707,6 +763,9 @@ incflo::InitialRedistribution ()
         ld.velocity.FillBoundary(geom[lev].periodicity());
         ld.density.FillBoundary(geom[lev].periodicity());
         ld.tracer.FillBoundary(geom[lev].periodicity());
+        if (m_use_temperature) {
+            ld.temperature.FillBoundary(geom[lev].periodicity());
+        }
     }
   }
 }

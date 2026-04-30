@@ -93,6 +93,11 @@ void incflo::WriteCheckPointFile() const
                          amrex::MultiFabFileFullPrefix(lev, checkpointname, level_prefix, "tracer"));
         }
 
+        if (m_use_temperature) {
+            VisMF::Write(m_leveldata[lev]->temperature,
+                         amrex::MultiFabFileFullPrefix(lev, checkpointname, level_prefix, "temperature"));
+        }
+
         VisMF::Write(m_leveldata[lev]->gp,
                      amrex::MultiFabFileFullPrefix(lev, checkpointname, level_prefix, "gradp"));
 
@@ -222,6 +227,11 @@ void incflo::ReadCheckpointFile()
         if (m_ntrac > 0) {
             VisMF::Read(m_leveldata[lev]->tracer,
                         amrex::MultiFabFileFullPrefix(lev, m_restart_file, level_prefix, "tracer"));
+        }
+
+        if (m_use_temperature) {
+            VisMF::Read(m_leveldata[lev]->temperature,
+                        amrex::MultiFabFileFullPrefix(lev, m_restart_file, level_prefix, "temperature"));
         }
 
         VisMF::Read(m_leveldata[lev]->gp,
@@ -384,6 +394,8 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
                 fillpatch_velocity(lev, m_cur_time, m_leveldata[lev]->velocity, ng);
                 fillpatch_density(lev, m_cur_time, m_leveldata[lev]->density, ng);
                 fillpatch_tracer(lev, m_cur_time, m_leveldata[lev]->tracer, ng);
+                // Whether temperature fillpatch is needed depends on form of forcing term
+                // fillpatch_temperature(lev, m_cur_time, m_leveldata[lev]->temperature, ng);
             }
             break;
         }
@@ -513,6 +525,13 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
                 pltscaVarsName.push_back("tracer"+std::to_string(i));
             }
             icomp += m_ntrac;
+        }
+        else if (vars[n] == "temperature") {
+            for (int lev = 0; lev <= finest_level; ++lev) {
+                MultiFab::Copy(mf[lev], m_leveldata[lev]->temperature, 0, icomp, 1, 0);
+            }
+            pltscaVarsName.push_back("temperature");
+            ++icomp;
         }
         else if (vars[n] == "p") {
             if (m_use_cc_proj) {

@@ -28,11 +28,23 @@ incflo::LevelData::LevelData (amrex::BoxArray const& ba,
     } else {
         p_nd.define(convert(ba,IntVect::TheNodeVector()), dm, 1, 0, MFInfo(), fact);
     }
+    if (my_incflo->m_use_temperature) {
+        temperature.define   (ba, dm, 1, my_incflo->nghost_state(), MFInfo(), fact);
+        temperature_o.define (ba, dm, 1, my_incflo->nghost_state(), MFInfo(), fact);
+
+        conv_temperature_o.define(ba, dm, 1, 0, MFInfo(), fact);
+    }
 #ifdef AMREX_USE_EB
     if (my_incflo->hasEBFlow()) {
         velocity_eb.define(ba, dm, AMREX_SPACEDIM, my_incflo->nghost_state(), MFInfo(), fact);
         density_eb.define (ba, dm, 1             , my_incflo->nghost_state(), MFInfo(), fact);
+    }
+    // Allow for Dirichlet BC on EB even if there's no flow through the EB
+    if (my_incflo->m_advect_tracer && !my_incflo->m_eb_flow.tracer.empty()) {
         tracer_eb.define  (ba, dm, my_incflo->m_ntrac, my_incflo->nghost_state(), MFInfo(), fact);
+    }
+    if (my_incflo->m_use_temperature && !my_incflo->m_eb_flow.temperature.empty()) {
+        temperature_eb.define(ba, dm, 1, my_incflo->nghost_state(), MFInfo(), fact);
     }
 #endif
     if (my_incflo->m_advection_type != "MOL") {
@@ -40,10 +52,17 @@ incflo::LevelData::LevelData (amrex::BoxArray const& ba,
         if (my_incflo->m_advect_tracer) {
             laps_o.define(ba, dm, my_incflo->m_ntrac, 0, MFInfo(), fact);
         }
+        if (my_incflo->m_use_temperature) {
+            laps_tem_o.define(ba, dm, 1, 0, MFInfo(), fact);
+        }
     } else {
         conv_velocity.define(ba, dm, AMREX_SPACEDIM   , 0, MFInfo(), fact);
         conv_density.define (ba, dm, 1                , 0, MFInfo(), fact);
         conv_tracer.define (ba, dm, my_incflo->m_ntrac, 0, MFInfo(), fact);
+
+        if (my_incflo->m_use_temperature) {
+            conv_temperature.define(ba, dm, 1, 0, MFInfo(), fact);
+        }
 
         bool implicit_diffusion = my_incflo->m_diff_type == DiffusionType::Implicit;
         if (!implicit_diffusion || my_incflo->use_tensor_correction)
@@ -51,10 +70,16 @@ incflo::LevelData::LevelData (amrex::BoxArray const& ba,
             divtau.define  (ba, dm, AMREX_SPACEDIM, 0, MFInfo(), fact);
             divtau_o.define(ba, dm, AMREX_SPACEDIM, 0, MFInfo(), fact);
         }
-        if (!implicit_diffusion && my_incflo->m_advect_tracer)
+        if (!implicit_diffusion)
         {
-            laps.define  (ba, dm, my_incflo->m_ntrac, 0, MFInfo(), fact);
-            laps_o.define(ba, dm, my_incflo->m_ntrac, 0, MFInfo(), fact);
+            if ( my_incflo->m_advect_tracer) {
+                laps.define  (ba, dm, my_incflo->m_ntrac, 0, MFInfo(), fact);
+                laps_o.define(ba, dm, my_incflo->m_ntrac, 0, MFInfo(), fact);
+            }
+            if (my_incflo->m_use_temperature) {
+                laps_tem.define  (ba, dm, 1, 0, MFInfo(), fact);
+                laps_tem_o.define(ba, dm, 1, 0, MFInfo(), fact);
+            }
         }
     }
 }

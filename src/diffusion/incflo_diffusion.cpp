@@ -66,7 +66,18 @@ incflo::compute_laps(Vector<MultiFab      *> const& laps,
                      Vector<MultiFab const*> const& scalar,
                      Vector<MultiFab const*> const& eta)
 {
-    get_diffusion_scalar_op()->compute_laps(laps, scalar, eta);
+    get_diffusion_scalar_op()->compute_laps(laps, scalar, eta,
+                                            get_tracer_bcrec());
+
+}
+
+void
+incflo::compute_laps_T(Vector<MultiFab      *> const& laps,
+                       Vector<MultiFab const*> const& scalar,
+                       Vector<MultiFab const*> const& eta)
+{
+    get_diffusion_scalar_op()->compute_laps(laps, scalar, eta,
+                                            get_tracer_bcrec());
 }
 
 void
@@ -75,9 +86,22 @@ incflo::diffuse_scalar(Vector<MultiFab      *> const& scalar,
                        Vector<MultiFab const*> const& eta,
                        Real dt_diff)
 {
-    get_diffusion_scalar_op()->diffuse_scalar(scalar, density, eta, dt_diff);
+    get_diffusion_scalar_op()->diffuse_scalar(scalar, density, eta, get_tracer_eb(),
+                                              get_tracer_iconserv(),
+                                              get_tracer_bcrec(), dt_diff);
 }
 
+void
+incflo::diffuse_temperature(Vector<MultiFab      *> const& temperature,
+                            Vector<MultiFab      *> const& rhocp,
+                            Vector<MultiFab const*> const& eta,
+                            Real dt_diff)
+{
+    get_diffusion_scalar_op()->diffuse_scalar(temperature, rhocp, eta,
+                                              get_temperature_eb(),
+                                              {1} /* use rhocp */,
+                                              get_temperature_bcrec(), dt_diff);
+}
 
 void
 incflo::diffuse_velocity(Vector<MultiFab      *> const& vel,
