@@ -3,10 +3,11 @@
 using namespace amrex;
 
 // Compute temperature forcing terms.
-void incflo::compute_tem_forces (Real /*time*/, Vector<MultiFab*> const& tem_forces)
+void incflo::compute_tem_forces (Real time, Vector<MultiFab*> const& tem_forces)
 {
-    if (m_use_temperature) {
+    if (!m_use_temperature) { return; }
 
+    if (!m_use_granular_temperature) {
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -25,6 +26,50 @@ void incflo::compute_tem_forces (Real /*time*/, Vector<MultiFab*> const& tem_for
                     tem_f(i,j,k) = 0.0;
                 });
             }
+        }
+        return;
+    }
+
+    auto vel_old = get_velocity_old_const();
+    auto rho_old = get_density_old_const();
+    auto tem_old = get_temperature_old_const();
+
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        auto const& ba = tem_forces[lev]->boxArray();
+        auto const& dm = tem_forces[lev]->DistributionMap();
+        auto const& factory = tem_forces[lev]->Factory();
+
+        MultiFab strainrate(ba, dm, 1, 0, MFInfo(), factory);
+        MultiFab p_static(ba, dm, 1, 0, MFInfo(), factory);
+        MultiFab inertial_num(ba, dm, 1, 0, MFInfo(), factory);
+
+        compute_strainrate_at_level(lev, &strainrate, vel_old[lev], geom[lev], time, 0);
+        compute_cc_hydrostatic_pressure_at_level(lev, &p_static, rho_old[lev],
+                                                 m_mu_p_surf_second, geom[lev], 0);
+        compute_inertial_num_at_level(lev, &inertial_num, &strainrate, &p_static,
+                                      m_mu_p_eps_second, m_ro_grain_second,
+                                      m_diam_second, 0);
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(*tem_forces[lev],TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            Array4<Real> const& tem_f = tem_forces[lev]->array(mfi);
+            Array4<Real const> const& inrt_num = inertial_num.const_array(mfi);
+            Array4<Real const> const& temp_old = tem_old[lev]->const_array(mfi);
+            const Real coll_dissp = m_gran_temp_collisional_dissipation;
+            const Real fluc_prod = m_gran_temp_local_fluctuation_production;
+
+            ParallelFor(bx,
+            [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                // Granular temperature forcing is modeled as a function of
+                // old-state inertial number and old-state temperature.
+                tem_f(i,j,k) = fluc_prod * inrt_num(i,j,k)
+                               - coll_dissp* temp_old(i,j,k);
+            });
         }
     }
 }

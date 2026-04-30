@@ -260,5 +260,11 @@ void incflo::ReadRheologyParameters()
                            << m_eta_ho_min_second << " , "
                            << m_eta_ho_max_second << " ]" << std::endl;
         }
+        // Additional checks
+        if (m_use_granular_temperature) {
+            if (!(fluid_model_s_snd == "granularpowerlaw")) {
+                amrex::Abort("Granular Temperature needs to be used with granularpowerlaw");
+            }
+        }
      }
 }

@@ -760,6 +760,10 @@ private:
     // These are related to level set method
     // Coefficient d that is used in level set
     amrex::Real m_level_set_d = amrex::Real(0.1);
+    // This boolean decides if temperature has to be used as granular temperature
+    bool m_use_granular_temperature = false;
+    amrex::Real m_gran_temp_collisional_dissipation = amrex::Real(0.);
+    amrex::Real m_gran_temp_local_fluctuation_production = amrex::Real(0.);
 
     int m_plot_int = -1;
 

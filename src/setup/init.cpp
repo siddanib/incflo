@@ -188,6 +188,13 @@ void incflo::ReadParameters ()
         pp.query("mu_T", m_mu_T);
         pp.query("cp", m_cp);
 
+        // Check if temperature needs to be used as granular temperature 
+        pp.query("use_granular_temperature", m_use_granular_temperature);
+        if ((m_use_granular_temperature) && (!m_use_temperature)) {
+            // Temperature is used as Granular Temperature
+            amrex::Abort("use_temperature also needs to be true");
+        }
+
     } // end prefix incflo
 
     ReadIOParameters();
@@ -262,6 +269,14 @@ void incflo::ReadParameters ()
        }
     } // end prefix eb_flow
 #endif
+
+    { // Prefix granular_temperature 
+       ParmParse pp_gran_temp("granular_temperature");
+       pp_gran_temp.query("collisional_dissipation",
+          m_gran_temp_collisional_dissipation);
+       pp_gran_temp.query("local_fluctuation_production",
+          m_gran_temp_local_fluctuation_production);
+    }
 
 #ifdef INCFLO_USE_PARTICLES
     readTracerParticlesParams();
