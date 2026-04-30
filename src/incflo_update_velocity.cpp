@@ -336,6 +336,55 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
 
         Real dt_diff = (m_diff_type == DiffusionType::Implicit) ? m_dt : l_half*m_dt;
         diffuse_velocity(get_velocity_new(), get_density_new(), GetVecOfConstPtrs(vel_eta), dt_diff);
+
+#ifdef AMREX_USE_EB
+        if (m_probtype ==  537) {
+            auto const& bc_vel = get_velocity_bcrec_device_ptr();
+            for (int lev = 0; lev <= finest_level; lev++)
+            {
+                auto& ld = *m_leveldata[lev];
+                const auto& fact = EBFactory(lev);
+                // Intentionally setting u component negative values to small positive values
+                auto const& flags = fact.getMultiEBCellFlagFab();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+                for (MFIter mfi(ld.velocity,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+                {
+                    Box const& bx = mfi.tilebox();
+                    Array4<Real> const& vel = ld.velocity.array(mfi);
+                    auto const& flag_fab = flags[mfi];
+                    auto typ = flag_fab.getType(bx);
+                    if (typ != FabType::singlevalued) {
+                        continue;
+                    }
+                    auto const& flag_arr = flag_fab.const_array();
+                    ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                    {
+                        if (flag_arr(i,j,k).isSingleValued()) {
+                            if (vel(i,j,k,0) < Real(0.)) {
+                                vel(i,j,k,0) = Real(1.0e-18);
+                            }
+                        }
+                    });
+                }
+                // Applying StateRedistribution
+                auto& vel_main = ld.velocity;
+                MultiFab vel_tmp;
+                vel_tmp.define(vel_main.boxArray(), vel_main.DistributionMap(),
+                        AMREX_SPACEDIM, vel_main.nGrow(), MFInfo(),
+                        vel_main.Factory());
+                MultiFab::Copy(vel_tmp, vel_main, 0, 0, AMREX_SPACEDIM,
+                        vel_main.nGrow());
+                MultiFab vel_state;
+                vel_state.define(vel_main.boxArray(), vel_main.DistributionMap(),
+                        AMREX_SPACEDIM, vel_main.nGrow(), MFInfo(),
+                        vel_main.Factory());
+                vel_state.setVal(Real(0.), vel_main.nGrow());
+                redistribute_term(vel_main, vel_tmp, vel_state, bc_vel, lev);
+            }
+        }
+#endif
     }
 }
 

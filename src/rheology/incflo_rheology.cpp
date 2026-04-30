@@ -635,6 +635,8 @@ void incflo::smooth_eb_cell_centered_coeff (int lev,
         Array4<Real const> const& src_arr = mf.const_array(mfi);
         Array4<Real> const& dst_arr = mf_smooth.array(mfi);
         const int ncomp = mf.nComp();
+        const Real eta_min = m_eta_min;
+        const Real eta_max = m_eta_max;
 
         ParallelFor(bx, ncomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
         {
@@ -644,10 +646,8 @@ void incflo::smooth_eb_cell_centered_coeff (int lev,
 
             Real regular_sum = Real(0.0);
             int regular_count = 0;
-            const Real eta_min = m_eta_min;
-            const Real eta_max = m_eta_max;
             const Real src_val = src_arr(i,j,k,n);
-            const bool src_ok = amrex::isfinite(src_val);
+            const bool src_ok = std::isfinite(src_val);
 
 #if (AMREX_SPACEDIM == 2)
             for (int jj = -1; jj <= 1; ++jj) {
@@ -668,7 +668,7 @@ void incflo::smooth_eb_cell_centered_coeff (int lev,
                     }
                     Real nval = src_arr(ni,nj,nk,n);
                     if (nflag.isRegular() &&
-                        amrex::isfinite(nval) &&
+                        std::isfinite(nval) &&
                         nval >= eta_min && nval <= eta_max) {
                         regular_sum += nval;
                         ++regular_count;
@@ -697,7 +697,7 @@ void incflo::smooth_eb_cell_centered_coeff (int lev,
                         }
                         Real nval = src_arr(ni,nj,nk,n);
                         if (nflag.isRegular() &&
-                            amrex::isfinite(nval) &&
+                            std::isfinite(nval) &&
                             nval >= eta_min && nval <= eta_max) {
                             regular_sum += nval;
                             ++regular_count;
