@@ -21,7 +21,8 @@ public:
                          amrex::Vector<amrex::MultiFab*> const& eb_dirichlet,
                          amrex::Vector<int> const& use_chi,
                          amrex::Vector<amrex::BCRec> bcrec,
-                         amrex::Real dt);
+                         amrex::Real dt,
+                         amrex::Vector<amrex::iMultiFab const*> const* overset_mask = nullptr);
 
     void diffuse_vel_components (
                          amrex::Vector<amrex::MultiFab*> const& vel,

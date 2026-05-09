@@ -217,16 +217,32 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
                     compute_cp(lev, mfi, cp_fab);
                     if (m_godunov_include_diff_in_forcing) {
                         Array4<Real const> const& laps = ld.laps_tem_o.const_array(mfi);
-                        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                        {
-                            tem_f(i,j,k) = (tem_f(i,j,k) + laps(i,j,k)) / (rho(i,j,k)*cp(i,j,k));
-                        });
-                    } else {
-                        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                        {
-                            tem_f(i,j,k) /= ( rho(i,j,k)*cp(i,j,k) );
-                        });
-
+                        if (!m_use_granular_temperature) {
+                            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                            {
+                                tem_f(i,j,k) = (tem_f(i,j,k) + laps(i,j,k)) / (rho(i,j,k)*cp(i,j,k));
+                            });
+                        }
+                        else {
+                            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                            {
+                                tem_f(i,j,k) = (tem_f(i,j,k) + laps(i,j,k)) / cp(i,j,k);
+                            });
+                        }
+                    }
+                    else {
+                        if (!m_use_granular_temperature) {
+                            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                            {
+                                tem_f(i,j,k) /= ( rho(i,j,k)*cp(i,j,k) );
+                            });
+                        }
+                        else {
+                            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                            {
+                                tem_f(i,j,k) /= cp(i,j,k);
+                            });
+                        }
                     }
                 }
             }
@@ -1153,7 +1169,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
             }
 
             if (m_use_temperature) {
-                auto const& bc_tem = get_tracer_bcrec_device_ptr();
+                auto const& bc_tem = get_temperature_bcrec_device_ptr();
                 redistribute_term(mfi, *conv_tem[lev], dtemdt_tmp,//fixme
                                   *temperature[lev],
                                   bc_tem, lev);

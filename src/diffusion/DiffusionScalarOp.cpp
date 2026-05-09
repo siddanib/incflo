@@ -135,7 +135,8 @@ DiffusionScalarOp::diffuse_scalar (Vector<MultiFab*> const& a_scalar,
                                    Vector<MultiFab*> const& eb_dirichlet,
                                    amrex::Vector<int> const& use_chi,
                                    amrex::Vector<amrex::BCRec> bcrec,
-                                   Real dt)
+                                   Real dt,
+                                   Vector<iMultiFab const*> const* overset_mask)
 {
     //
     // Solves
@@ -175,26 +176,63 @@ DiffusionScalarOp::diffuse_scalar (Vector<MultiFab*> const& a_scalar,
     }
 
 #ifdef AMREX_USE_EB
-    if (m_eb_scal_solve_op)
+    std::unique_ptr<MLEBABecLap> masked_eb_scal_solve_op;
+    MLEBABecLap* eb_scal_solve_op = m_eb_scal_solve_op.get();
+    if (overset_mask != nullptr && eb_scal_solve_op != nullptr)
     {
-        m_eb_scal_solve_op->setScalars(1.0, dt);
+        LPInfo info_solve;
+        info_solve.setMaxCoarseningLevel(m_mg_max_coarsening_level);
+        Vector<EBFArrayBoxFactory const*> ebfact;
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            ebfact.push_back(&(m_incflo->EBFactory(lev)));
+        }
+
+        masked_eb_scal_solve_op = std::make_unique<MLEBABecLap>(
+            m_incflo->Geom(0, finest_level),
+            m_incflo->boxArray(0, finest_level),
+            m_incflo->DistributionMap(0, finest_level),
+            *overset_mask, info_solve, ebfact);
+        masked_eb_scal_solve_op->setMaxOrder(m_mg_maxorder);
+        eb_scal_solve_op = masked_eb_scal_solve_op.get();
+    }
+#endif
+
+    std::unique_ptr<MLABecLaplacian> masked_reg_scal_solve_op;
+    MLABecLaplacian* reg_scal_solve_op = m_reg_scal_solve_op.get();
+    if (overset_mask != nullptr && reg_scal_solve_op != nullptr)
+    {
+        LPInfo info_solve;
+        info_solve.setMaxCoarseningLevel(m_mg_max_coarsening_level);
+        masked_reg_scal_solve_op = std::make_unique<MLABecLaplacian>(
+            m_incflo->Geom(0, finest_level),
+            m_incflo->boxArray(0, finest_level),
+            m_incflo->DistributionMap(0, finest_level),
+            *overset_mask, info_solve);
+        masked_reg_scal_solve_op->setMaxOrder(m_mg_maxorder);
+        reg_scal_solve_op = masked_reg_scal_solve_op.get();
+    }
+
+#ifdef AMREX_USE_EB
+    if (eb_scal_solve_op)
+    {
+        eb_scal_solve_op->setScalars(1.0, dt);
         for (int lev = 0; lev <= finest_level; ++lev) {
             if ( use_chi[0] ) {
-                m_eb_scal_solve_op->setACoeffs(lev, *chi[lev]);
+                eb_scal_solve_op->setACoeffs(lev, *chi[lev]);
             } else {
-                m_eb_scal_solve_op->setACoeffs(lev, 1.0);
+                eb_scal_solve_op->setACoeffs(lev, 1.0);
             }
         }
     }
     else
 #endif
     {
-        m_reg_scal_solve_op->setScalars(1.0, dt);
+        reg_scal_solve_op->setScalars(1.0, dt);
         for (int lev = 0; lev <= finest_level; ++lev) {
             if ( use_chi[0] ) {
-                m_reg_scal_solve_op->setACoeffs(lev, *chi[lev]);
+                reg_scal_solve_op->setACoeffs(lev, *chi[lev]);
             } else {
-                m_reg_scal_solve_op->setACoeffs(lev, 1.0);
+                reg_scal_solve_op->setACoeffs(lev, 1.0);
             }
         }
     }
@@ -202,16 +240,16 @@ DiffusionScalarOp::diffuse_scalar (Vector<MultiFab*> const& a_scalar,
     for (int comp = 0; comp < a_scalar[0]->nComp(); ++comp)
     {
 #ifdef AMREX_USE_EB
-        if (m_eb_scal_solve_op)
+        if (eb_scal_solve_op)
         {
-            m_eb_scal_solve_op->setDomainBC(m_incflo->get_diffuse_scalar_bc(Orientation::low,
-                                                                            bcrec[0].lo()),
-                                            m_incflo->get_diffuse_scalar_bc(Orientation::high,
-                                                                            bcrec[0].hi()));
+            eb_scal_solve_op->setDomainBC(m_incflo->get_diffuse_scalar_bc(Orientation::low,
+                                                                           bcrec[0].lo()),
+                                          m_incflo->get_diffuse_scalar_bc(Orientation::high,
+                                                                          bcrec[0].hi()));
 
             if ( m_incflo->m_has_mixedBC && comp>0 ) {
                 // Must reset scalars (and Acoef, done below) to reuse solver with Robin BC
-                m_eb_scal_solve_op->setScalars(1.0, dt);
+                eb_scal_solve_op->setScalars(1.0, dt);
             }
 
             for (int lev = 0; lev <= finest_level; ++lev) {
@@ -219,42 +257,42 @@ DiffusionScalarOp::diffuse_scalar (Vector<MultiFab*> const& a_scalar,
                 if (comp > 0 &&
                     ( m_incflo->m_has_mixedBC || (use_chi[comp] != use_chi[comp-1]) ) ) {
                     if ( use_chi[comp] ) {
-                        m_eb_scal_solve_op->setACoeffs(lev, *chi[lev]);
+                        eb_scal_solve_op->setACoeffs(lev, *chi[lev]);
                     } else {
-                        m_eb_scal_solve_op->setACoeffs(lev, 1.0);
+                        eb_scal_solve_op->setACoeffs(lev, 1.0);
                     }
                 }
 
                 if (!eb_dirichlet[lev]->empty()) {
                     MultiFab phi(*eb_dirichlet[lev], amrex::make_alias, comp, 1);
-                  m_eb_scal_solve_op->setEBDirichlet(lev, phi, *eta[lev]);
+                    eb_scal_solve_op->setEBDirichlet(lev, phi, *eta[lev]);
                 } // else use default homogeneous Neumann on EB
 
 
                 Array<MultiFab,AMREX_SPACEDIM> b = m_incflo->average_scalar_eta_to_faces(lev, comp, *eta[lev]);
-                m_eb_scal_solve_op->setBCoeffs(lev, GetArrOfConstPtrs(b), MLMG::Location::FaceCentroid);
+                eb_scal_solve_op->setBCoeffs(lev, GetArrOfConstPtrs(b), MLMG::Location::FaceCentroid);
             }
         }
         else
 #endif
         {
             amrex::ignore_unused(eb_dirichlet);
-            m_reg_scal_solve_op->setDomainBC(m_incflo->get_diffuse_scalar_bc(Orientation::low,
-                                                                             bcrec[comp].lo()),
-                                             m_incflo->get_diffuse_scalar_bc(Orientation::high,
-                                                                             bcrec[comp].hi()));
+            reg_scal_solve_op->setDomainBC(m_incflo->get_diffuse_scalar_bc(Orientation::low,
+                                                                            bcrec[comp].lo()),
+                                           m_incflo->get_diffuse_scalar_bc(Orientation::high,
+                                                                           bcrec[comp].hi()));
 
             for (int lev = 0; lev <= finest_level; ++lev) {
                 if ( comp > 0 && (use_chi[comp] != use_chi[comp-1]) ) {
                     if ( use_chi[comp] ) {
-                        m_reg_scal_solve_op->setACoeffs(lev, *chi[lev]);
+                        reg_scal_solve_op->setACoeffs(lev, *chi[lev]);
                     } else {
-                        m_reg_scal_solve_op->setACoeffs(lev, 1.0);
+                        reg_scal_solve_op->setACoeffs(lev, 1.0);
                     }
                 }
 
                 Array<MultiFab,AMREX_SPACEDIM> b = m_incflo->average_scalar_eta_to_faces(lev, comp, *eta[lev]);
-                m_reg_scal_solve_op->setBCoeffs(lev, GetArrOfConstPtrs(b));
+                reg_scal_solve_op->setBCoeffs(lev, GetArrOfConstPtrs(b));
             }
         }
 
@@ -283,30 +321,31 @@ DiffusionScalarOp::diffuse_scalar (Vector<MultiFab*> const& a_scalar,
             }
 
 #ifdef AMREX_USE_EB
-            if (m_eb_scal_solve_op) {
+            if (eb_scal_solve_op) {
                 if ( m_incflo->m_has_mixedBC ) {
                     auto const robin = m_incflo->make_robinBC_MFs(lev, &phi[lev]);
 
-                    m_eb_scal_solve_op->setLevelBC(lev, &phi[lev],
-                                                   &robin[0], &robin[1], &robin[2]);
+                    eb_scal_solve_op->setLevelBC(lev, &phi[lev],
+                                                 &robin[0], &robin[1], &robin[2]);
                 }
                 else {
-                    m_eb_scal_solve_op->setLevelBC(lev, &phi[lev]);
+                    eb_scal_solve_op->setLevelBC(lev, &phi[lev]);
                 }
 
                 // For when we use the stencil for centroid values
-                // m_eb_scal_solve_op->setPhiOnCentroid();
+                // eb_scal_solve_op->setPhiOnCentroid();
             } else
 #endif
             {
-                m_reg_scal_solve_op->setLevelBC(lev, &phi[lev]);
+                reg_scal_solve_op->setLevelBC(lev, &phi[lev]);
             }
         }
 
 #ifdef AMREX_USE_EB
-        MLMG mlmg(m_eb_scal_solve_op ? static_cast<MLLinOp&>(*m_eb_scal_solve_op) : static_cast<MLLinOp&>(*m_reg_scal_solve_op));
+        MLMG mlmg(eb_scal_solve_op ? static_cast<MLLinOp&>(*eb_scal_solve_op)
+                                   : static_cast<MLLinOp&>(*reg_scal_solve_op));
 #else
-        MLMG mlmg(*m_reg_scal_solve_op);
+        MLMG mlmg(*reg_scal_solve_op);
 #endif
 
         // The default bottom solver is BiCG

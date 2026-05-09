@@ -277,8 +277,10 @@ void incflo::ReadParameters ()
        ParmParse pp_gran_temp("granular_temperature");
        pp_gran_temp.query("collisional_dissipation",
           m_gran_temp_collisional_dissipation);
-       pp_gran_temp.query("local_fluctuation_production",
-          m_gran_temp_local_fluctuation_production);
+       pp_gran_temp.query("local_fluctuation_production_coeff",
+          m_gran_temp_local_fluctuation_production_coeff);
+       pp_gran_temp.query("local_fluctuation_production_expnt",
+          m_gran_temp_local_fluctuation_production_expnt);
     }
 
 #ifdef INCFLO_USE_PARTICLES

@@ -95,12 +95,14 @@ void
 incflo::diffuse_temperature(Vector<MultiFab      *> const& temperature,
                             Vector<MultiFab      *> const& rhocp,
                             Vector<MultiFab const*> const& eta,
-                            Real dt_diff)
+                            Real dt_diff,
+                            Vector<iMultiFab const*> const* overset_mask)
 {
     get_diffusion_scalar_op()->diffuse_scalar(temperature, rhocp, eta,
                                               get_temperature_eb(),
                                               {1} /* use rhocp */,
-                                              get_temperature_bcrec(), dt_diff);
+                                              get_temperature_bcrec(), dt_diff,
+                                              overset_mask);
 }
 
 void

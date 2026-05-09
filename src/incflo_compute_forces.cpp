@@ -59,19 +59,25 @@ void incflo::compute_tem_forces (Real time, Vector<MultiFab*> const& tem_forces)
             Box const& bx = mfi.tilebox();
             Array4<Real> const& tem_f = tem_forces[lev]->array(mfi);
             Array4<Real const> const& inrt_num = inertial_num.const_array(mfi);
-            Array4<Real const> const& temp_old = tem_old[lev]->const_array(mfi);
             Array4<Real const> const& trac_old = tra_old[lev]->const_array(mfi);
-            const Real coll_dissp = m_gran_temp_collisional_dissipation;
-            const Real fluc_prod = m_gran_temp_local_fluctuation_production;
+            const Real min_conc_scnd = m_min_conc_second;
+            const Real fluc_prod_coeff =
+                    m_gran_temp_local_fluctuation_production_coeff;
+            const Real fluc_prod_expnt =
+                    m_gran_temp_local_fluctuation_production_expnt;
 
             ParallelFor(bx,
             [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
                 // Granular temperature forcing is modeled as a function of
                 // old-state inertial number and old-state temperature.
-                tem_f(i,j,k) = trac_old(i,j,k,0) *
-                               (fluc_prod * inrt_num(i,j,k)
-                                - coll_dissp * temp_old(i,j,k));
+                if (trac_old(i,j,k,0) > min_conc_scnd) {
+                    tem_f(i,j,k) = fluc_prod_coeff *
+                                   std::pow(inrt_num(i,j,k), fluc_prod_expnt);
+                }
+                else {
+                    tem_f(i,j,k) = Real(0.);
+                }
             });
         }
     }

@@ -319,7 +319,8 @@ public:
     void diffuse_temperature (amrex::Vector<amrex::MultiFab      *> const& temperature,
                               amrex::Vector<amrex::MultiFab      *> const& rhocp,
                               amrex::Vector<amrex::MultiFab const*> const& eta,
-                              amrex::Real dt_diff);
+                              amrex::Real dt_diff,
+                              amrex::Vector<amrex::iMultiFab const*> const* overset_mask = nullptr);
 
     void fixup_eta_on_domain_faces (int lev,
                                     amrex::Array<amrex::MultiFab,AMREX_SPACEDIM>& fc,
@@ -763,7 +764,8 @@ private:
     // This boolean decides if temperature has to be used as granular temperature
     bool m_use_granular_temperature = false;
     amrex::Real m_gran_temp_collisional_dissipation = amrex::Real(0.);
-    amrex::Real m_gran_temp_local_fluctuation_production = amrex::Real(0.);
+    amrex::Real m_gran_temp_local_fluctuation_production_coeff = amrex::Real(0.);
+    amrex::Real m_gran_temp_local_fluctuation_production_expnt = amrex::Real(0.);
 
     int m_plot_int = -1;
 

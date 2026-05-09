@@ -12,6 +12,13 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
     Real const half_time = m_cur_time + m_dt/2.;
 
     const bool gran_temp = m_use_granular_temperature;
+    Vector<iMultiFab> overset_mask;
+    if (gran_temp) {
+        for (int lev = 0; lev <= finest_level; lev++) {
+            overset_mask.emplace_back(grids[lev], dmap[lev], 1, nghost_state(),
+                                      MFInfo(), DefaultFabFactory<IArrayBox>());
+        }
+    }
 
     // *************************************************************************************
     // Compute the temperature forcing terms
@@ -52,6 +59,10 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                 Array4<Real const> const& dtdt_o  = ld.conv_temperature_o.const_array(mfi);
                 // temperature forcing term (Q) is in scratch
                 Array4<Real      > const& tem_f   = scratch[lev].array(mfi);
+                // First tracer used when granular temperature is true
+                Array4<Real const> const& tra_o   = ld.tracer_o.const_array(mfi);
+                const Real min_conc_scnd = m_min_conc_second;
+                const Real gt_coll_dissp = m_gran_temp_collisional_dissipation;
 
                 FArrayBox cp_fab(bx, 1, The_Async_Arena());
                 compute_cp(lev, mfi, cp_fab);
@@ -72,8 +83,12 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                     {
                         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                         {
-                            tem(i,j,k) = tem_o(i,j,k) + l_dt *
-                                ( (tem_f(i,j,k) + laps_o(i,j,k))/cp(i,j,k) );
+                            if (tra_o(i,j,k,0) > min_conc_scnd) {
+                                tem(i,j,k) = tem_o(i,j,k) + l_dt *
+                                    ( dtdt_o(i,j,k) + (tem_f(i,j,k) + laps_o(i,j,k))/cp(i,j,k) );
+                                // Adding the collisional dissipation term
+                                tem(i,j,k) += l_dt *(-gt_coll_dissp)*tem_o(i,j,k)/cp(i,j,k);
+                            }
                         });
                     }
                 }
@@ -92,13 +107,27 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                     }
                     else
                     {
+                        auto const& osm = overset_mask[lev].array(mfi);
                         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                         {
                             tem(i,j,k) = tem_o(i,j,k) + l_dt *
-                                ( (tem_f(i,j,k) + m_half*laps_o(i,j,k))/cp(i,j,k) );
-                            // Save Cp for use in implicit solve.
+                                ( dtdt_o(i,j,k) + (tem_f(i,j,k) + m_half*laps_o(i,j,k))/cp(i,j,k) );
                             // Reuse scratch space since we are done with forcing now.
-                            tem_f(i,j,k) = cp(i,j,k);
+                            // This will be the chi used in diffusion solve
+                            // Collisional dissipation is considered implicitly
+                            tem_f(i,j,k) = cp(i,j,k) + gt_coll_dissp*l_dt;
+                            // The below modification is due to the structure of
+                            // incflo's temperature diffusion solve
+                            tem(i,j,k) *= (cp(i,j,k)/(cp(i,j,k) + gt_coll_dissp*l_dt));
+                            // Using overset_mask to only solve for granular region
+                            if (tra_o(i,j,k,0) > min_conc_scnd ) {
+                                osm(i,j,k) = 1;
+                            }
+                            else {
+                                osm(i,j,k) = 0;
+                                // The solution should not change in the masked region
+                                tem(i,j,k) = tem_o(i,j,k);
+                            }
                         });
                     }
                 }
@@ -109,7 +138,7 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                         {
                             tem(i,j,k) = tem_o(i,j,k) + l_dt *
-                                (dtdt_o(i,j,k) + tem_f(i,j,k)) / (rho_h(i,j,k) * cp(i,j,k));
+                                (dtdt_o(i,j,k) + tem_f(i,j,k) / (rho_h(i,j,k) * cp(i,j,k)));
                             // Save rhoCp for use in implicit solve.
                             // Reuse scratch space since we are done with forcing now.
                             tem_f(i,j,k) = rho_h(i,j,k) * cp(i,j,k);
@@ -117,16 +146,34 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                     }
                     else
                     {
+                        auto const& osm = overset_mask[lev].array(mfi);
                         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                         {
-                            tem(i,j,k) = tem_o(i,j,k) + l_dt * (tem_f(i,j,k) / cp(i,j,k));
-                            // Save Cp for use in implicit solve.
+                            tem(i,j,k) = tem_o(i,j,k) + l_dt *
+                                (dtdt_o(i,j,k) + tem_f(i,j,k) / cp(i,j,k));
                             // Reuse scratch space since we are done with forcing now.
-                            tem_f(i,j,k) = cp(i,j,k);
+                            // This will be the chi used in diffusion solve
+                            // Collisional dissipation is considered implicitly
+                            tem_f(i,j,k) = cp(i,j,k) + gt_coll_dissp*l_dt;
+                            // The below modification is due to the structure of
+                            // incflo's temperature diffusion solve
+                            tem(i,j,k) *= (cp(i,j,k)/(cp(i,j,k) + gt_coll_dissp*l_dt));
+                            // Using overset_mask to only solve for granular region
+                            if (tra_o(i,j,k,0) > min_conc_scnd ) {
+                                osm(i,j,k) = 1;
+                            }
+                            else {
+                                osm(i,j,k) = 0;
+                                // The solution should not change in the masked region
+                                tem(i,j,k) = tem_o(i,j,k);
+                            }
                         });
                     }
                 }
             } // mfi
+            if (gran_temp) {
+                overset_mask[lev].FillBoundary(geom[lev].periodicity());
+            }
         } // lev
 
     } else if (step_type == StepType::Corrector) {
@@ -143,10 +190,11 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
             fillphysbc_temperature(lev, new_time, m_leveldata[lev]->temperature, ng_diffusion);
         }
         Real dt_diff = (m_diff_type == DiffusionType::Implicit) ? m_dt : Real(0.5)*m_dt;
-        // scratch holds rhoCp if it is NOT Granular Temperature 
-        // scratch holds Cp if it is Granular Temperature
+        auto overset_mask_ptrs = gran_temp ? GetVecOfConstPtrs(overset_mask)
+                                           : Vector<iMultiFab const*>{};
+        // scratch holds rhoCp if it is NOT Granular Temperature
         diffuse_temperature(get_temperature_new(), GetVecOfPtrs(scratch), GetVecOfConstPtrs(tem_eta),
-                            dt_diff);
+                            dt_diff, gran_temp ? &overset_mask_ptrs : nullptr);
     }
     else
     {
