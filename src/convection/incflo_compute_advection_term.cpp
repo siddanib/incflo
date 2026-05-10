@@ -28,9 +28,14 @@ void incflo::init_advection ()
     m_iconserv_density.resize(1, 1);
     m_iconserv_density_d.resize(1, 1);
 
-    // Temperature is always updated non-conservatively
-    m_iconserv_temperature.resize(1, 0);
-    m_iconserv_temperature_d.resize(1, 0);
+    // Temperature is updated non-conservatively if NOT granular temperature
+    if (!m_use_granular_temperature) {
+        m_iconserv_temperature.resize(1, 0);
+        m_iconserv_temperature_d.resize(1, 0);
+    } else {
+        m_iconserv_temperature.resize(1, 1);
+        m_iconserv_temperature_d.resize(1, 1);
+    }
 
     // Advect scalars conservatively?
     m_iconserv_tracer.resize(m_ntrac, 1);
@@ -817,7 +822,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
             // Temperature
             // ************************************************************************
             if (m_use_temperature) {
-                // Temperature adveciton is always non-conservative
+                // Temperature adveciton is non-conservative when it is NOT granular Temperature
 
                 face_comp = (m_advect_tracer && (m_ntrac>0)) ? m_ntrac : 0;
                 face_comp += (m_constant_density) ? AMREX_SPACEDIM : AMREX_SPACEDIM+1;

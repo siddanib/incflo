@@ -15,7 +15,8 @@ using namespace amrex;
 //      conv_tra  = - div( u trac )  ,  if (m_iconserv_tracer)
 //                = - u dot grad trac,  otherwise
 //
-//      conv_tem = - u dot grad temperature
+//      conv_tem = - u dot grad temperature; if NOT Granular Temperature
+//      conv_tem = - div (u temperature); if Granular Temperature
 //
 //      eta_old     = visosity at m_cur_time
 //      if (m_diff_type == DiffusionType::Explicit)
