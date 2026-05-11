@@ -1288,7 +1288,8 @@ void incflo::compute_granular_powerlaw_temperature_second_order_coeff (
             scnd_coeff_arr(i,j,k) = a_I_c1*std::pow(inrt_num_val, a_I_e1)
                                     + a_I_c2*std::pow(inrt_num_val, a_I_e2)
                                     + a_I_c3*std::pow(inrt_num_val, a_I_e3);
-            scnd_coeff_arr(i,j,k) /= std::pow(temperature_arr(i,j,k), temp_expnt);
+            scnd_coeff_arr(i,j,k) /= std::pow(temperature_arr(i,j,k)+Real(1.0e-18),
+                                              temp_expnt);
 
             scnd_coeff_arr(i,j,k) *= p_static_arr(i,j,k);
             scnd_coeff_arr(i,j,k) /= ((Real(0.5)*sr_arr(i,j,k) + eps)
