@@ -247,6 +247,20 @@ void incflo::ReadRheologyParameters()
             pp_scnd.query("max_eta_ho", m_eta_ho_max_second);
             amrex::Print() << "Using mu(I) based on Granular Powerlaw"<<std::endl;
         }
+        else if(fluid_model_s_snd == "granularpowerlaw_temperature")
+        {
+            m_fluid_model_second = FluidModel::GranularPowerlawTemperature;
+            // Ordering in table:
+            // row 0 = mu_1 coefficients
+            // row 1 = mu_2 coefficients
+            pp_scnd.gettable("coeff_table", m_mu_powerlaw_temperature);
+            pp_scnd.query("mu_p_eps_second",m_mu_p_eps_second);
+            pp_scnd.query("mu_sr_eps_second",m_mu_sr_eps_second);
+            pp_scnd.query("min_eta_ho", m_eta_ho_min_second);
+            pp_scnd.query("max_eta_ho", m_eta_ho_max_second);
+            amrex::Print() << "Using temperature-aware granular powerlaw plumbing"
+                           << std::endl;
+        }
         else
         {
             amrex::Abort("Unknown fluid_model! Choose either newtonian, powerlaw, bingham, hb, smd");
@@ -260,10 +274,25 @@ void incflo::ReadRheologyParameters()
                            << m_eta_ho_min_second << " , "
                            << m_eta_ho_max_second << " ]" << std::endl;
         }
+        if (fluid_model_s_snd == "granularpowerlaw_temperature"
+            && m_mu_powerlaw_temperature.size() > 1) {
+            amrex::Print() << "Clamps for the high-order fluid eta are = [ "
+                           << m_eta_ho_min_second << " , "
+                           << m_eta_ho_max_second << " ]" << std::endl;
+        }
         // Additional checks
+        if (fluid_model_s_snd == "granularpowerlaw_temperature") {
+            if (!m_use_temperature) {
+                amrex::Abort("granularpowerlaw_temperature requires use_temperature = true");
+            }
+            if (!m_use_granular_temperature) {
+                amrex::Abort("granularpowerlaw_temperature requires use_granular_temperature = true");
+            }
+        }
         if (m_use_granular_temperature) {
-            if (!(fluid_model_s_snd == "granularpowerlaw")) {
-                amrex::Abort("Granular Temperature needs to be used with granularpowerlaw");
+            if (!(fluid_model_s_snd == "granularpowerlaw"
+                  || fluid_model_s_snd == "granularpowerlaw_temperature")) {
+                amrex::Abort("Granular Temperature needs granularpowerlaw or granularpowerlaw_temperature");
             }
         }
      }

@@ -91,8 +91,14 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
         amrex::Abort(
           "Nodal viscosity with Embedded Boundaries does NOT exist.\n");
     }
+    const bool has_granular_powerlaw_ho =
+        (m_incflo->m_fluid_model_second == incflo::FluidModel::GranularPowerlaw
+         && m_incflo->m_mu_powerlaw.size() > 1)
+        || (m_incflo->m_fluid_model_second
+                == incflo::FluidModel::GranularPowerlawTemperature
+            && m_incflo->m_mu_powerlaw_temperature.size() > 1);
     if ((m_incflo->m_nodal_vel_eta != 0) &&
-        (m_incflo->m_mu_powerlaw.size() > 1)) {
+        has_granular_powerlaw_ho) {
         amrex::Abort(
           "High-order effects require Cell-centered Viscosity.\n");
     }

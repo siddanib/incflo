@@ -431,6 +431,7 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
             && (m_fluid_model_second == FluidModel::DataDrivenMPMD
             || m_fluid_model_second == FluidModel::Rauter
             || m_fluid_model_second == FluidModel::GranularPowerlaw
+            || m_fluid_model_second == FluidModel::GranularPowerlawTemperature
             )) {
             //Inertial Number in mu(I)
             ++ncomp;
@@ -439,6 +440,7 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
             && (m_fluid_model_second == FluidModel::DataDrivenMPMD
             || m_fluid_model_second == FluidModel::Rauter
             || m_fluid_model_second == FluidModel::GranularPowerlaw
+            || m_fluid_model_second == FluidModel::GranularPowerlawTemperature
             )) {
             ++ncomp;
         }
@@ -753,6 +755,7 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
             && (m_fluid_model_second == FluidModel::DataDrivenMPMD
                 || m_fluid_model_second == FluidModel::Rauter
                 || m_fluid_model_second == FluidModel::GranularPowerlaw
+                || m_fluid_model_second == FluidModel::GranularPowerlawTemperature
             )) {
             for (int lev = 0; lev <= finest_level; ++lev) {
                 MultiFab p_static((m_nodal_vel_eta) ?
@@ -809,6 +812,7 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
             && (m_fluid_model_second == FluidModel::DataDrivenMPMD
             || m_fluid_model_second == FluidModel::Rauter
             || m_fluid_model_second == FluidModel::GranularPowerlaw
+            || m_fluid_model_second == FluidModel::GranularPowerlawTemperature
             )) {
 #ifdef USE_AMREX_MPMD
             // Call to indicate this is from incflo::WritePlotFile for mu_I
@@ -866,7 +870,12 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
 #endif
                 }
                 else {
-                  compute_mu_I_at_level(lev, &mu_I, 0);
+                  compute_mu_I_at_level(
+                      lev, &mu_I,
+                      (m_fluid_model_second == FluidModel::GranularPowerlawTemperature)
+                          ? &m_leveldata[lev]->temperature
+                          : nullptr,
+                      0);
                 }
                 if (m_nodal_vel_eta) {
                    amrex::average_node_to_cellcenter(mf[lev],icomp,mu_I,0,1);
@@ -880,10 +889,16 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
         }
         else if (vars[n] == "eta_ho") {
             if (m_nodal_vel_eta) {
-                amrex::Abort("incflo::WritePlotfileVariables : plotfile variable 'eta_ho' requires cell-centered viscosity");
+                amrex::Abort("plotfile variable 'eta_ho' requires cell-centered viscosity");
             }
-            if (m_fluid_model_second != FluidModel::GranularPowerlaw || m_mu_powerlaw.size() <= 1) {
-                amrex::Abort("incflo::WritePlotfileVariables : plotfile variable 'eta_ho' requires granularpowerlaw second-fluid high-order coefficients");
+            const bool has_eta_ho =
+                (m_fluid_model_second == FluidModel::GranularPowerlaw
+                 && m_mu_powerlaw.size() > 1) ||
+                (m_fluid_model_second == FluidModel::GranularPowerlawTemperature
+                 && m_mu_powerlaw_temperature.size() > 1);
+            if (!has_eta_ho) {
+                amrex::Abort(
+                "plotfile variable 'eta_ho' requires granularpowerlaw or granularpowerlaw_temperature high-order coeffs");
             }
             for (int lev = 0; lev <= finest_level; ++lev) {
                 MultiFab conc_second(mf[lev].boxArray(),

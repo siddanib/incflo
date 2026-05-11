@@ -120,7 +120,7 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                             // incflo's temperature diffusion solve
                             tem(i,j,k) *= (cp(i,j,k)/(cp(i,j,k) + gt_coll_dissp*l_dt));
                             // Using overset_mask to only solve for granular region
-                            if (tra_o(i,j,k,0) > min_conc_scnd ) {
+                            if (tra_o(i,j,k,0) >= min_conc_scnd ) {
                                 osm(i,j,k) = 1;
                             }
                             else {

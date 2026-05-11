@@ -71,7 +71,7 @@ void incflo::compute_tem_forces (Real time, Vector<MultiFab*> const& tem_forces)
             {
                 // Granular temperature forcing is modeled as a function of
                 // old-state inertial number and old-state temperature.
-                if (trac_old(i,j,k,0) > min_conc_scnd) {
+                if (trac_old(i,j,k,0) >= min_conc_scnd) {
                     tem_f(i,j,k) = fluc_prod_coeff *
                                    std::pow(inrt_num(i,j,k), fluc_prod_expnt);
                 }

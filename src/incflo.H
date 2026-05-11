@@ -40,7 +40,7 @@ public:
 
     enum struct FluidModel {
         Newtonian, powerlaw, Bingham, HerschelBulkley, deSouzaMendesDutra,
-        DataDrivenMPMD, Rauter, GranularPowerlaw
+        DataDrivenMPMD, Rauter, GranularPowerlaw, GranularPowerlawTemperature
     };
 
     incflo ();
@@ -422,6 +422,7 @@ public:
                                       amrex::MultiFab& vel_eta_second,
                                       amrex::MultiFab& conc_second);
     void compute_mu_I_at_level (int lev, amrex::MultiFab* inertial_num,
+                                amrex::MultiFab const* temperature,
                                 int nghost);
     void compute_granular_high_order_divtau_on_level (int ilev,
             amrex::MultiFab & a_divtau,
@@ -450,6 +451,14 @@ public:
                                      const amrex::MultiFab& p_static,
                                      amrex::Geometry& lev_geom);
     void compute_granular_powerlaw_second_order_coeff (int lev,
+                                                       amrex::MultiFab& scnd_coeff,
+                                                       const amrex::MultiFab& velocity,
+                                                       const amrex::MultiFab& density,
+                                                       const amrex::MultiFab& conc_second,
+                                                       const amrex::MultiFab& p_static,
+                                                       amrex::Geometry& lev_geom);
+    void compute_granular_powerlaw_temperature_second_order_coeff (
+                                                       int lev,
                                                        amrex::MultiFab& scnd_coeff,
                                                        const amrex::MultiFab& velocity,
                                                        const amrex::MultiFab& density,
@@ -751,6 +760,7 @@ private:
     amrex::Real m_I_0_second = amrex::Real(0.);
     // This is specifically for Granular_Powerlaw (Srivastava, JFM 2021)
     std::vector<std::vector<amrex::Real>> m_mu_powerlaw;
+    std::vector<std::vector<amrex::Real>> m_mu_powerlaw_temperature;
     amrex::Real m_I_1_N_powerlaw = amrex::Real(0.);
     // epsilon value to pressure while calculating Inertial Number
     amrex::Real m_mu_p_eps_second = amrex::Real(1.0e-4);

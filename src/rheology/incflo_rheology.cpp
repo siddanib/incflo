@@ -53,6 +53,8 @@ struct GranularViscosity
     amrex::Real mu_const, mu_A, mu_alpha;
     amrex::Real I_1_N, I_1_N_A_minus;
     amrex::Real I_1_N_alpha = amrex::Real(1.9);
+    // The below are for granular temperature dependent mu_1
+    amrex::Real I_c1,I_c2, I_c3, I_c4, I_e1, I_e2, I_e3, I_e4;
 
     void set_rauter_parameters (amrex::Real a_mu_1, amrex::Real a_mu_2,
                                 amrex::Real a_I_0) {
@@ -73,6 +75,17 @@ struct GranularViscosity
            amrex::Real I_1_N_mu = mu_const + mu_A * std::pow(I_1_N, mu_alpha);
            I_1_N_A_minus = I_1_N*std::exp(I_1_N_alpha/(I_1_N_mu*I_1_N_mu));
         }
+    }
+
+    void set_granularpowerlaw_temperature_parameters (
+                                          amrex::Real a_I_c1, amrex::Real a_I_e1,
+                                          amrex::Real a_I_c2, amrex::Real a_I_e2,
+                                          amrex::Real a_I_c3, amrex::Real a_I_e3,
+                                          amrex::Real a_I_c4, amrex::Real a_I_e4) {
+        I_c1 = a_I_c1; I_e1 = a_I_e1;
+        I_c2 = a_I_c2; I_e2 = a_I_e2;
+        I_c3 = a_I_c3; I_e3 = a_I_e3;
+        I_c4 = a_I_c4; I_e4 = a_I_e4;
     }
 
     AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
@@ -102,6 +115,20 @@ struct GranularViscosity
             return Real(0.);
         }
         };
+    }
+
+    AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    amrex::Real operator() (amrex::Real inrt_num, amrex::Real temperature) const noexcept {
+        if (fluid_model == incflo::FluidModel::GranularPowerlawTemperature) {
+            // Functional form from Kim and Kamrin, Frontiers in Physics (2023)
+            amrex::Real aa = I_c1*std::pow(inrt_num, I_e1) + I_c2*std::pow(inrt_num, I_e2)
+                            + I_c3*std::pow(inrt_num, I_e3) + I_c4*std::pow(inrt_num, I_e4);
+            aa /= std::pow(temperature+amrex::Real(1.0e-18), amrex::Real(1.0/6.0));
+            return aa;
+        }
+        else {
+            return amrex::Real(0.);
+        }
     }
 };
 
@@ -211,7 +238,8 @@ void incflo::compute_viscosity_at_level (int lev,
          int nghost_mix = nghost;
          if (m_fluid_model_second == FluidModel::DataDrivenMPMD
              || m_fluid_model_second == FluidModel::Rauter
-             || m_fluid_model_second == FluidModel::GranularPowerlaw) {
+             || m_fluid_model_second == FluidModel::GranularPowerlaw
+             || m_fluid_model_second == FluidModel::GranularPowerlawTemperature) {
              nghost_mix = 0;
          }
 #ifdef _OPENMP
@@ -266,7 +294,8 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
    }
    else if (m_fluid_model_second != FluidModel::DataDrivenMPMD
             && m_fluid_model_second != FluidModel::Rauter
-            && m_fluid_model_second != FluidModel::GranularPowerlaw)
+            && m_fluid_model_second != FluidModel::GranularPowerlaw
+            && m_fluid_model_second != FluidModel::GranularPowerlawTemperature)
    {
        // Non-Newtonian
        if (m_nodal_vel_eta) {
@@ -345,7 +374,8 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
        } else
 #endif
        if (m_fluid_model_second == FluidModel::Rauter ||
-           m_fluid_model_second == FluidModel::GranularPowerlaw) {
+           m_fluid_model_second == FluidModel::GranularPowerlaw ||
+           m_fluid_model_second == FluidModel::GranularPowerlawTemperature) {
           GranularViscosity granvisc;
           granvisc.fluid_model = m_fluid_model_second;
           if (m_fluid_model_second == FluidModel::Rauter)
@@ -353,12 +383,20 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
              granvisc.set_rauter_parameters(m_mu_1_second, m_mu_2_second,
                                             m_I_0_second);
           }
-          else
+          else if (m_fluid_model_second == FluidModel::GranularPowerlaw)
           {
              granvisc.set_granularpowerlaw_parameters(m_mu_powerlaw[0][0],
                                                       m_mu_powerlaw[0][1],
                                                       m_mu_powerlaw[0][2],
                                                       m_I_1_N_powerlaw);
+          }
+          else
+          {
+             granvisc.set_granularpowerlaw_temperature_parameters(
+                m_mu_powerlaw_temperature[0][0], m_mu_powerlaw_temperature[0][1],
+                m_mu_powerlaw_temperature[0][2], m_mu_powerlaw_temperature[0][3],
+                m_mu_powerlaw_temperature[0][4], m_mu_powerlaw_temperature[0][5],
+                m_mu_powerlaw_temperature[0][6], m_mu_powerlaw_temperature[0][7]);
           }
           // Inertial Number = diameter*strainrate*sqrt(rho_grain/p)
           // NOTE: Strain-rate calculated is TWO TIMES the actual value
@@ -370,29 +408,54 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
                                         &sr_mf,&p_static,m_mu_p_eps_second,
                                         m_ro_grain_second,m_diam_second,
                                         nghost_hydrostatic);
+          if (m_fluid_model_second == FluidModel::GranularPowerlawTemperature) {
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-          for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-          {
-              Box const& bx = mfi.growntilebox(nghost_hydrostatic);
-              Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
-              Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
-              Array4<Real const> const& inrt_num_arr = inertial_num.const_array(mfi);
-              Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
-              const Real eps = m_mu_sr_eps_second;
-              // Note: sr_mf contains TWO TIMES strain rate
-              // Note: Inertial number in Rauter 2021 (Eq. 2.29)
-              // has an extra factor of 2
-              amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+              for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
               {
-                   vel_eta_snd_arr(i,j,k) = granvisc(inrt_num_arr(i,j,k,0));
-                   // The above value is stress ratio
-                   // Regularized strain rate
-                   Real sr_reg = Real(0.5)*sr_arr(i,j,k) + eps;
-                   vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
-                   vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
-              });
+                  Box const& bx = mfi.growntilebox(nghost_hydrostatic);
+                  Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
+                  Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
+                  Array4<Real const> const& inrt_num_arr = inertial_num.const_array(mfi);
+                  Array4<Real const> const& temperature_arr =
+                      m_leveldata[lev]->temperature.const_array(mfi);
+                  Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
+                  const Real eps = m_mu_sr_eps_second;
+                  amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                  {
+                       vel_eta_snd_arr(i,j,k) =
+                           granvisc(inrt_num_arr(i,j,k,0), temperature_arr(i,j,k));
+                       Real sr_reg = Real(0.5)*sr_arr(i,j,k) + eps;
+                       vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
+                       vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
+                  });
+              }
+          } else {
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+              for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+              {
+                  Box const& bx = mfi.growntilebox(nghost_hydrostatic);
+                  Array4<Real const> const& sr_arr = sr_mf.const_array(mfi);
+                  Array4<Real const> const& p_static_arr = p_static.const_array(mfi);
+                  Array4<Real const> const& inrt_num_arr = inertial_num.const_array(mfi);
+                  Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
+                  const Real eps = m_mu_sr_eps_second;
+                  // Note: sr_mf contains TWO TIMES strain rate
+                  // Note: Inertial number in Rauter 2021 (Eq. 2.29)
+                  // has an extra factor of 2
+                  amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                  {
+                       vel_eta_snd_arr(i,j,k) = granvisc(inrt_num_arr(i,j,k,0));
+                       // The above value is stress ratio
+                       // Regularized strain rate
+                       Real sr_reg = Real(0.5)*sr_arr(i,j,k) + eps;
+                       vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
+                       vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
+                  });
+              }
           }
       }
       // As only valid cells/nodes were populated
@@ -560,6 +623,7 @@ void incflo::compute_nodal_non_newtonian_viscosity (int lev,
 
 // This function in-place converts inertial number to mu(I)
 void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
+                                    MultiFab const* temperature,
                                     int nghost)
 {
   GranularViscosity granvisc;
@@ -569,24 +633,49 @@ void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
      granvisc.set_rauter_parameters(m_mu_1_second, m_mu_2_second,
                                     m_I_0_second);
   }
-  else
+  else if (m_fluid_model_second == FluidModel::GranularPowerlaw)
   {
      granvisc.set_granularpowerlaw_parameters(m_mu_powerlaw[0][0],
                                               m_mu_powerlaw[0][1],
                                               m_mu_powerlaw[0][2],
                                               m_I_1_N_powerlaw);
   }
+  else
+  {
+     granvisc.set_granularpowerlaw_temperature_parameters(
+        m_mu_powerlaw_temperature[0][0], m_mu_powerlaw_temperature[0][1],
+        m_mu_powerlaw_temperature[0][2], m_mu_powerlaw_temperature[0][3],
+        m_mu_powerlaw_temperature[0][4], m_mu_powerlaw_temperature[0][5],
+        m_mu_powerlaw_temperature[0][6], m_mu_powerlaw_temperature[0][7]);
+  }
+  if (m_fluid_model_second == FluidModel::GranularPowerlawTemperature) {
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-  for (MFIter mfi(*inertial_num,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-  {
-      Box const& bx = mfi.growntilebox(nghost);
-      Array4<Real> const& inrt_num_arr = inertial_num->array(mfi);
-      amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+      for (MFIter mfi(*inertial_num,TilingIfNotGPU()); mfi.isValid(); ++mfi)
       {
-           inrt_num_arr(i,j,k,0) = granvisc(inrt_num_arr(i,j,k,0));
-      });
+          Box const& bx = mfi.growntilebox(nghost);
+          Array4<Real> const& inrt_num_arr = inertial_num->array(mfi);
+          Array4<Real const> const& temperature_arr = temperature->const_array(mfi);
+          amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+          {
+               inrt_num_arr(i,j,k,0) =
+                   granvisc(inrt_num_arr(i,j,k,0), temperature_arr(i,j,k));
+          });
+      }
+  } else {
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+      for (MFIter mfi(*inertial_num,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+      {
+          Box const& bx = mfi.growntilebox(nghost);
+          Array4<Real> const& inrt_num_arr = inertial_num->array(mfi);
+          amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+          {
+               inrt_num_arr(i,j,k,0) = granvisc(inrt_num_arr(i,j,k,0));
+          });
+      }
   }
 }
 
@@ -1108,9 +1197,15 @@ void incflo::compute_second_order_coeff (int lev, MultiFab& scnd_coeff,
                                           const MultiFab& p_static,
                                           Geometry& lev_geom)
 {
-    if (m_mu_powerlaw.size() > 1) {
+    if (m_fluid_model_second == FluidModel::GranularPowerlaw
+        && m_mu_powerlaw.size() > 1) {
         compute_granular_powerlaw_second_order_coeff(lev, scnd_coeff,
                 velocity, density, conc_second, p_static, lev_geom);
+    }
+    else if (m_fluid_model_second == FluidModel::GranularPowerlawTemperature
+             && m_mu_powerlaw_temperature.size() > 1) {
+        compute_granular_powerlaw_temperature_second_order_coeff(
+                lev, scnd_coeff, velocity, density, conc_second, p_static, lev_geom);
     }
     else if (m_probtype == 538) {
         scnd_coeff.setVal(Real(1.));
@@ -1142,6 +1237,65 @@ void incflo::compute_second_order_coeff (int lev, MultiFab& scnd_coeff,
                                                  eta_ho_max_scnd);
         });
     }
+}
+
+void incflo::compute_granular_powerlaw_temperature_second_order_coeff (
+                                                           int lev, MultiFab& scnd_coeff,
+                                                           const MultiFab& velocity,
+                                                           const MultiFab& density,
+                                                           const MultiFab& conc_second,
+                                                           const MultiFab& p_static,
+                                                           Geometry& lev_geom)
+{
+   amrex::ignore_unused(density);
+   MultiFab sr_mf(velocity.boxArray(), velocity.DistributionMap(),1,0);
+   compute_strainrate_at_level(lev,&sr_mf,&velocity,lev_geom,Real(0.0),0);
+
+   MultiFab inertial_num(velocity.boxArray(),velocity.DistributionMap(),1,0);
+   compute_inertial_num_at_level(lev,&inertial_num,
+                                 &sr_mf,&p_static,m_mu_p_eps_second,
+                                 m_ro_grain_second,m_diam_second,
+                                 0);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+   for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+   {
+       Box const& bx = mfi.tilebox();
+       Array4<Real const> const& sr_arr         = sr_mf.const_array(mfi);
+       Array4<Real const> const& p_static_arr   = p_static.const_array(mfi);
+       Array4<Real const> const& inrt_num_arr   = inertial_num.const_array(mfi);
+       Array4<Real const> const& conc_scnd_arr  = conc_second.const_array(mfi);
+       Array4<Real const> const& temperature_arr =
+           m_leveldata[lev]->temperature.const_array(mfi);
+       Array4<Real      > const& scnd_coeff_arr = scnd_coeff.array(mfi);
+       const Real temp_expnt  = Real(1.0/6.0);
+       const Real a_I_c1      = m_mu_powerlaw_temperature[1][0];
+       const Real a_I_e1      = m_mu_powerlaw_temperature[1][1];
+       const Real a_I_c2      = m_mu_powerlaw_temperature[1][2];
+       const Real a_I_e2      = m_mu_powerlaw_temperature[1][3];
+       const Real a_I_c3      = m_mu_powerlaw_temperature[1][4];
+       const Real a_I_e3      = m_mu_powerlaw_temperature[1][5];
+       const Real eps           = m_mu_sr_eps_second;
+
+       amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+       {
+            Real temperature_val = temperature_arr(i,j,k);
+            amrex::ignore_unused(temperature_val);
+            Real conc_val = conc_scnd_arr(i,j,k,0);
+            Real inrt_num_val = inrt_num_arr(i,j,k);
+            // Functional form from Kim and Kamrin, Frontiers in Physics (2023)
+            scnd_coeff_arr(i,j,k) = a_I_c1*std::pow(inrt_num_val, a_I_e1)
+                                    + a_I_c2*std::pow(inrt_num_val, a_I_e2)
+                                    + a_I_c3*std::pow(inrt_num_val, a_I_e3);
+            scnd_coeff_arr(i,j,k) /= std::pow(temperature_arr(i,j,k), temp_expnt);
+
+            scnd_coeff_arr(i,j,k) *= p_static_arr(i,j,k);
+            scnd_coeff_arr(i,j,k) /= ((Real(0.5)*sr_arr(i,j,k) + eps)
+                                     * (Real(0.5)*sr_arr(i,j,k) + eps));
+            scnd_coeff_arr(i,j,k) *= conc_val;
+       });
+   }
 }
 // Adding these high-order effects only in regions
 // with Inertial number greater than Neutral Inertial Number
@@ -1213,4 +1367,3 @@ void incflo::compute_temperature_diff_coeff (Real /*time*/, Vector<MultiFab*> co
         mf->setVal(m_mu_T);
     }
 }
-
