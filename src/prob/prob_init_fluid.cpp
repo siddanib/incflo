@@ -267,11 +267,13 @@ void incflo::prob_init_fluid (int lev)
                                      ld.density.array(mfi),
                                      ld.tracer.array(mfi));
         }
+#ifdef AMREX_USE_EB
         else if (539 == m_probtype) {
             init_taylor_couette(vbx,
                                 ld.velocity.array(mfi),
                                 dx, problo);
         }
+#endif
         else
         {
             amrex::Abort("prob_init_fluid: unknown m_probtype");

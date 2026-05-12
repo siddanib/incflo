@@ -581,6 +581,7 @@ void incflo::initialize_entire_domain_with_second_fluid (Box const& vbx,
     });
 }
 
+#ifdef AMREX_USE_EB
 void incflo::init_taylor_couette (Box const& vbx,
                                   Array4<Real> const& velocity,
                                   GpuArray<Real, AMREX_SPACEDIM> const& dx,
@@ -623,3 +624,4 @@ void incflo::init_taylor_couette (Box const& vbx,
            }
          });
 }
+#endif

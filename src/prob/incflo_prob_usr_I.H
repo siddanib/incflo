@@ -193,9 +193,10 @@
                                    amrex::Array4<amrex::Real> const& density,
                                    amrex::Array4<amrex::Real> const& tracer) const;
 
-
-void init_taylor_couette (amrex::Box const& vbx,
-                          amrex::Array4<amrex::Real> const& velocity,
-                          amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& dx,
-                          amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo) const;
+#ifdef AMREX_USE_EB
+    void init_taylor_couette (amrex::Box const& vbx,
+                              amrex::Array4<amrex::Real> const& velocity,
+                              amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& dx,
+                              amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> const& problo) const;
+#endif
 #endif
