@@ -188,7 +188,7 @@ void incflo::ReadParameters ()
         pp.query("mu_T", m_mu_T);
         pp.query("cp", m_cp);
 
-        // Check if temperature needs to be used as granular temperature 
+        // Check if temperature needs to be used as granular temperature
         pp.query("use_granular_temperature", m_use_granular_temperature);
         if ((m_use_granular_temperature) && (!m_use_temperature)) {
             // Temperature is used as Granular Temperature
@@ -196,7 +196,7 @@ void incflo::ReadParameters ()
         }
         if (m_use_granular_temperature && (!m_two_fluid)) {
             amrex::Abort("use_granular_temperature needs to be used with two_fluid");
-        }    
+        }
 
     } // end prefix incflo
 
@@ -273,7 +273,7 @@ void incflo::ReadParameters ()
     } // end prefix eb_flow
 #endif
 
-    { // Prefix granular_temperature 
+    { // Prefix granular_temperature
        ParmParse pp_gran_temp("granular_temperature");
        pp_gran_temp.query("collisional_dissipation",
           m_gran_temp_collisional_dissipation);

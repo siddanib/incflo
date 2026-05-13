@@ -1277,24 +1277,28 @@ void incflo::compute_granular_powerlaw_temperature_second_order_coeff (
        const Real a_I_c3      = m_mu_powerlaw_temperature[1][4];
        const Real a_I_e3      = m_mu_powerlaw_temperature[1][5];
        const Real eps           = m_mu_sr_eps_second;
+       const Real min_conc_scnd = m_min_conc_second;
 
        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
        {
-            Real temperature_val = temperature_arr(i,j,k);
-            amrex::ignore_unused(temperature_val);
             Real conc_val = conc_scnd_arr(i,j,k,0);
-            Real inrt_num_val = inrt_num_arr(i,j,k);
-            // Functional form from Kim and Kamrin, Frontiers in Physics (2023)
-            scnd_coeff_arr(i,j,k) = a_I_c1*std::pow(inrt_num_val, a_I_e1)
-                                    + a_I_c2*std::pow(inrt_num_val, a_I_e2)
-                                    + a_I_c3*std::pow(inrt_num_val, a_I_e3);
-            scnd_coeff_arr(i,j,k) /= std::pow(temperature_arr(i,j,k)+Real(1.0e-18),
-                                              temp_expnt);
+            if (conc_val >= min_conc_scnd) {
+                Real inrt_num_val = inrt_num_arr(i,j,k);
+                // Functional form from Kim and Kamrin, Frontiers in Physics (2023)
+                scnd_coeff_arr(i,j,k) = a_I_c1*std::pow(inrt_num_val, a_I_e1)
+                                        + a_I_c2*std::pow(inrt_num_val, a_I_e2)
+                                        + a_I_c3*std::pow(inrt_num_val, a_I_e3);
+                scnd_coeff_arr(i,j,k) /= std::pow(temperature_arr(i,j,k)+Real(1.0e-18),
+                                                  temp_expnt);
 
-            scnd_coeff_arr(i,j,k) *= p_static_arr(i,j,k);
-            scnd_coeff_arr(i,j,k) /= ((Real(0.5)*sr_arr(i,j,k) + eps)
-                                     * (Real(0.5)*sr_arr(i,j,k) + eps));
-            scnd_coeff_arr(i,j,k) *= conc_val;
+                scnd_coeff_arr(i,j,k) *= p_static_arr(i,j,k);
+                scnd_coeff_arr(i,j,k) /= ((Real(0.5)*sr_arr(i,j,k) + eps)
+                                         * (Real(0.5)*sr_arr(i,j,k) + eps));
+                scnd_coeff_arr(i,j,k) *= conc_val;
+            }
+            else {
+                scnd_coeff_arr(i,j,k) = Real(0.);
+            }
        });
    }
 }
@@ -1341,14 +1345,19 @@ void incflo::compute_granular_powerlaw_second_order_coeff (int lev, MultiFab& sc
        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
        {
             Real conc_val = conc_scnd_arr(i,j,k,0);
-            Real inrt_num_val = inrt_num_arr(i,j,k);
-            scnd_coeff_arr(i,j,k) = mu_const +
-                                    mu_A * std::pow(inrt_num_val,
-                                                    Real(2.0)*mu_alpha);
-            scnd_coeff_arr(i,j,k) *= p_static_arr(i,j,k);
-            scnd_coeff_arr(i,j,k) /= ((Real(0.5)*sr_arr(i,j,k) + eps)
-                                     * (Real(0.5)*sr_arr(i,j,k) + eps));
-            scnd_coeff_arr(i,j,k) *= conc_val;
+            if (conc_val >= min_conc_scnd) {
+                Real inrt_num_val = inrt_num_arr(i,j,k);
+                scnd_coeff_arr(i,j,k) = mu_const +
+                                        mu_A * std::pow(inrt_num_val,
+                                                        Real(2.0)*mu_alpha);
+                scnd_coeff_arr(i,j,k) *= p_static_arr(i,j,k);
+                scnd_coeff_arr(i,j,k) /= ((Real(0.5)*sr_arr(i,j,k) + eps)
+                                         * (Real(0.5)*sr_arr(i,j,k) + eps));
+                scnd_coeff_arr(i,j,k) *= conc_val;
+            }
+            else {
+                scnd_coeff_arr(i,j,k) = Real(0.);
+            }
        });
    }
 }
