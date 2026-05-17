@@ -132,6 +132,12 @@ private:
                                 amrex::Vector<amrex::MultiFab const*> const& rhs,
                                 amrex::Real dt);
 
+    // This function essentially performs the Newton iteration loop
+    void diffuse_velocity_alpha_factor (amrex::Vector<amrex::MultiFab*> const& velocity,
+                                        amrex::Vector<amrex::MultiFab*> const& density,
+                                        amrex::Vector<amrex::MultiFab const*> const& eta,
+                                        amrex::Real dt);
+
     incflo* m_incflo;
 
     std::unique_ptr<GM> m_gmres;
@@ -153,6 +159,9 @@ private:
     int m_nghost_vel     = 1;
     bool m_use_eta_from_prev_time = true;
     bool m_use_ho_coeff_from_prev_time = false;
+    // This variable is used to gradually increase
+    // the effect of nonlinear div(tau)
+    amrex::Real m_alpha_factor = amrex::Real(1.);
     // DiffusionOp verbosity
     int m_verbose = 1;
     // Options to control GMRES behavior

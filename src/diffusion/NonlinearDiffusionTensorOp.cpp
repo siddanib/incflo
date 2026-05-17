@@ -141,6 +141,7 @@ void NonlinearDiffusionTensorOp::readParameters ()
     pp.query("use_gauss_seidel", m_mg_use_gauss_seidel);
 }
 
+
 void NonlinearDiffusionTensorOp::diffuse_velocity (
                        Vector<MultiFab*> const& velocity,
                        Vector<MultiFab*> const& density,
@@ -154,6 +155,26 @@ void NonlinearDiffusionTensorOp::diffuse_velocity (
                             GetVecOfConstPtrs(velocity),
                             GetVecOfConstPtrs(eta), dt);
 
+    Array<Real, 8> alpha_factor_list = {Real(0.25) , Real(0.5),
+                                        Real(0.75) , Real(0.8),
+                                        Real(0.9)  , Real(0.95),
+                                        Real(0.975), Real(1.0)};
+
+    for (Real alpha_factor : alpha_factor_list) {
+        m_alpha_factor = alpha_factor;
+        // Update m_newton_iter_func because m_alpha_factor has changed
+        compute_viscous_solve_equation(GetVecOfPtrs(m_newton_iter_func),
+                                  GetVecOfConstPtrs(m_newton_iter_vel));
+        diffuse_velocity_alpha_factor(velocity, density, eta, dt);
+    }
+}
+
+void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
+                       Vector<MultiFab*> const& velocity,
+                       Vector<MultiFab*> const& density,
+                       Vector<MultiFab const*> const& eta,
+                       Real dt)
+{
     int nlevels = velocity.size();
     // Create a Vector<MultiFab> for RHS of Newton Method
     // This is different from RHS of Viscous solve equation
@@ -537,7 +558,8 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
 #endif
     }
     // Increment only in valid and non-covered cells
-    increment(a_divtau, GetVecOfConstPtrs(ho_divtau), Real(1.0));
+    Real alpha_factor = m_alpha_factor;
+    increment(a_divtau, GetVecOfConstPtrs(ho_divtau), alpha_factor);
 }
 
 void NonlinearDiffusionTensorOp::update_member_multifabs (
@@ -686,12 +708,13 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
 
     if (norm_new >= norm_old) {
         // Update using a factor of lambda
-        Real lambda = Real(1.0);
+        Real lambda_1 = Real(1.0); Real lambda_2;
         Real alpha  = m_newton_update_alpha;
         Real beta;
         for (int iter=1; iter <= m_newton_update_max_iter; ++iter) {
-            lambda *= Real(1.0) - alpha;
-            beta = Real(-1.0)*lambda/(Real(1.0)-alpha);
+            lambda_2 = (Real(1.0) - alpha)*lambda_1;
+            beta = lambda_2 - lambda_1;
+            lambda_1 = lambda_2;
             // Remove portion of the incremental velocity without ghost and covered cells
             increment(GetVecOfPtrs(m_newton_iter_vel),
                       a_vel_increment, beta);
