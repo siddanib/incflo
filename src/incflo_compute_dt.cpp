@@ -334,4 +334,7 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
     {
     m_dt = dt_new;
     }
+    if (m_two_fluid) {
+        m_dt = std::min(m_dt, m_two_fluid_max_dt);
+    }
 }

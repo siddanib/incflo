@@ -735,6 +735,7 @@ private:
 #endif
     // Adding properties for a second fluid
     bool m_two_fluid = false;
+    amrex::Real m_two_fluid_max_dt = amrex::Real(1.0e+18);
     bool m_two_fluid_rho_harmonic = true;
     bool m_two_fluid_eta_harmonic = true;
     // This boolean decides if second fluid concentration is calculated

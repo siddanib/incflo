@@ -159,6 +159,7 @@ void incflo::ReadParameters ()
         pp.query("two_fluid_rho_harmonic",m_two_fluid_rho_harmonic);
         pp.query("two_fluid_eta_harmonic",m_two_fluid_eta_harmonic);
         pp.query("two_fluid_cc_rho_conc",m_two_fluid_cc_rho_conc);
+        pp.query("two_fluid_max_dt", m_two_fluid_max_dt);
 
         // Density (if constant)
         pp.query("ro_0", m_ro_0);

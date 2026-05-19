@@ -422,10 +422,17 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
                       m_leveldata[lev]->temperature.const_array(mfi);
                   Array4<Real> const& vel_eta_snd_arr = vel_eta_second.array(mfi);
                   const Real eps = m_mu_sr_eps_second;
+                  const Real gt_coll_disp  = m_gran_temp_collisional_dissipation;
+                  const Real gt_prod_coeff =  m_gran_temp_local_fluctuation_production_coeff;
+                  const Real gt_prod_expnt =  m_gran_temp_local_fluctuation_production_expnt;
                   amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                   {
                        vel_eta_snd_arr(i,j,k) =
                            granvisc(inrt_num_arr(i,j,k,0), temperature_arr(i,j,k));
+                       // See Eq 2.4 in Yuan, Zhai, Wang, JFM (2026)
+                       Real gt_loc = gt_prod_coeff*std::pow(inrt_num_arr(i,j,k,0),gt_prod_expnt);
+                       gt_loc /= gt_coll_disp;
+                       vel_eta_snd_arr(i,j,k) *= std::pow(gt_loc,Real(1./6.));
                        Real sr_reg = Real(0.5)*sr_arr(i,j,k) + eps;
                        vel_eta_snd_arr(i,j,k) *= p_static_arr(i,j,k);
                        vel_eta_snd_arr(i,j,k) /= (Real(2.0)*sr_reg);
@@ -661,6 +668,7 @@ void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
           {
                inrt_num_arr(i,j,k,0) =
                    granvisc(inrt_num_arr(i,j,k,0), temperature_arr(i,j,k));
+               inrt_num_arr(i,j,k,0) *= std::pow(temperature_arr(i,j,k),Real(1.0/6.0));
           });
       }
   } else {
@@ -1278,6 +1286,9 @@ void incflo::compute_granular_powerlaw_temperature_second_order_coeff (
        const Real a_I_e3      = m_mu_powerlaw_temperature[1][5];
        const Real eps           = m_mu_sr_eps_second;
        const Real min_conc_scnd = m_min_conc_second;
+       const Real gt_coll_disp  = m_gran_temp_collisional_dissipation;
+       const Real gt_prod_coeff =  m_gran_temp_local_fluctuation_production_coeff;
+       const Real gt_prod_expnt =  m_gran_temp_local_fluctuation_production_expnt;
 
        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
        {
@@ -1290,6 +1301,10 @@ void incflo::compute_granular_powerlaw_temperature_second_order_coeff (
                                         + a_I_c3*std::pow(inrt_num_val, a_I_e3);
                 scnd_coeff_arr(i,j,k) /= std::pow(temperature_arr(i,j,k)+Real(1.0e-18),
                                                   temp_expnt);
+                // See Eq 2.4 in Yuan, Zhai, Wang, JFM (2026)
+                Real gt_loc = gt_prod_coeff*std::pow(inrt_num_val,gt_prod_expnt);
+                gt_loc /= gt_coll_disp;
+                scnd_coeff_arr(i,j,k) *= std::pow(gt_loc, temp_expnt);
 
                 scnd_coeff_arr(i,j,k) *= p_static_arr(i,j,k);
                 scnd_coeff_arr(i,j,k) /= ((Real(0.5)*sr_arr(i,j,k) + eps)
