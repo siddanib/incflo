@@ -89,6 +89,10 @@ public:
 #endif
             );
 
+    // This function adds higher-order contribution to the preconditioner
+    void compute_preconditioner_eta (
+                       amrex::Vector<std::unique_ptr<amrex::MultiFab>>& eta_precond,
+                       amrex::Vector<amrex::MultiFab const*> const& eta);
 
 private:
 
@@ -131,11 +135,6 @@ private:
                                 amrex::Vector<amrex::MultiFab const*> const& eta,
                                 amrex::Vector<amrex::MultiFab const*> const& rhs,
                                 amrex::Real dt);
-
-    // This function adds higher-order contribution to the preconditioner
-    void compute_preconditioner_eta (
-                       amrex::Vector<std::unique_ptr<amrex::MultiFab>>& eta_precond,
-                       amrex::Vector<amrex::MultiFab const*> const& eta);
 
     // This function essentially performs the Newton iteration loop
     void diffuse_velocity_alpha_factor (amrex::Vector<amrex::MultiFab*> const& velocity,
