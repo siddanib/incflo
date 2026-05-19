@@ -132,6 +132,11 @@ private:
                                 amrex::Vector<amrex::MultiFab const*> const& rhs,
                                 amrex::Real dt);
 
+    // This function adds higher-order contribution to the preconditioner
+    void compute_preconditioner_eta (
+                       amrex::Vector<std::unique_ptr<amrex::MultiFab>>& eta_precond,
+                       amrex::Vector<amrex::MultiFab const*> const& eta);
+
     // This function essentially performs the Newton iteration loop
     void diffuse_velocity_alpha_factor (amrex::Vector<amrex::MultiFab*> const& velocity,
                                         amrex::Vector<amrex::MultiFab*> const& density,
@@ -159,6 +164,7 @@ private:
     int m_nghost_vel     = 1;
     bool m_use_eta_from_prev_time = true;
     bool m_use_ho_coeff_from_prev_time = false;
+    bool m_use_ho_eta_precond = false;
     // This variable is used to gradually increase
     // the effect of nonlinear div(tau)
     amrex::Real m_alpha_factor = amrex::Real(1.);

@@ -118,6 +118,7 @@ void NonlinearDiffusionTensorOp::readParameters ()
     pp.query("newton_update_max_iter", m_newton_update_max_iter);
     pp.query("use_eta_from_prev_time", m_use_eta_from_prev_time);
     pp.query("use_ho_coeff_from_prev_time", m_use_ho_coeff_from_prev_time);
+    pp.query("use_ho_eta_precond", m_use_ho_eta_precond);
 
     pp.query("gmres_verbose", m_gmres_verbose);
     pp.query("gmres_max_iter", m_gmres_max_iter);
@@ -748,6 +749,63 @@ Real NonlinearDiffusionTensorOp::get_norm_of_residual ()
     return norm2(GetVecOfConstPtrs(m_newton_iter_func));
 }
 
+void NonlinearDiffusionTensorOp::compute_preconditioner_eta (
+                            Vector<std::unique_ptr<MultiFab>>& eta_precond,
+                            Vector<MultiFab const*> const& eta)
+{
+    const int finest_level = m_incflo->finestLevel();
+    auto const& ho_coeff_velocity = m_use_ho_coeff_from_prev_time
+        ? GetVecOfConstPtrs(m_old_iter_vel)
+        : GetVecOfConstPtrs(m_newton_iter_vel);
+
+    eta_precond.resize(finest_level + 1);
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        const int ng = eta[lev]->nGrow();
+        eta_precond[lev] = std::make_unique<MultiFab>(
+            eta[lev]->boxArray(), eta[lev]->DistributionMap(),
+            1, ng, MFInfo(), eta[lev]->Factory());
+        MultiFab::Copy(*eta_precond[lev], *eta[lev], 0, 0, 1, ng);
+
+        if (!m_incflo->m_two_fluid || eta[lev]->boxArray().ixType().nodeCentered()) {
+            continue;
+        }
+
+        MultiFab scndOrderCoeff(eta[lev]->boxArray(), eta[lev]->DistributionMap(),
+                                1, 0, MFInfo(), eta[lev]->Factory());
+        m_incflo->compute_second_order_coeff(lev, scndOrderCoeff,
+                                *ho_coeff_velocity[lev],
+                                *m_density[lev], *m_conc_second[lev],
+                                *m_p_static[lev], m_incflo->Geom(lev));
+
+        MultiFab strainrate(eta[lev]->boxArray(), eta[lev]->DistributionMap(),
+                            1, 0, MFInfo(), eta[lev]->Factory());
+        m_incflo->compute_strainrate_at_level(lev, &strainrate,
+                                ho_coeff_velocity[lev],
+                                m_incflo->Geom(lev), Real(0.0), 0);
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(*eta_precond[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            Box const& bx = mfi.tilebox();
+            Array4<Real      > const& eta_arr = eta_precond[lev]->array(mfi);
+            Array4<Real const> const& c2_arr  = scndOrderCoeff.const_array(mfi);
+            Array4<Real const> const& sr_arr  = strainrate.const_array(mfi);
+            const Real alpha_factor = m_alpha_factor;
+            const Real eps = m_incflo->m_mu_sr_eps_second;
+
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                // Note: sr_mf contains TWO TIMES strain rate
+                Real Dmag = Real(0.5)*sr_arr(i,j,k) + eps;
+                eta_arr(i,j,k) += alpha_factor*c2_arr(i,j,k)*Dmag;
+            });
+        }
+
+        eta_precond[lev]->FillBoundary(m_incflo->Geom(lev).periodicity());
+    }
+}
+
 // This function is used in the precond of GMRES
 void NonlinearDiffusionTensorOp::diffuse_velocity_mlmg (
                             Vector<MultiFab*> const& velocity,
@@ -766,6 +824,12 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_mlmg (
     //      a: rho
     //      b: mu
     const int finest_level = m_incflo->finestLevel();
+    Vector<std::unique_ptr<MultiFab>> eta_precond;
+    Vector<MultiFab const*> eta_mlmg = eta;
+    if (m_use_ho_eta_precond && m_incflo->m_two_fluid) {
+        compute_preconditioner_eta(eta_precond, eta);
+        eta_mlmg = GetVecOfConstPtrs(eta_precond);
+    }
 #ifdef AMREX_USE_EB
     if (m_eb_solve_op)
     {
@@ -776,17 +840,17 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_mlmg (
         for (int lev = 0; lev <= finest_level; ++lev) {
             m_eb_solve_op->setACoeffs(lev, *density[lev]);
 
-            Array<MultiFab,AMREX_SPACEDIM> b = m_incflo->average_velocity_eta_to_faces(lev, *eta[lev]);
+            Array<MultiFab,AMREX_SPACEDIM> b = m_incflo->average_velocity_eta_to_faces(lev, *eta_mlmg[lev]);
 
             m_eb_solve_op->setShearViscosity(lev, GetArrOfConstPtrs(b), MLMG::Location::FaceCentroid);
 
             //if (m_incflo->hasEBFlow()) {
-            //   m_eb_solve_op->setEBShearViscosityWithInflow(lev, *eta[lev], *(m_incflo->get_velocity_eb()[lev]));
+            //   m_eb_solve_op->setEBShearViscosityWithInflow(lev, *eta_mlmg[lev], *(m_incflo->get_velocity_eb()[lev]));
             //} else {
-            //   m_eb_solve_op->setEBShearViscosity(lev, *eta[lev]);
+            //   m_eb_solve_op->setEBShearViscosity(lev, *eta_mlmg[lev]);
             //}
             // Preconditioner is solving for delta u; so DIRICHLET IS ALWAYS HOMOGENEOUS
-            m_eb_solve_op->setEBShearViscosity(lev, *eta[lev]);
+            m_eb_solve_op->setEBShearViscosity(lev, *eta_mlmg[lev]);
         }
     }
     else
@@ -796,11 +860,11 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_mlmg (
         for (int lev = 0; lev <= finest_level; ++lev) {
             m_reg_solve_op->setACoeffs(lev, *density[lev]);
             Array<MultiFab,AMREX_SPACEDIM> b;
-            if (eta[lev]->boxArray().ixType().nodeCentered()) {
-                b = incflo::average_nodal_velocity_eta_to_faces(lev, *eta[lev]);
+            if (eta_mlmg[lev]->boxArray().ixType().nodeCentered()) {
+                b = incflo::average_nodal_velocity_eta_to_faces(lev, *eta_mlmg[lev]);
             }
             else {
-                b = m_incflo->average_velocity_eta_to_faces(lev, *eta[lev]);
+                b = m_incflo->average_velocity_eta_to_faces(lev, *eta_mlmg[lev]);
             }
             m_reg_solve_op->setShearViscosity(lev, GetArrOfConstPtrs(b));
         }
