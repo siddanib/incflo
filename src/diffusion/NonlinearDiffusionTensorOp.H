@@ -166,6 +166,10 @@ private:
     bool m_use_ho_eta_precond = false;
     // This variable is used to gradually increase
     // the effect of nonlinear div(tau)
+    amrex::Vector<amrex::Real> m_alpha_factor_list{amrex::Real(0.25),
+        amrex::Real(0.5), amrex::Real(0.75), amrex::Real(0.8),
+        amrex::Real(0.9), amrex::Real(0.9), amrex::Real(0.95),
+        amrex::Real(0.975), amrex::Real(1.0)};
     amrex::Real m_alpha_factor = amrex::Real(1.);
     // DiffusionOp verbosity
     int m_verbose = 1;

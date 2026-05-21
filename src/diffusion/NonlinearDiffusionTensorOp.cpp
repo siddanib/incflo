@@ -120,6 +120,15 @@ void NonlinearDiffusionTensorOp::readParameters ()
     pp.query("use_ho_coeff_from_prev_time", m_use_ho_coeff_from_prev_time);
     pp.query("use_ho_eta_precond", m_use_ho_eta_precond);
     pp.query("newton_epsilon", m_newton_epsilon);
+    // Get the alpha_factor_list from input file
+    if (pp.queryarr("alpha_factor_list",m_alpha_factor_list)) {
+        m_alpha_factor_list.clear();
+    }
+    pp.queryarr("alpha_factor_list",m_alpha_factor_list);
+    // Last value NEEDS to be UNITY
+    if (m_alpha_factor_list.back() != Real(1.0)) {
+        m_alpha_factor_list.emplace_back(Real(1.0));
+    }
 
     pp.query("gmres_verbose", m_gmres_verbose);
     pp.query("gmres_max_iter", m_gmres_max_iter);
@@ -157,12 +166,7 @@ void NonlinearDiffusionTensorOp::diffuse_velocity (
                             GetVecOfConstPtrs(velocity),
                             GetVecOfConstPtrs(eta), dt);
 
-    Array<Real, 8> alpha_factor_list = {Real(0.25) , Real(0.5),
-                                        Real(0.75) , Real(0.8),
-                                        Real(0.9)  , Real(0.95),
-                                        Real(0.975), Real(1.0)};
-
-    for (Real alpha_factor : alpha_factor_list) {
+    for (Real alpha_factor : m_alpha_factor_list) {
         m_alpha_factor = alpha_factor;
         // Update m_newton_iter_func because m_alpha_factor has changed
         compute_viscous_solve_equation(GetVecOfPtrs(m_newton_iter_func),
