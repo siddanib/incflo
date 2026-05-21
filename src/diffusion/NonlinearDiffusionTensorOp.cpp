@@ -119,6 +119,7 @@ void NonlinearDiffusionTensorOp::readParameters ()
     pp.query("use_eta_from_prev_time", m_use_eta_from_prev_time);
     pp.query("use_ho_coeff_from_prev_time", m_use_ho_coeff_from_prev_time);
     pp.query("use_ho_eta_precond", m_use_ho_eta_precond);
+    pp.query("newton_epsilon", m_newton_epsilon);
 
     pp.query("gmres_verbose", m_gmres_verbose);
     pp.query("gmres_max_iter", m_gmres_max_iter);
