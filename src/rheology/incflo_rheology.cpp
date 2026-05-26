@@ -828,9 +828,27 @@ incflo::compute_granular_high_order_divtau_on_level (int ilev,
 #endif
             MultiFab& scndOrderCoeff, bool already_on_centroids)
 {
-        // Face-averaged scndOrderCoeff; This handles boundary faces
-    Array<MultiFab,AMREX_SPACEDIM> fc_scndOrdr =
-                 average_velocity_eta_to_faces(ilev,scndOrderCoeff);
+    const int ncomp_ho = scndOrderCoeff.nComp();
+    // Face-averaged scndOrderCoeff; This handles boundary faces
+    const auto& ba_ho   = scndOrderCoeff.boxArray();
+    const auto& dm_ho   = scndOrderCoeff.DistributionMap();
+    const auto& fact_ho = scndOrderCoeff.Factory();
+    Array<MultiFab,AMREX_SPACEDIM> fc_scndOrdr{
+            AMREX_D_DECL(MultiFab(amrex::convert(ba_ho,IntVect::TheDimensionVector(0)),
+                                  dm_ho, ncomp_ho, 0, MFInfo(), fact_ho),
+                         MultiFab(amrex::convert(ba_ho,IntVect::TheDimensionVector(1)),
+                                  dm_ho, ncomp_ho, 0, MFInfo(), fact_ho),
+                         MultiFab(amrex::convert(ba_ho,IntVect::TheDimensionVector(2)),
+                                  dm_ho, ncomp_ho, 0, MFInfo(), fact_ho))};
+    for (int icomp=0; icomp < ncomp_ho; icomp++) {
+        MultiFab alias_scndOrdr(scndOrderCoeff,amrex::make_alias, icomp, 1);
+        Array<MultiFab,AMREX_SPACEDIM> fc_icomp =
+                 average_velocity_eta_to_faces(ilev, alias_scndOrdr);
+        for (int idim=0; idim < AMREX_SPACEDIM; idim++) {
+            MultiFab::Copy(fc_scndOrdr[idim], fc_icomp[idim],
+                           0, icomp, 1, 0);
+        }
+    }
     a_divtau.setVal(Real(0.));
     // Fluxes for faces that align with (x,y,z)
     Array<MultiFab, AMREX_SPACEDIM> fluxes;
@@ -941,6 +959,7 @@ incflo::compute_granular_high_order_fluxes_on_level (
                      const Array<const MultiFab*,AMREX_SPACEDIM>& gradVel,
                      const Array<const MultiFab*,AMREX_SPACEDIM>& scndOrderCoeff)
 {
+    const int ncomp_ho = scndOrderCoeff[0]->nComp();
     // X-flux
     int idim = 0;
 #ifdef _OPENMP
@@ -998,6 +1017,30 @@ incflo::compute_granular_high_order_fluxes_on_level (
           A_13 *= Real(-1.0);
           flux_arr(i,j,k,2) = A_13;
 #endif
+          if (ncomp_ho > 1) {
+              Real B_11 = Real(0.25)*(-uy+vx)*(uy+vx)
+                          - Real(0.25)*(uy-vx)*(uy+vx);
+              Real B_12 = Real(0.25)*(uy-vx)*(ux-vy);
+#if (AMREX_SPACEDIM == 3)
+              B_11 += Real(0.25)*(-uz+wx)*(uz+wx)
+                      - Real(0.25)*(uz-wx)*(uz+wx);
+              B_12 += -Real(0.25)*(uz-wx)*(vz+wy)
+                      + Real(0.25)*(uz+wx)*(-vz+wy);
+              Real B_13 = -Real(0.25)*(uy-vx)*(vz+wy)
+                          + Real(0.25)*(uy+vx)*(vz-wy)
+                          + Real(0.25)*(uz-wx)*(ux-wz);
+#endif
+              // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
+              // BE A MINUS IN FRONT OF THE TERMS
+              B_11 *= Real(-1.)*scndCoeff_arr(i,j,k,1);
+              B_12 *= Real(-1.)*scndCoeff_arr(i,j,k,1);
+              flux_arr(i,j,k,0) += B_11;
+              flux_arr(i,j,k,1) += B_12;
+#if (AMREX_SPACEDIM == 3)
+              B_13 *= Real(-1.)*scndCoeff_arr(i,j,k,1);
+              flux_arr(i,j,k,2) += B_13;
+#endif
+          }
        });
    }
 
@@ -1059,6 +1102,30 @@ incflo::compute_granular_high_order_fluxes_on_level (
 #if (AMREX_SPACEDIM == 3)
           A_23 *= Real(-1.0); flux_arr(i,j,k,2) = A_23;
 #endif
+          if (ncomp_ho > 1) {
+              Real B_12 = Real(0.25)*(uy-vx)*(ux-vy);
+              Real B_22 = -Real(0.25)*(-uy+vx)*(uy+vx)
+                          +Real(0.25)*(uy-vx)*(uy+vx);
+#if (AMREX_SPACEDIM == 3)
+              B_12 += -Real(0.25)*(uz-wx)*(vz+wy)
+                      + Real(0.25)*(uz+wx)*(-vz+wy);
+              B_22 += Real(0.25)*(-vz+wy)*(vz+wy)
+                      -Real(0.25)*(vz-wy)*(vz+wy);
+              Real B_23 = -Real(0.25)*(-uy+vx)*(uz+wx)
+                          +Real(0.25)*(uy+vx)*(uz-wx)
+                          +Real(0.25)*(vz-wy)*(vy-wz);
+#endif
+              // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
+              // BE A MINUS IN FRONT OF THE TERMS
+              B_12 *= Real(-1.)*scndCoeff_arr(i,j,k,1);
+              B_22 *= Real(-1.)*scndCoeff_arr(i,j,k,1);
+              flux_arr(i,j,k,0) += B_12;
+              flux_arr(i,j,k,1) += B_22;
+#if (AMREX_SPACEDIM == 3)
+              B_23 *= Real(-1.)*scndCoeff_arr(i,j,k,1);
+              flux_arr(i,j,k,2) += B_23;
+#endif
+          }
        });
    }
 
@@ -1108,6 +1175,26 @@ incflo::compute_granular_high_order_fluxes_on_level (
           A_13 *= Real(-1.0); A_23 *= Real(-1.0); A_33 *= Real(-1.0);
           flux_arr(i,j,k,0) = A_13; flux_arr(i,j,k,1) = A_23;
           flux_arr(i,j,k,2) = A_33;
+          if (ncomp_ho > 1) {
+              Real B_13 = -Real(0.25)*(uy-vx)*(vz+wy)
+                          + Real(0.25)*(uy+vx)*(vz-wy)
+                          + Real(0.25)*(uz-wx)*(ux-wz);
+              Real B_23 = -Real(0.25)*(-uy+vx)*(uz+wx)
+                          +Real(0.25)*(uy+vx)*(uz-wx)
+                          +Real(0.25)*(vz-wy)*(vy-wz);
+              Real B_33 = -Real(0.25)*(-uz+wx)*(uz+wx)
+                          +Real(0.25)*(uz-wx)*(uz+wx)
+                          -Real(0.25)*(-vz+wy)*(vz+wy)
+                          +Real(0.25)*(vz-wy)*(vz+wy);
+              // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
+              // BE A MINUS IN FRONT OF THE TERMS
+              B_13 *= Real(-1.)*scndCoeff_arr(i,j,k,1);
+              B_23 *= Real(-1.)*scndCoeff_arr(i,j,k,1);
+              B_33 *= Real(-1.)*scndCoeff_arr(i,j,k,1);
+              flux_arr(i,j,k,0) += B_13;
+              flux_arr(i,j,k,1) += B_23;
+              flux_arr(i,j,k,2) += B_33;
+          }
        });
    }
 #endif
@@ -1119,6 +1206,7 @@ incflo::compute_granular_high_order_fluxes_on_level (MultiFab* flux_eb,
                                           const MultiFab* gradVel_EB,
                                           const MultiFab* scndOrderCoeff)
 {
+    const int ncomp_ho = scndOrderCoeff->nComp();
     flux_eb->setVal(Real(0.));
     const auto& factory =
       dynamic_cast<EBFArrayBoxFactory const&>(scndOrderCoeff->Factory());
@@ -1191,6 +1279,43 @@ incflo::compute_granular_high_order_fluxes_on_level (MultiFab* flux_eb,
                     flux_arr(i,j,k,1) = A_12*nx + A_22*ny + A_23*nz;
                     flux_arr(i,j,k,2) = A_13*nx + A_23*ny + A_33*nz;
 #endif
+                    if (ncomp_ho > 1) {
+                        const Real eta_3 = scndCoeff_arr(i,j,k,1);
+                        Real B_11 = Real(0.25)*(-uy+vx)*(uy+vx)
+                                    - Real(0.25)*(uy-vx)*(uy+vx);
+                        Real B_12 = Real(0.25)*(uy-vx)*(ux-vy);
+                        Real B_22 = -Real(0.25)*(-uy+vx)*(uy+vx)
+                                    +Real(0.25)*(uy-vx)*(uy+vx);
+#if (AMREX_SPACEDIM == 3)
+                        B_11 += Real(0.25)*(-uz+wx)*(uz+wx)
+                                - Real(0.25)*(uz-wx)*(uz+wx);
+                        B_12 += -Real(0.25)*(uz-wx)*(vz+wy)
+                                + Real(0.25)*(uz+wx)*(-vz+wy);
+                        B_22 += Real(0.25)*(-vz+wy)*(vz+wy)
+                                -Real(0.25)*(vz-wy)*(vz+wy);
+                        Real B_13 = -Real(0.25)*(uy-vx)*(vz+wy)
+                                    + Real(0.25)*(uy+vx)*(vz-wy)
+                                    + Real(0.25)*(uz-wx)*(ux-wz);
+                        Real B_23 = -Real(0.25)*(-uy+vx)*(uz+wx)
+                                    +Real(0.25)*(uy+vx)*(uz-wx)
+                                    +Real(0.25)*(vz-wy)*(vy-wz);
+                        Real B_33 = -Real(0.25)*(-uz+wx)*(uz+wx)
+                                    +Real(0.25)*(uz-wx)*(uz+wx)
+                                    -Real(0.25)*(-vz+wy)*(vz+wy)
+                                    +Real(0.25)*(vz-wy)*(vz+wy);
+                        B_13 *= Real(-1.)*eta_3;
+                        B_23 *= Real(-1.)*eta_3;
+                        B_33 *= Real(-1.)*eta_3;
+                        flux_arr(i,j,k,0) += B_13*nz;
+                        flux_arr(i,j,k,1) += B_23*nz;
+                        flux_arr(i,j,k,2) += B_13*nx + B_23*ny + B_33*nz;
+#endif
+                        B_11 *= Real(-1.)*eta_3;
+                        B_12 *= Real(-1.)*eta_3;
+                        B_22 *= Real(-1.)*eta_3;
+                        flux_arr(i,j,k,0) += B_11*nx + B_12*ny;
+                        flux_arr(i,j,k,1) += B_12*nx + B_22*ny;
+                    }
                 }
             });
         }
@@ -1205,6 +1330,9 @@ void incflo::compute_second_order_coeff (int lev, MultiFab& scnd_coeff,
                                           const MultiFab& p_static,
                                           Geometry& lev_geom)
 {
+    scnd_coeff.setVal(Real(0.));
+    const int ncomp_ho = scnd_coeff.nComp();
+
     if (m_fluid_model_second == FluidModel::GranularPowerlaw
         && m_mu_powerlaw.size() > 1) {
         compute_granular_powerlaw_second_order_coeff(lev, scnd_coeff,
@@ -1214,13 +1342,16 @@ void incflo::compute_second_order_coeff (int lev, MultiFab& scnd_coeff,
              && m_mu_powerlaw_temperature.size() > 1) {
         compute_granular_powerlaw_temperature_second_order_coeff(
                 lev, scnd_coeff, velocity, density, conc_second, p_static, lev_geom);
+        if (ncomp_ho > 1) {
+            // Note that you should only change the second component of scnd_coeff
+            compute_granular_powerlaw_temperature_third_order_coeff(
+                lev, scnd_coeff, velocity, density, conc_second, p_static, lev_geom);
+        }
     }
     else if (m_probtype == 538) {
         scnd_coeff.setVal(Real(1.));
     }
-    else {
-        scnd_coeff.setVal(Real(0.));
-    }
+
     // Take care of ghost cells
     if (scnd_coeff.nGrow() > 0) {
         scnd_coeff.FillBoundary(lev_geom.periodicity());
@@ -1236,13 +1367,20 @@ void incflo::compute_second_order_coeff (int lev, MultiFab& scnd_coeff,
     {
         Box const& bx = mfi.growntilebox(scnd_coeff.nGrow());
         Array4<Real> const& scnd_coeff_arr = scnd_coeff.array(mfi);
-        const Real eta_ho_min_scnd = m_eta_ho_min_second;
-        const Real eta_ho_max_scnd = m_eta_ho_max_second;
+        const Real eta_ho1_min_scnd = m_eta_ho1_min_second;
+        const Real eta_ho1_max_scnd = m_eta_ho1_max_second;
+        const Real eta_ho2_min_scnd = m_eta_ho2_min_second;
+        const Real eta_ho2_max_scnd = m_eta_ho2_max_second;
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
-            scnd_coeff_arr(i,j,k) = amrex::Clamp(scnd_coeff_arr(i,j,k),
-                                                 eta_ho_min_scnd,
-                                                 eta_ho_max_scnd);
+            scnd_coeff_arr(i,j,k,0) = amrex::Clamp(scnd_coeff_arr(i,j,k,0),
+                                                 eta_ho1_min_scnd,
+                                                 eta_ho1_max_scnd);
+            if (ncomp_ho > 1) {
+                scnd_coeff_arr(i,j,k,1) = amrex::Clamp(scnd_coeff_arr(i,j,k,1),
+                                                 eta_ho2_min_scnd,
+                                                 eta_ho2_max_scnd);
+            }
         });
     }
 }
@@ -1317,6 +1455,60 @@ void incflo::compute_granular_powerlaw_temperature_second_order_coeff (
        });
    }
 }
+
+// Only the second component needs to be changed.
+// Furthermore, this component does not depend on granular temperature
+void incflo::compute_granular_powerlaw_temperature_third_order_coeff (
+                                                           int lev, MultiFab& scnd_coeff,
+                                                           const MultiFab& velocity,
+                                                           const MultiFab& density,
+                                                           const MultiFab& conc_second,
+                                                           const MultiFab& p_static,
+                                                           Geometry& lev_geom)
+{
+   amrex::ignore_unused(density);
+   MultiFab sr_mf(velocity.boxArray(), velocity.DistributionMap(),1,0);
+   compute_strainrate_at_level(lev,&sr_mf,&velocity,lev_geom,Real(0.0),0);
+
+   MultiFab inertial_num(velocity.boxArray(),velocity.DistributionMap(),1,0);
+   compute_inertial_num_at_level(lev,&inertial_num,
+                                 &sr_mf,&p_static,m_mu_p_eps_second,
+                                 m_ro_grain_second,m_diam_second,
+                                 0);
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+   for (MFIter mfi(sr_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+   {
+       Box const& bx = mfi.tilebox();
+       Array4<Real const> const& sr_arr         = sr_mf.const_array(mfi);
+       Array4<Real const> const& p_static_arr   = p_static.const_array(mfi);
+       Array4<Real const> const& inrt_num_arr   = inertial_num.const_array(mfi);
+       Array4<Real const> const& conc_scnd_arr  = conc_second.const_array(mfi);
+       Array4<Real      > const& scnd_coeff_arr = scnd_coeff.array(mfi);
+       const Real a_I_c1      = m_mu_powerlaw_temperature[2][0];
+       const Real a_I_e1      = m_mu_powerlaw_temperature[2][1];
+       const Real eps           = m_mu_sr_eps_second;
+       const Real min_conc_scnd = m_min_conc_second;
+
+       amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+       {
+            Real conc_val = conc_scnd_arr(i,j,k,0);
+            if (conc_val >= min_conc_scnd) {
+                Real inrt_num_val = inrt_num_arr(i,j,k);
+                scnd_coeff_arr(i,j,k,1) = a_I_c1*std::pow(inrt_num_val, a_I_e1);
+                scnd_coeff_arr(i,j,k,1) *= p_static_arr(i,j,k);
+                scnd_coeff_arr(i,j,k,1) /= ((Real(0.5)*sr_arr(i,j,k) + eps)
+                                         * (Real(0.5)*sr_arr(i,j,k) + eps));
+                scnd_coeff_arr(i,j,k,1) *= conc_val;
+            }
+            else {
+                scnd_coeff_arr(i,j,k,1) = Real(0.);
+            }
+       });
+   }
+}
+
 // Adding these high-order effects only in regions
 // with Inertial number greater than Neutral Inertial Number
 void incflo::compute_granular_powerlaw_second_order_coeff (int lev, MultiFab& scnd_coeff,

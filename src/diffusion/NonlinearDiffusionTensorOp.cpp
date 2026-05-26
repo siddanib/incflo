@@ -104,6 +104,11 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
     }
     AMREX_ALWAYS_ASSERT(!m_incflo->hasEBFlow());
 #endif
+    // Number of high-order coefficients
+    if (m_incflo->m_mu_powerlaw_temperature.size() > 0) {
+        m_ncomp_ho = std::max(m_ncomp_ho,
+                (int)(m_incflo->m_mu_powerlaw_temperature.size()-1));
+    }
 }
 
 void NonlinearDiffusionTensorOp::readParameters ()
@@ -519,7 +524,8 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
         // USING OLD VELOCITY with 1 ghost cell
         MultiFab scndOrderCoeff(a_old_velocity[ilev]->boxArray(),
                                 a_old_velocity[ilev]->DistributionMap(),
-                                1,1, MFInfo(), a_old_velocity[ilev]->Factory());
+                                m_ncomp_ho,1, MFInfo(),
+                                a_old_velocity[ilev]->Factory());
         scndOrderCoeff.setVal(0.);
         // This function takes care of ghost cells
         m_incflo->compute_second_order_coeff(ilev,
@@ -776,7 +782,7 @@ void NonlinearDiffusionTensorOp::compute_preconditioner_eta (
         }
 
         MultiFab scndOrderCoeff(eta[lev]->boxArray(), eta[lev]->DistributionMap(),
-                                1, 0, MFInfo(), eta[lev]->Factory());
+                                m_ncomp_ho, 0, MFInfo(), eta[lev]->Factory());
         m_incflo->compute_second_order_coeff(lev, scndOrderCoeff,
                                 *ho_coeff_velocity[lev],
                                 *m_density[lev], *m_conc_second[lev],
@@ -798,12 +804,15 @@ void NonlinearDiffusionTensorOp::compute_preconditioner_eta (
             Array4<Real const> const& sr_arr  = strainrate.const_array(mfi);
             const Real alpha_factor = m_alpha_factor;
             const Real eps = m_incflo->m_mu_sr_eps_second;
+            const int ncomp_ho = m_ncomp_ho;
 
             ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
                 // Note: sr_mf contains TWO TIMES strain rate
                 Real Dmag = Real(0.5)*sr_arr(i,j,k) + eps;
-                eta_arr(i,j,k) += alpha_factor*c2_arr(i,j,k)*Dmag;
+                for (int n=0; n < ncomp_ho; n++) {
+                    eta_arr(i,j,k) += alpha_factor*c2_arr(i,j,k,n)*Dmag;
+                }
             });
         }
 

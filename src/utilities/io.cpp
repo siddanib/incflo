@@ -450,6 +450,9 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
         }
         else if (vars[n] == "eta_ho") {
             ++ncomp;
+            if (m_mu_powerlaw_temperature.size() > 2) {
+                ++ncomp;
+            }
         }
         else { ncomp++; }
     }
@@ -900,12 +903,16 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
                 amrex::Abort(
                 "plotfile variable 'eta_ho' requires granularpowerlaw or granularpowerlaw_temperature high-order coeffs");
             }
+            int ncomp_ho = 1;
+            if (m_mu_powerlaw_temperature.size() > 2) {
+                ncomp_ho = 2;
+            }
             for (int lev = 0; lev <= finest_level; ++lev) {
                 MultiFab conc_second(mf[lev].boxArray(),
                                      mf[lev].DistributionMap(), 1, 0);
                 MultiFab p_static(mf[lev].boxArray(),
                                   mf[lev].DistributionMap(), 1, 0);
-                MultiFab eta_ho(mf[lev], amrex::make_alias, icomp, 1);
+                MultiFab eta_ho(mf[lev], amrex::make_alias, icomp, ncomp_ho);
 
                 compute_cc_second_fluid_conc(&conc_second,
                                              &m_leveldata[lev]->density,
@@ -921,8 +928,12 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
                                            p_static,
                                            Geom(lev));
             }
-            pltscaVarsName.push_back("eta_ho");
+            pltscaVarsName.push_back("eta_ho1");
             ++icomp;
+            if (ncomp_ho > 1) {
+                pltscaVarsName.push_back("eta_ho2");
+                ++icomp;
+            }
         }
         else if (vars[n]=="hydrostatic_p") {
             for (int lev = 0; lev <= finest_level; ++lev) {

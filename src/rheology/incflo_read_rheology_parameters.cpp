@@ -243,8 +243,8 @@ void incflo::ReadRheologyParameters()
             pp_scnd.query("low_neutral_I", m_I_1_N_powerlaw);
             pp_scnd.query("mu_p_eps_second",m_mu_p_eps_second);
             pp_scnd.query("mu_sr_eps_second",m_mu_sr_eps_second);
-            pp_scnd.query("min_eta_ho", m_eta_ho_min_second);
-            pp_scnd.query("max_eta_ho", m_eta_ho_max_second);
+            pp_scnd.query("min_eta_ho1", m_eta_ho1_min_second);
+            pp_scnd.query("max_eta_ho1", m_eta_ho1_max_second);
             amrex::Print() << "Using mu(I) based on Granular Powerlaw"<<std::endl;
         }
         else if(fluid_model_s_snd == "granularpowerlaw_temperature")
@@ -256,8 +256,10 @@ void incflo::ReadRheologyParameters()
             pp_scnd.gettable("coeff_table", m_mu_powerlaw_temperature);
             pp_scnd.query("mu_p_eps_second",m_mu_p_eps_second);
             pp_scnd.query("mu_sr_eps_second",m_mu_sr_eps_second);
-            pp_scnd.query("min_eta_ho", m_eta_ho_min_second);
-            pp_scnd.query("max_eta_ho", m_eta_ho_max_second);
+            pp_scnd.query("min_eta_ho1", m_eta_ho1_min_second);
+            pp_scnd.query("max_eta_ho1", m_eta_ho1_max_second);
+            pp_scnd.query("min_eta_ho2", m_eta_ho2_min_second);
+            pp_scnd.query("max_eta_ho2", m_eta_ho2_max_second);
             amrex::Print() << "Using temperature-aware granular powerlaw plumbing"
                            << std::endl;
         }
@@ -270,15 +272,18 @@ void incflo::ReadRheologyParameters()
                 <<" , " << m_eta_max_second << " ]" << std::endl;
         }
         if (fluid_model_s_snd == "granularpowerlaw" && m_mu_powerlaw.size() > 1) {
-            amrex::Print() << "Clamps for the high-order fluid eta are = [ "
-                           << m_eta_ho_min_second << " , "
-                           << m_eta_ho_max_second << " ]" << std::endl;
+            amrex::Print() << "Clamps for the high-order fluid eta_2 are = [ "
+                           << m_eta_ho1_min_second << " , "
+                           << m_eta_ho1_max_second << " ]" << std::endl;
         }
         if (fluid_model_s_snd == "granularpowerlaw_temperature"
             && m_mu_powerlaw_temperature.size() > 1) {
-            amrex::Print() << "Clamps for the high-order fluid eta are = [ "
-                           << m_eta_ho_min_second << " , "
-                           << m_eta_ho_max_second << " ]" << std::endl;
+            amrex::Print() << "Clamps for the high-order fluid eta_2 are = [ "
+                           << m_eta_ho1_min_second << " , "
+                           << m_eta_ho1_max_second << " ]" << std::endl;
+            amrex::Print() << "Clamps for the high-order fluid eta_3 are = [ "
+                           << m_eta_ho2_min_second << " , "
+                           << m_eta_ho2_max_second << " ]" << std::endl;
         }
         // Additional checks
         if (fluid_model_s_snd == "granularpowerlaw_temperature") {
