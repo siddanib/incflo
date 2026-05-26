@@ -170,6 +170,7 @@ private:
     amrex::Vector<amrex::Real> m_alpha_factor_list{amrex::Real(0.5),
                                                    amrex::Real(1.0)};
     amrex::Real m_alpha_factor = amrex::Real(1.);
+    amrex::Real m_nonunity_alpha_tol_scale = amrex::Real(1.);
     // DiffusionOp verbosity
     int m_verbose = 1;
     // Options to control GMRES behavior

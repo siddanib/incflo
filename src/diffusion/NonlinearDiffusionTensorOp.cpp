@@ -134,6 +134,7 @@ void NonlinearDiffusionTensorOp::readParameters ()
     if (m_alpha_factor_list.back() != Real(1.0)) {
         m_alpha_factor_list.emplace_back(Real(1.0));
     }
+    pp.query("nonunity_alpha_tol_scale",m_nonunity_alpha_tol_scale);
 
     pp.query("gmres_verbose", m_gmres_verbose);
     pp.query("gmres_max_iter", m_gmres_max_iter);
@@ -205,6 +206,13 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
 
         vel_incrmt_newton[ilev].setVal(Real(0.));
     }
+    // Different tolerance when m_alpha_factor is NOT unity
+    const Real tol_scale =
+        (m_alpha_factor == Real(1.0)) ? Real(1.0) : m_nonunity_alpha_tol_scale;
+    const Real newton_rtol = tol_scale * m_newton_rtol;
+    const Real newton_atol = tol_scale * m_newton_atol;
+    const Real gmres_rtol  = tol_scale * m_gmres_rtol;
+    const Real gmres_atol  = tol_scale * m_gmres_atol;
     // Look into WarpX NewtonSolver for stopping criterion
     Real norm_abs = Real(0.);
     Real norm0    = Real(1.);
@@ -229,18 +237,18 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
                  << std::scientific << std::setprecision(5) << norm_rel << " (rel.)" << "\n";
         }
 
-        if (norm_abs < m_newton_atol) {
+        if (norm_abs < newton_atol) {
             if (m_verbose) {
                 amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
-                               << ". Satisfied absolute tolerance " << m_newton_atol << "\n";
+                               << ". Satisfied absolute tolerance " << newton_atol << "\n";
             }
             break;
         }
 
-        if (norm_rel < m_newton_rtol) {
+        if (norm_rel < newton_rtol) {
             if (m_verbose) {
                 amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
-                               << ". Satisfied relative tolerance " << m_newton_rtol << "\n";
+                               << ". Satisfied relative tolerance " << newton_rtol << "\n";
             }
             break;
         }
@@ -262,7 +270,7 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
             rhs_newton[ilev].mult(Real(-1.0),0);
         }
         m_gmres->solve(vel_incrmt_newton,rhs_newton,
-                       m_gmres_rtol,m_gmres_atol);
+                       gmres_rtol,gmres_atol);
 
         update_newton_iteration_multifabs(
                       GetVecOfConstPtrs(vel_incrmt_newton));
@@ -276,13 +284,14 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
         }
     }  // end of Newton Iteration loop
 
-    if (m_newton_rtol > Real(0.) && inewt == m_newton_max_iter) {
+    if (m_newton_rtol > Real(0.) && inewt == m_newton_max_iter
+        && m_alpha_factor == Real(1.0)) {
       std::stringstream convergenceMsg;
       convergenceMsg << "Newton solver failed to converge after " << inewt <<
                         " iterations. Relative norm is " << norm_rel <<
-                        " and the relative tolerance is " << m_newton_rtol <<
+                        " and the relative tolerance is " << newton_rtol <<
                         ". Absolute norm is " << norm_abs <<
-                        " and the absolute tolerance is " << m_newton_atol;
+                        " and the absolute tolerance is " << newton_atol;
       amrex::Abort(convergenceMsg.str().c_str());
     }
 
