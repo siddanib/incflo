@@ -254,13 +254,18 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
         }
 
         if (norm_abs > Real(100.)*norm0) {
-            amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
-                 << ". SOLVER DIVERGED! relative tolerance = " << norm_rel << "\n";
-            std::stringstream convergenceMsg;
-            convergenceMsg << "Newton: exiting at iteration " << std::setw(3) << inewt <<
-                              ". SOLVER DIVERGED! absolute norm = " << norm_abs <<
-                              " has increased by 100X from that after first iteration.";
-            amrex::Abort(convergenceMsg.str().c_str());
+            if (m_alpha_factor == Real(1.0)) {
+                amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
+                     << ". SOLVER DIVERGED! relative tolerance = " << norm_rel << "\n";
+                std::stringstream convergenceMsg;
+                convergenceMsg << "Newton: exiting at iteration " << std::setw(3) << inewt <<
+                                  ". SOLVER DIVERGED! absolute norm = " << norm_abs <<
+                                  " has increased by 100X from that after first iteration.";
+                amrex::Abort(convergenceMsg.str().c_str());
+            }
+            else {
+                break;
+            }
         }
         // Update RHS of Newton Iteration
         for (int ilev=0; ilev < nlevels; ++ilev) {

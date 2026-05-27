@@ -592,6 +592,89 @@ Real incflo::ComputeKineticEnergy ()
     return 0;
 }
 
+Real incflo::ComputeGranularKineticEnergy ()
+{
+    BL_PROFILE("incflo::ComputeGranularKineticEnergy");
+
+    // integrated total Kinetic energy
+    Real KE = Real(0.0);
+
+    auto density = get_density_new();
+    auto vel     = get_velocity_new();
+    auto tracer  = get_tracer_new();
+
+    for(int lev = 0; lev <= finest_level; lev++)
+    {
+        Real cell_vol = geom[lev].CellSize()[0]*geom[lev].CellSize()[1]*geom[lev].CellSize()[2];
+
+        MultiFab gran_dens(density[lev]->boxArray(), density[lev]->DistributionMap(),
+                           1, 0, MFInfo(), density[lev]->Factory());
+        gran_dens.setVal(Real(0.));
+#ifdef AMREX_USE_EB
+        if (auto const* factory_eb =
+                 dynamic_cast<EBFArrayBoxFactory const*>(&(density[lev]->Factory()))) {
+            MultiFab const& temp_mf = factory_eb->getVolFrac();
+            MultiFab::AddProduct(gran_dens, *density[lev], 0, temp_mf, 0,
+                                 0, 1, 0);
+        }
+        else
+#endif
+        {
+            MultiFab::Copy(gran_dens,*density[lev],0,0,1,0);
+        }
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(gran_dens,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+                Box const& bx = mfi.tilebox();
+                Array4<Real> const& gran_dens_arr = gran_dens.array(mfi);
+                Array4<Real const> const& conc_arr = tracer[lev]->const_array(mfi);
+                Real min_conc_second = m_min_conc_second;
+                {
+                    amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                    {
+                        if (conc_arr(i,j,k) < min_conc_second) {
+                            gran_dens_arr(i,j,k) = Real(0.);
+                        }
+                    });
+                }
+        }
+        // Level_mask creation
+        iMultiFab level_mask(grids[lev], dmap[lev], 1, 0);
+        if (lev < finest_level) {
+            level_mask = amrex::makeFineMask(grids[lev], dmap[lev],
+                                grids[lev+1], refRatio(lev), 1, 0);
+        } else {
+            level_mask.setVal(1);
+        }
+
+        KE += amrex::ReduceSum(gran_dens,*vel[lev],level_mask,0,
+        [=] AMREX_GPU_HOST_DEVICE (Box const& bx,
+                                   Array4<Real const> const& den_arr,
+                                   Array4<Real const> const& vel_arr,
+                                   Array4<int const>  const& mask_arr) -> Real
+        {
+            Real KE_Fab = Real(0.0);
+
+            amrex::Loop(bx, [=,&KE_Fab] (int i, int j, int k) noexcept
+            {
+                KE_Fab += cell_vol*mask_arr(i,j,k)*den_arr(i,j,k)*(
+                                   AMREX_D_TERM(vel_arr(i,j,k,0)*vel_arr(i,j,k,0),
+                                                +vel_arr(i,j,k,1)*vel_arr(i,j,k,1),
+                                                +vel_arr(i,j,k,2)*vel_arr(i,j,k,2)));
+            });
+            return KE_Fab;
+        });
+    }
+
+    KE *= Real(0.5);
+
+    ParallelDescriptor::ReduceRealSum(KE);
+
+    return KE;
+}
+
 #ifdef AMREX_USE_EB
 void incflo::ComputeMagVel (int lev,
 #else

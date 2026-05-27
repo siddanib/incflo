@@ -99,8 +99,14 @@ void incflo::InitData ()
         }
         if (m_KE_int > 0)
         {
-            amrex::Abort("xxxxx m_KE_int todo");
+            if (m_two_fluid) {
+                amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " <<
+                    ComputeGranularKineticEnergy()<< "\n";
+            }
+            else {
+                amrex::Abort("xxxxx m_KE_int todo");
 //          amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " << ComputeKineticEnergy() << std::endl;
+            }
         }
     }
     else
@@ -186,7 +192,14 @@ void incflo::Evolve()
 
         if(m_KE_int > 0 && (m_nstep % m_KE_int == 0))
         {
-            amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " << ComputeKineticEnergy() << std::endl;
+            if (m_two_fluid) {
+                amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " <<
+                    ComputeGranularKineticEnergy()<< "\n";
+            }
+            else {
+                amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " <<
+                    ComputeKineticEnergy() << "\n";
+            }
         }
 
         // Mechanism to terminate incflo normally.

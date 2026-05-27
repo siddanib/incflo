@@ -227,6 +227,7 @@ public:
     void ComputeDivU (amrex::Real time);
     void ComputeDrag ();
     [[nodiscard]] static amrex::Real ComputeKineticEnergy ();
+    amrex::Real ComputeGranularKineticEnergy ();
 
     void DiffFromExact (int lev, amrex::Geometry& lev_geom, amrex::Real time, amrex::Real dt,
                         amrex::MultiFab& error, int soln_comp, int err_comp) const;
