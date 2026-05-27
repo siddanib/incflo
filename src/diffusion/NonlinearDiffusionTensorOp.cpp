@@ -121,10 +121,32 @@ void NonlinearDiffusionTensorOp::readParameters ()
     pp.query("newton_atol", m_newton_atol);
     pp.query("newton_update_alpha", m_newton_update_alpha);
     pp.query("newton_update_max_iter", m_newton_update_max_iter);
+    pp.query("num_time_substeps", m_num_time_substeps);
+    pp.query("adaptive_time_substeps", m_adaptive_time_substeps);
+    pp.query("max_time_substeps", m_max_time_substeps);
+    pp.query("time_substep_newton_iter_high",
+             m_time_substep_newton_iter_high);
+    pp.query("time_substep_newton_iter_low",
+             m_time_substep_newton_iter_low);
     pp.query("use_eta_from_prev_time", m_use_eta_from_prev_time);
     pp.query("use_ho_coeff_from_prev_time", m_use_ho_coeff_from_prev_time);
     pp.query("use_ho_eta_precond", m_use_ho_eta_precond);
     pp.query("newton_epsilon", m_newton_epsilon);
+    if (m_num_time_substeps < 1) {
+        amrex::Abort("nonlinear_tensor_diffusion.num_time_substeps must be >= 1");
+    }
+    if (m_max_time_substeps < m_num_time_substeps) {
+        m_max_time_substeps = m_num_time_substeps;
+    }
+    if (m_time_substep_newton_iter_high < 0) {
+        m_time_substep_newton_iter_high =
+            std::max(1, (8*m_newton_max_iter)/10);
+    }
+    if (m_time_substep_newton_iter_low < 0) {
+        m_time_substep_newton_iter_low =
+            std::max(1, m_newton_max_iter/4);
+    }
+    m_next_time_substeps = m_num_time_substeps;
     // Get the alpha_factor_list from input file
     if (pp.queryarr("alpha_factor_list",m_alpha_factor_list)) {
         m_alpha_factor_list.clear();
@@ -165,28 +187,146 @@ void NonlinearDiffusionTensorOp::diffuse_velocity (
                        Vector<MultiFab const*> const& eta,
                        Real dt)
 {
-    // This function sets the internal member variables
-    // It also initializes iteration 0 velocity to the
-    // provided velocity
+    const int nlevels = velocity.size();
+    Vector<MultiFab> velocity_save(nlevels);
+    for (int ilev=0; ilev < nlevels; ++ilev) {
+        velocity_save[ilev].define(velocity[ilev]->boxArray(),
+                                   velocity[ilev]->DistributionMap(),
+                                   AMREX_SPACEDIM, velocity[ilev]->nGrow(),
+                                   MFInfo(), velocity[ilev]->Factory());
+        MultiFab::Copy(velocity_save[ilev], *velocity[ilev],
+                       0, 0, AMREX_SPACEDIM, velocity[ilev]->nGrow());
+    }
+
+    int nsub = m_adaptive_time_substeps
+        ? std::min(m_next_time_substeps, m_max_time_substeps)
+        : m_num_time_substeps;
+    nsub = std::max(1, nsub);
+    SolveStats accepted_stats;
+    bool retried = false;
+
+    for (;;)
+    {
+        SolveStats attempt_stats;
+        attempt_stats.converged = true;
+        const Real dt_sub = dt / Real(nsub);
+
+        for (int isub=0; isub < nsub; ++isub) {
+            for (int ilev=0; ilev < nlevels; ++ilev) {
+                velocity[ilev]->FillBoundary(m_incflo->Geom(ilev).periodicity());
+            }
+
+            SolveStats sub_stats =
+                diffuse_velocity_one_step(velocity, density, eta, dt_sub);
+            attempt_stats.newton_iters += sub_stats.newton_iters;
+            attempt_stats.final_alpha_newton_iters =
+                std::max(attempt_stats.final_alpha_newton_iters,
+                         sub_stats.final_alpha_newton_iters);
+            attempt_stats.final_abs_norm = sub_stats.final_abs_norm;
+            attempt_stats.final_rel_norm = sub_stats.final_rel_norm;
+
+            if (!sub_stats.converged) {
+                attempt_stats.converged = false;
+                break;
+            }
+        }
+
+        if (attempt_stats.converged) {
+            accepted_stats = attempt_stats;
+            break;
+        }
+
+        if (!m_adaptive_time_substeps || nsub >= m_max_time_substeps) {
+            std::stringstream convergenceMsg;
+            convergenceMsg << "Newton solver failed to converge during nonlinear "
+                              "diffusion with "
+                           << nsub << " time substep(s). Relative norm is "
+                           << attempt_stats.final_rel_norm
+                           << " and the relative tolerance is " << m_newton_rtol
+                           << ". Absolute norm is "
+                           << attempt_stats.final_abs_norm
+                           << " and the absolute tolerance is " << m_newton_atol;
+            amrex::Abort(convergenceMsg.str().c_str());
+        }
+        // Reaching here means solver did NOT converge
+        for (int ilev=0; ilev < nlevels; ++ilev) {
+            MultiFab::Copy(*velocity[ilev], velocity_save[ilev],
+                           0, 0, AMREX_SPACEDIM, velocity[ilev]->nGrow());
+        }
+        nsub = std::min(2*nsub, m_max_time_substeps);
+        retried = true;
+        if (m_verbose) {
+            amrex::Print() << "Nonlinear diffusion retrying with "
+                           << nsub << " time substeps\n";
+        }
+    }
+
+    if (m_adaptive_time_substeps) {
+        if (accepted_stats.final_alpha_newton_iters
+            > m_time_substep_newton_iter_high) {
+            m_next_time_substeps = std::min(2*nsub, m_max_time_substeps);
+        } else if (!retried && accepted_stats.final_alpha_newton_iters
+                   < m_time_substep_newton_iter_low) {
+            m_next_time_substeps = std::max(m_num_time_substeps, nsub/2);
+        } else {
+            m_next_time_substeps = nsub;
+        }
+    }
+}
+
+NonlinearDiffusionTensorOp::SolveStats
+NonlinearDiffusionTensorOp::diffuse_velocity_one_step (
+                       Vector<MultiFab*> const& velocity,
+                       Vector<MultiFab*> const& density,
+                       Vector<MultiFab const*> const& eta,
+                       Real dt)
+{
+    SolveStats total_stats;
+    total_stats.converged = true;
+
+    // This function sets the internal member variables. It also initializes
+    // iteration 0 velocity to the provided velocity.
     update_member_multifabs(GetVecOfConstPtrs(density),
                             GetVecOfConstPtrs(velocity),
                             GetVecOfConstPtrs(eta), dt);
+
+    if (!m_use_eta_from_prev_time) {
+        m_incflo->compute_viscosity(GetVecOfPtrs(m_eta),
+                                    GetVecOfPtrs(m_density),
+                                    GetVecOfPtrs(m_newton_iter_vel),
+                                    m_incflo->m_cur_time, m_nghost_eta);
+    }
 
     for (Real alpha_factor : m_alpha_factor_list) {
         m_alpha_factor = alpha_factor;
         // Update m_newton_iter_func because m_alpha_factor has changed
         compute_viscous_solve_equation(GetVecOfPtrs(m_newton_iter_func),
                                   GetVecOfConstPtrs(m_newton_iter_vel));
-        diffuse_velocity_alpha_factor(velocity, density, eta, dt);
+        SolveStats stats = diffuse_velocity_alpha_factor(velocity, density,
+                                                         eta, dt);
+        total_stats.newton_iters += stats.newton_iters;
+        total_stats.final_abs_norm = stats.final_abs_norm;
+        total_stats.final_rel_norm = stats.final_rel_norm;
+        if (alpha_factor == Real(1.0)) {
+            total_stats.final_alpha_newton_iters = stats.newton_iters;
+        }
+        if (!stats.converged && alpha_factor == Real(1.0)) {
+            total_stats.converged = false;
+            break;
+        }
     }
+
+    return total_stats;
 }
 
-void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
+NonlinearDiffusionTensorOp::SolveStats
+NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
                        Vector<MultiFab*> const& velocity,
                        Vector<MultiFab*> const& density,
                        Vector<MultiFab const*> const& eta,
                        Real dt)
 {
+    SolveStats stats;
     int nlevels = velocity.size();
     // Create a Vector<MultiFab> for RHS of Newton Method
     // This is different from RHS of Viscous solve equation
@@ -217,6 +357,8 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
     Real norm_abs = Real(0.);
     Real norm0    = Real(1.);
     Real norm_rel = Real(0.);
+    bool converged = false;
+    bool residual_grew = false;
     int inewt;
     for (inewt=0; inewt < m_newton_max_iter;) {
         // Evaluate current residual's norm
@@ -238,6 +380,7 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
         }
 
         if (norm_abs < newton_atol) {
+            converged = true;
             if (m_verbose) {
                 amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
                                << ". Satisfied absolute tolerance " << newton_atol << "\n";
@@ -246,6 +389,7 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
         }
 
         if (norm_rel < newton_rtol) {
+            converged = true;
             if (m_verbose) {
                 amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
                                << ". Satisfied relative tolerance " << newton_rtol << "\n";
@@ -254,18 +398,10 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
         }
 
         if (norm_abs > Real(100.)*norm0) {
-            if (m_alpha_factor == Real(1.0)) {
-                amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
-                     << ". SOLVER DIVERGED! relative tolerance = " << norm_rel << "\n";
-                std::stringstream convergenceMsg;
-                convergenceMsg << "Newton: exiting at iteration " << std::setw(3) << inewt <<
-                                  ". SOLVER DIVERGED! absolute norm = " << norm_abs <<
-                                  " has increased by 100X from that after first iteration.";
-                amrex::Abort(convergenceMsg.str().c_str());
-            }
-            else {
-                break;
-            }
+            residual_grew = true;
+            amrex::Print() << "Newton: exiting at iteration = " << std::setw(3) << inewt
+                 << ". SOLVER DIVERGED! relative tolerance = " << norm_rel << "\n";
+            break;
         }
         // Update RHS of Newton Iteration
         for (int ilev=0; ilev < nlevels; ++ilev) {
@@ -289,15 +425,15 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
         }
     }  // end of Newton Iteration loop
 
-    if (m_newton_rtol > Real(0.) && inewt == m_newton_max_iter
-        && m_alpha_factor == Real(1.0)) {
-      std::stringstream convergenceMsg;
-      convergenceMsg << "Newton solver failed to converge after " << inewt <<
-                        " iterations. Relative norm is " << norm_rel <<
-                        " and the relative tolerance is " << newton_rtol <<
-                        ". Absolute norm is " << norm_abs <<
-                        " and the absolute tolerance is " << newton_atol;
-      amrex::Abort(convergenceMsg.str().c_str());
+    stats.converged = converged && !residual_grew;
+    stats.newton_iters = inewt;
+    stats.final_alpha_newton_iters =
+        (m_alpha_factor == Real(1.0)) ? inewt : 0;
+    stats.final_abs_norm = norm_abs;
+    stats.final_rel_norm = norm_rel;
+
+    if (!stats.converged && m_alpha_factor == Real(1.0)) {
+        return stats;
     }
 
     // Copy final newton iteration velocity
@@ -305,6 +441,8 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
         MultiFab::Copy(*velocity[ilev],*m_newton_iter_vel[ilev],
                        0, 0, AMREX_SPACEDIM, m_nghost_vel);
     }
+
+    return stats;
 }
 
 void NonlinearDiffusionTensorOp::compute_divtau (

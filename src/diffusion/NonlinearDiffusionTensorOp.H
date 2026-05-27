@@ -95,6 +95,13 @@ public:
                        amrex::Vector<amrex::MultiFab const*> const& eta);
 
 private:
+    struct SolveStats {
+        bool converged = true;
+        int newton_iters = 0;
+        int final_alpha_newton_iters = 0;
+        amrex::Real final_abs_norm = amrex::Real(0.);
+        amrex::Real final_rel_norm = amrex::Real(0.);
+    };
 
     void readParameters ();
     // Needs to be called inside of diffuse_velocity only once
@@ -103,6 +110,13 @@ private:
                        amrex::Vector<amrex::MultiFab const*> const& a_vel,
                        amrex::Vector<amrex::MultiFab const*> const& a_eta,
                        amrex::Real a_dt);
+    // Solve one backward-Euler nonlinear diffusion step.
+    SolveStats diffuse_velocity_one_step (
+                       amrex::Vector<amrex::MultiFab*> const& velocity,
+                       amrex::Vector<amrex::MultiFab*> const& density,
+                       amrex::Vector<amrex::MultiFab const*> const& eta,
+                       amrex::Real dt);
+
     // Needs to be called inside of Newton iteration loop
     void update_newton_iteration_multifabs (
                        amrex::Vector<amrex::MultiFab const*> const& a_vel_increment);
@@ -137,10 +151,11 @@ private:
                                 amrex::Real dt);
 
     // This function essentially performs the Newton iteration loop
-    void diffuse_velocity_alpha_factor (amrex::Vector<amrex::MultiFab*> const& velocity,
-                                        amrex::Vector<amrex::MultiFab*> const& density,
-                                        amrex::Vector<amrex::MultiFab const*> const& eta,
-                                        amrex::Real dt);
+    SolveStats diffuse_velocity_alpha_factor (
+                       amrex::Vector<amrex::MultiFab*> const& velocity,
+                       amrex::Vector<amrex::MultiFab*> const& density,
+                       amrex::Vector<amrex::MultiFab const*> const& eta,
+                       amrex::Real dt);
 
     incflo* m_incflo;
 
@@ -177,6 +192,12 @@ private:
     int m_gmres_verbose = 2;
     int m_gmres_max_iter = 1000;
     int m_newton_max_iter = 100;
+    int m_num_time_substeps = 1;
+    int m_next_time_substeps = 1;
+    int m_max_time_substeps = 16;
+    int m_time_substep_newton_iter_high = -1;
+    int m_time_substep_newton_iter_low = -1;
+    bool m_adaptive_time_substeps = false;
     // These are for updating the velocity
     amrex::Real m_newton_update_alpha = amrex::Real(1.0e-3);
     int m_newton_update_max_iter = 100;
