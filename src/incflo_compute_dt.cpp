@@ -285,6 +285,10 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
         dt_new = Real(0.5) * m_dt;
     }
 
+    if (m_nonlinear_diffusion_dt_control) {
+        dt_new *= m_nonlinear_diffusion_dt_scale;
+    }
+
     // Don't let the timestep grow by more than m_dt_change_max per step
     // unless the previous time step was unduly shrunk to match m_plot_per_exact
     Real allowed_change_factor = m_dt_change_max;

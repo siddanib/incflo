@@ -272,6 +272,25 @@ void NonlinearDiffusionTensorOp::diffuse_velocity (
             m_next_time_substeps = nsub;
         }
     }
+
+    if (m_incflo->m_nonlinear_diffusion_dt_control) {
+        Real& dt_scale = m_incflo->m_nonlinear_diffusion_dt_scale;
+        if (retried || accepted_stats.final_alpha_newton_iters
+            > m_time_substep_newton_iter_high) {
+            dt_scale = std::max(m_incflo->m_nonlinear_diffusion_dt_scale_min,
+                                dt_scale
+                                * m_incflo->m_nonlinear_diffusion_dt_scale_shrink);
+        } else if (accepted_stats.final_alpha_newton_iters
+                   < m_time_substep_newton_iter_low) {
+            dt_scale = std::min(Real(1.0),
+                                dt_scale
+                                * m_incflo->m_nonlinear_diffusion_dt_scale_growth);
+        }
+        if (m_verbose) {
+            amrex::Print() << "Nonlinear diffusion dt scale for next step = "
+                           << dt_scale << "\n";
+        }
+    }
 }
 
 NonlinearDiffusionTensorOp::SolveStats

@@ -55,6 +55,26 @@ void incflo::ReadParameters ()
             amrex::Abort("We require 1. < dt_change_max <= 1.1");
         }
 
+        pp.query("nonlinear_diffusion_dt_control",
+                 m_nonlinear_diffusion_dt_control);
+        pp.query("nonlinear_diffusion_dt_scale_min",
+                 m_nonlinear_diffusion_dt_scale_min);
+        pp.query("nonlinear_diffusion_dt_scale_shrink",
+                 m_nonlinear_diffusion_dt_scale_shrink);
+        pp.query("nonlinear_diffusion_dt_scale_growth",
+                 m_nonlinear_diffusion_dt_scale_growth);
+        if (m_nonlinear_diffusion_dt_scale_min <= Real(0.0)
+            || m_nonlinear_diffusion_dt_scale_min > Real(1.0)) {
+            amrex::Abort("We require 0 < nonlinear_diffusion_dt_scale_min <= 1");
+        }
+        if (m_nonlinear_diffusion_dt_scale_shrink <= Real(0.0)
+            || m_nonlinear_diffusion_dt_scale_shrink >= Real(1.0)) {
+            amrex::Abort("We require 0 < nonlinear_diffusion_dt_scale_shrink < 1");
+        }
+        if (m_nonlinear_diffusion_dt_scale_growth < Real(1.0)) {
+            amrex::Abort("We require nonlinear_diffusion_dt_scale_growth >= 1");
+        }
+
         // Physics
         pp.queryarr("delp", m_delp, 0, AMREX_SPACEDIM);
         pp.queryarr("gravity", m_gravity, 0, AMREX_SPACEDIM);

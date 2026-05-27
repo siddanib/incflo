@@ -557,6 +557,11 @@ private:
     amrex::Real m_fixed_dt = amrex::Real(-1.);
     amrex::Real m_init_shrink = amrex::Real(0.1);
     amrex::Real m_dt_change_max = amrex::Real(1.1);
+    bool m_nonlinear_diffusion_dt_control = false;
+    amrex::Real m_nonlinear_diffusion_dt_scale = amrex::Real(1.0);
+    amrex::Real m_nonlinear_diffusion_dt_scale_min = amrex::Real(0.125);
+    amrex::Real m_nonlinear_diffusion_dt_scale_shrink = amrex::Real(0.5);
+    amrex::Real m_nonlinear_diffusion_dt_scale_growth = amrex::Real(1.1);
 
     // Initial projection / iterations
     bool m_do_initial_proj          = true;
