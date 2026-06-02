@@ -239,7 +239,7 @@ void incflo::ReadRheologyParameters()
             // Form of powerlaw: const + A (Inertial_Num ^ (alpha))
             // Ordering in table (const, A, alpha)
             pp_scnd.gettable("coeff_table", m_mu_powerlaw);
-            // This is to get the lowe neutral inertial number
+            // This is to get the low neutral inertial number
             pp_scnd.query("low_neutral_I", m_I_1_N_powerlaw);
             pp_scnd.query("mu_p_eps_second",m_mu_p_eps_second);
             pp_scnd.query("mu_sr_eps_second",m_mu_sr_eps_second);
@@ -254,6 +254,8 @@ void incflo::ReadRheologyParameters()
             // row 0 = mu_1 coefficients
             // row 1 = mu_2 coefficients
             pp_scnd.gettable("coeff_table", m_mu_powerlaw_temperature);
+            // This is to get the low neutral inertial number
+            pp_scnd.query("low_neutral_I", m_I_1_N_powerlaw_temperature);
             pp_scnd.query("mu_p_eps_second",m_mu_p_eps_second);
             pp_scnd.query("mu_sr_eps_second",m_mu_sr_eps_second);
             pp_scnd.query("min_eta_ho1", m_eta_ho1_min_second);

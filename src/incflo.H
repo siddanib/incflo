@@ -777,8 +777,9 @@ private:
     amrex::Real m_I_0_second = amrex::Real(0.);
     // This is specifically for Granular_Powerlaw (Srivastava, JFM 2021)
     std::vector<std::vector<amrex::Real>> m_mu_powerlaw;
-    std::vector<std::vector<amrex::Real>> m_mu_powerlaw_temperature;
     amrex::Real m_I_1_N_powerlaw = amrex::Real(0.);
+    std::vector<std::vector<amrex::Real>> m_mu_powerlaw_temperature;
+    amrex::Real m_I_1_N_powerlaw_temperature = amrex::Real(0.);
     // epsilon value to pressure while calculating Inertial Number
     amrex::Real m_mu_p_eps_second = amrex::Real(1.0e-4);
     // epsilon value to strain rate magnitude while calculating dynamic viscosity

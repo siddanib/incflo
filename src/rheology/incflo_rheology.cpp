@@ -1427,6 +1427,18 @@ void incflo::compute_granular_powerlaw_temperature_second_order_coeff (
        const Real gt_coll_disp  = m_gran_temp_collisional_dissipation;
        const Real gt_prod_coeff =  m_gran_temp_local_fluctuation_production_coeff;
        const Real gt_prod_expnt =  m_gran_temp_local_fluctuation_production_expnt;
+       // Applying Barker regularization for second_order term
+       // This is currently a trial
+       const Real I_1_N = m_I_1_N_powerlaw_temperature;
+       Real mu_I_1_N = a_I_c1*std::pow(I_1_N, a_I_e1)
+                       + a_I_c2*std::pow(I_1_N, a_I_e2)
+                       + a_I_c3*std::pow(I_1_N, a_I_e3);
+       Real alpha_I_1_N = Real(1.9);
+       Real A_I_1_N;
+       if (a_I_c1 > Real(0.)) {
+            A_I_1_N = alpha_I_1_N/(mu_I_1_N*mu_I_1_N + Real(1.0e-6));
+            A_I_1_N = I_1_N*std::exp(A_I_1_N);
+       }
 
        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
        {
@@ -1437,6 +1449,12 @@ void incflo::compute_granular_powerlaw_temperature_second_order_coeff (
                 scnd_coeff_arr(i,j,k) = a_I_c1*std::pow(inrt_num_val, a_I_e1)
                                         + a_I_c2*std::pow(inrt_num_val, a_I_e2)
                                         + a_I_c3*std::pow(inrt_num_val, a_I_e3);
+                // Regularization
+                if ((inrt_num_val < I_1_N) && (a_I_c1 > Real(0.))) {
+                    scnd_coeff_arr(i,j,k) = std::log(A_I_1_N/(inrt_num_val+Real(1.0e-18)));
+                    scnd_coeff_arr(i,j,k) = alpha_I_1_N/scnd_coeff_arr(i,j,k);
+                    scnd_coeff_arr(i,j,k) = std::sqrt(scnd_coeff_arr(i,j,k));
+                }
                 scnd_coeff_arr(i,j,k) /= std::pow(temperature_arr(i,j,k)+Real(1.0e-18),
                                                   temp_expnt);
                 // See Eq 2.4 in Yuan, Zhai, Wang, JFM (2026)
