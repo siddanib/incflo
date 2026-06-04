@@ -131,6 +131,9 @@ void NonlinearDiffusionTensorOp::readParameters ()
     pp.query("use_eta_from_prev_time", m_use_eta_from_prev_time);
     pp.query("use_ho_coeff_from_prev_time", m_use_ho_coeff_from_prev_time);
     pp.query("use_ho_eta_precond", m_use_ho_eta_precond);
+#ifdef AMREX_USE_EB
+    pp.query("apply_divtau_redist", m_apply_divtau_redist);
+#endif
     pp.query("newton_epsilon", m_newton_epsilon);
     if (m_num_time_substeps < 1) {
         amrex::Abort("nonlinear_tensor_diffusion.num_time_substeps must be >= 1");
@@ -584,30 +587,42 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
 #ifdef AMREX_USE_EB
     if (m_eb_apply_op)
     {
-        int nlevels = nonlin_func.size();
-        Vector<MultiFab> divtau_tmp(nlevels);
-        int ng_redist = 2;
-        for (int lev = 0; lev < nlevels; ++lev) {
-            divtau_tmp[lev].define(nonlin_func[lev]->boxArray(),
-                                   nonlin_func[lev]->DistributionMap(),
-                                   numcomp, ng_redist, MFInfo(),
-                                   nonlin_func[lev]->Factory());
-            divtau_tmp[lev].setVal(Real(0.));
-        }
+        if (m_apply_divtau_redist) {
+            int nlevels = nonlin_func.size();
+            Vector<MultiFab> divtau_tmp(nlevels);
+            int ng_redist = 2;
+            for (int lev = 0; lev < nlevels; ++lev) {
+                divtau_tmp[lev].define(nonlin_func[lev]->boxArray(),
+                                       nonlin_func[lev]->DistributionMap(),
+                                       numcomp, ng_redist, MFInfo(),
+                                       nonlin_func[lev]->Factory());
+                divtau_tmp[lev].setVal(Real(0.));
+            }
 
-        compute_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
-                                      GetVecOfConstPtrs(m_density),
-                                      GetVecOfConstPtrs(m_eta));
-        add_non_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
-                                      GetVecOfConstPtrs(m_density),
-                                      GetVecOfConstPtrs(m_conc_second),
-                                      GetVecOfConstPtrs(m_p_static),
-                                      ho_coeff_velocity);
-        for (int lev = 0; lev < nlevels; ++lev) {
-            divtau_tmp[lev].FillBoundary(m_incflo->Geom(lev).periodicity());
-            amrex::single_level_redistribute(divtau_tmp[lev],
-                                             *nonlin_func[lev], 0, numcomp,
-                                             m_incflo->Geom(lev));
+            compute_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
+                                          GetVecOfConstPtrs(m_density),
+                                          GetVecOfConstPtrs(m_eta));
+            add_non_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
+                                          GetVecOfConstPtrs(m_density),
+                                          GetVecOfConstPtrs(m_conc_second),
+                                          GetVecOfConstPtrs(m_p_static),
+                                          ho_coeff_velocity);
+            for (int lev = 0; lev < nlevels; ++lev) {
+                divtau_tmp[lev].FillBoundary(m_incflo->Geom(lev).periodicity());
+                amrex::single_level_redistribute(divtau_tmp[lev],
+                                                 *nonlin_func[lev], 0, numcomp,
+                                                 m_incflo->Geom(lev));
+            }
+        }
+        else {
+            compute_linear_part_of_divtau(nonlin_func, velocity,
+                                          GetVecOfConstPtrs(m_density),
+                                          GetVecOfConstPtrs(m_eta));
+            add_non_linear_part_of_divtau(nonlin_func, velocity,
+                                          GetVecOfConstPtrs(m_density),
+                                          GetVecOfConstPtrs(m_conc_second),
+                                          GetVecOfConstPtrs(m_p_static),
+                                          ho_coeff_velocity);
         }
     }
     else

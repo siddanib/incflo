@@ -180,6 +180,9 @@ private:
     bool m_use_ho_coeff_from_prev_time = false;
     bool m_use_ho_eta_precond = false;
     int m_ncomp_ho = 1;
+#ifdef AMREX_USE_EB
+    bool m_apply_divtau_redist = false;
+#endif
     // This variable is used to gradually increase
     // the effect of nonlinear div(tau)
     amrex::Vector<amrex::Real> m_alpha_factor_list{amrex::Real(0.5),
