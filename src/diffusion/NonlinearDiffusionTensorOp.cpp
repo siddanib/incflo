@@ -581,15 +581,47 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
         ? GetVecOfConstPtrs(m_old_iter_vel)
         : GetVecOfConstPtrs(m_newton_iter_vel);
     int numcomp = nonlin_func[0]->nComp();
-    compute_linear_part_of_divtau(nonlin_func, velocity,
-                                  GetVecOfConstPtrs(m_density),
-                                  GetVecOfConstPtrs(m_eta));
-    // NEED TO INCLUDE HIGH-ORDER divtau TERMS HERE BEFORE THE LOOP
-    add_non_linear_part_of_divtau(nonlin_func, velocity,
-                                  GetVecOfConstPtrs(m_density),
-                                  GetVecOfConstPtrs(m_conc_second),
-                                  GetVecOfConstPtrs(m_p_static),
-                                  ho_coeff_velocity);
+#ifdef AMREX_USE_EB
+    if (m_eb_apply_op)
+    {
+        int nlevels = nonlin_func.size();
+        Vector<MultiFab> divtau_tmp(nlevels);
+        int ng_redist = 2;
+        for (int lev = 0; lev < nlevels; ++lev) {
+            divtau_tmp[lev].define(nonlin_func[lev]->boxArray(),
+                                   nonlin_func[lev]->DistributionMap(),
+                                   numcomp, ng_redist, MFInfo(),
+                                   nonlin_func[lev]->Factory());
+            divtau_tmp[lev].setVal(Real(0.));
+        }
+
+        compute_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
+                                      GetVecOfConstPtrs(m_density),
+                                      GetVecOfConstPtrs(m_eta));
+        add_non_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
+                                      GetVecOfConstPtrs(m_density),
+                                      GetVecOfConstPtrs(m_conc_second),
+                                      GetVecOfConstPtrs(m_p_static),
+                                      ho_coeff_velocity);
+        for (int lev = 0; lev < nlevels; ++lev) {
+            divtau_tmp[lev].FillBoundary(m_incflo->Geom(lev).periodicity());
+            amrex::single_level_redistribute(divtau_tmp[lev],
+                                             *nonlin_func[lev], 0, numcomp,
+                                             m_incflo->Geom(lev));
+        }
+    }
+    else
+#endif
+    {
+        compute_linear_part_of_divtau(nonlin_func, velocity,
+                                      GetVecOfConstPtrs(m_density),
+                                      GetVecOfConstPtrs(m_eta));
+        add_non_linear_part_of_divtau(nonlin_func, velocity,
+                                      GetVecOfConstPtrs(m_density),
+                                      GetVecOfConstPtrs(m_conc_second),
+                                      GetVecOfConstPtrs(m_p_static),
+                                      ho_coeff_velocity);
+    }
     // First multiply divtau with (-dt)
     scale(nonlin_func, Real(-1.0)*m_dt);
     increment(nonlin_func, GetVecOfConstPtrs(m_rhs_n), Real(-1.0));
