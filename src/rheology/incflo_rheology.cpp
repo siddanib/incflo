@@ -1165,7 +1165,7 @@ incflo::compute_granular_high_order_fluxes_on_level (
                         + (vz+wy)*(vz+wy)/Real(12.0)
                         - ux*ux/Real(3.0)
                         - vy*vy/Real(3.0)
-                        + Real(2.0)*wz*wz;
+                        + Real(2.0)*wz*wz/Real(3.0);
           // Multiplying the rheological coefficient
           A_13 *= scndCoeff_arr(i,j,k,0);
           A_23 *= scndCoeff_arr(i,j,k,0);
@@ -1271,7 +1271,7 @@ incflo::compute_granular_high_order_fluxes_on_level (MultiFab* flux_eb,
 
                     Real A_33 =   -(uy+vx)*(uy+vx)/Real(6.0) + (uz+wx)*(uz+wx)/Real(12.0)
                                   + (vz+wy)*(vz+wy)/Real(12.0) - ux*ux/Real(3.0)
-                                  - vy*vy/Real(3.0) + Real(2.0)*wz*wz;
+                                  - vy*vy/Real(3.0) + Real(2.0)*wz*wz/Real(3.0);
 
                     A_11 *= Real(-1.0)*eta_2; A_12 *= Real(-1.0)*eta_2; A_13 *= Real(-1.0)*eta_2;
                     A_22 *= Real(-1.0)*eta_2; A_23 *= Real(-1.0)*eta_2; A_33 *= Real(-1.0)*eta_2;
