@@ -588,31 +588,52 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
     if (m_eb_apply_op)
     {
         if (m_apply_divtau_redist) {
+            compute_linear_part_of_divtau(nonlin_func, velocity,
+                                          GetVecOfConstPtrs(m_density),
+                                          GetVecOfConstPtrs(m_eta));
             int nlevels = nonlin_func.size();
-            Vector<MultiFab> divtau_tmp(nlevels);
+            Vector<MultiFab> nl_divtau_tmp(nlevels);
+            Vector<MultiFab> nl_divtau_redist(nlevels);
+            Vector<MultiFab> weights(nlevels);
             int ng_redist = 2;
             for (int lev = 0; lev < nlevels; ++lev) {
-                divtau_tmp[lev].define(nonlin_func[lev]->boxArray(),
+                nl_divtau_tmp[lev].define(nonlin_func[lev]->boxArray(),
                                        nonlin_func[lev]->DistributionMap(),
                                        numcomp, ng_redist, MFInfo(),
                                        nonlin_func[lev]->Factory());
-                divtau_tmp[lev].setVal(Real(0.));
+                nl_divtau_tmp[lev].setVal(Real(0.));
+                nl_divtau_redist[lev].define(nonlin_func[lev]->boxArray(),
+                                       nonlin_func[lev]->DistributionMap(),
+                                       numcomp, ng_redist, MFInfo(),
+                                       nonlin_func[lev]->Factory());
+                nl_divtau_redist[lev].setVal(Real(0.));
+                weights[lev].define(nonlin_func[lev]->boxArray(),
+                                       nonlin_func[lev]->DistributionMap(),
+                                       numcomp, ng_redist, MFInfo(),
+                                       nonlin_func[lev]->Factory());
+                weights[lev].setVal(Real(0.));
+                MultiFab::Copy(weights[lev], m_incflo->EBFactory(lev).getVolFrac(),
+                               0, 0, 1, 0);
+                //auto& density_lev = *m_density[lev];
+                //MultiFab::Copy(weights[lev], density_lev, 0, 0, 1, 0);
+                weights[lev].FillBoundary(m_incflo->Geom(lev).periodicity());
             }
-
-            compute_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
-                                          GetVecOfConstPtrs(m_density),
-                                          GetVecOfConstPtrs(m_eta));
-            add_non_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
+            add_non_linear_part_of_divtau(GetVecOfPtrs(nl_divtau_tmp), velocity,
                                           GetVecOfConstPtrs(m_density),
                                           GetVecOfConstPtrs(m_conc_second),
                                           GetVecOfConstPtrs(m_p_static),
                                           ho_coeff_velocity);
             for (int lev = 0; lev < nlevels; ++lev) {
-                divtau_tmp[lev].FillBoundary(m_incflo->Geom(lev).periodicity());
-                amrex::single_level_redistribute(divtau_tmp[lev],
-                                                 *nonlin_func[lev], 0, numcomp,
-                                                 m_incflo->Geom(lev));
+                nl_divtau_tmp[lev].FillBoundary(m_incflo->Geom(lev).periodicity());
+                //amrex::single_level_redistribute(nl_divtau_tmp[lev],
+                //                                 nl_divtau_redist[lev], 0, numcomp,
+                //                                 m_incflo->Geom(lev));
+                bool use_wts_in_divnc = true;
+                amrex::single_level_weighted_redistribute(nl_divtau_tmp[lev],
+                                    nl_divtau_redist[lev], weights[lev], 0, numcomp,
+                                    m_incflo->Geom(lev), use_wts_in_divnc);
             }
+            increment(nonlin_func, GetVecOfConstPtrs(nl_divtau_redist), Real(1.0));
         }
         else {
             compute_linear_part_of_divtau(nonlin_func, velocity,

@@ -657,7 +657,8 @@ void incflo_grad_eb_of_phi_on_cellcentroids (int i, int j, int k, int n,
                 Real x_off = static_cast<Real>(ii-i);
                 Real y_off = static_cast<Real>(jj-j);
 
-                if (flag(i,j,k).isConnected((ii-i),(jj-j),0))
+                if ( !(ii == i && jj == j)
+                     && flag(i,j,k).isConnected((ii-i),(jj-j),0))
                 {
                     Amatrix(a_ind,0) = Real(1.0);
                     Amatrix(a_ind,1) = x_off + ccent(ii,jj,k,0) - ccent(i,j,k,0);
@@ -740,17 +741,22 @@ void incflo_grad_eb_of_phi_on_cellcentroids (int i, int j, int k, int n,
                     Real y_off = static_cast<Real>(jj-j);
                     Real z_off = static_cast<Real>(kk-k);
 
-                    Amatrix(a_ind,0) = Real(1.0);
-                    Amatrix(a_ind,1) = x_off + ccent(ii,jj,kk,0) - ccent(i,j,k,0);
-                    Amatrix(a_ind,2) = y_off + ccent(ii,jj,kk,1) - ccent(i,j,k,1);
-                    Amatrix(a_ind,3) = z_off + ccent(ii,jj,kk,2) - ccent(i,j,k,2);
+                    if ( !(ii ==i && jj == j && kk == k)
+                        && flag(i,j,k).isConnected((ii-i),(jj-j),(kk-k)))
+                    {
+                        Amatrix(a_ind,0) = Real(1.0);
+                        Amatrix(a_ind,1) = x_off + ccent(ii,jj,kk,0) - ccent(i,j,k,0);
+                        Amatrix(a_ind,2) = y_off + ccent(ii,jj,kk,1) - ccent(i,j,k,1);
+                        Amatrix(a_ind,3) = z_off + ccent(ii,jj,kk,2) - ccent(i,j,k,2);
+                    }
 
                     const Real dcx_ijk = bcent(ii,jj,kk,0) - ccent(ii,jj,kk,0);
                     const Real dcy_ijk = bcent(ii,jj,kk,1) - ccent(ii,jj,kk,1);
                     const Real dcz_ijk = bcent(ii,jj,kk,2) - ccent(ii,jj,kk,2);
                     const Real dist2_ijk = dcx_ijk*dcx_ijk + dcy_ijk*dcy_ijk + dcz_ijk*dcz_ijk;
                     const bool use_eb_rows_ijk = (dist2_ijk >= eb_cc_tol*eb_cc_tol);
-                    if (use_eb_rows_ijk && !flag(ii,jj,kk).isRegular())
+                    if (use_eb_rows_ijk && !flag(ii,jj,kk).isRegular()
+                        && flag(i,j,k).isConnected((ii-i),(jj-j),(kk-k)))
                     {
                         Amatrix(a_ind+27,0) = Real(1.0);
                         Amatrix(a_ind+27,1) = x_off + bcent(ii,jj,kk,0) - ccent(i,j,k,0);
