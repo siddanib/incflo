@@ -175,6 +175,11 @@ void incflo::ApplyPredictor (bool incremental_projection)
     }
 
     // **********************************************************************************************
+    // Compute diffuse-interface regularization and momentum forces
+    // *************************************************************************************
+    compute_interface_terms(StepType::Predictor);
+
+    // **********************************************************************************************
     // Compute the forcing terms
     // *************************************************************************************
     bool include_pressure_gradient = !(m_use_mac_phi_in_godunov);

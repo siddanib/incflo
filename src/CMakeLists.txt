@@ -9,6 +9,7 @@ target_sources(incflo
    incflo_compute_dt.cpp
    incflo_compute_forces.cpp
    incflo_correct_small_cells.cpp
+   incflo_diffuse_interface.cpp
    incflo_redistribute.cpp
    incflo_explicit_update.cpp
    incflo_regrid.cpp

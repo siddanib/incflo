@@ -82,6 +82,15 @@ incflo::LevelData::LevelData (amrex::BoxArray const& ba,
             }
         }
     }
+
+    if (my_incflo->m_diffuse_interface) {
+        interface_divA.define  (ba, dm, 2, 0, MFInfo(), fact);
+        interface_divA_o.define(ba, dm, 2, 0, MFInfo(), fact);
+        interface_force.define (ba, dm, AMREX_SPACEDIM, 0, MFInfo(), fact);
+        interface_divA.setVal(Real(0.0));
+        interface_divA_o.setVal(Real(0.0));
+        interface_force.setVal(Real(0.0));
+    }
 }
 
 // Resize all arrays when instance of incflo class is constructed.

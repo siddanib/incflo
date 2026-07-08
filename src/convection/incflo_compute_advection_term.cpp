@@ -50,6 +50,11 @@ void incflo::init_advection ()
 #endif
         (m_iconserv_tracer_d.data(), m_iconserv_tracer.data(), sizeof(int)*m_ntrac);
 
+    if (m_diffuse_interface && m_iconserv_tracer[0] != 0) {
+        amrex::Abort(
+"diffuse_interface requires tracer 0 non-conservative: set incflo.trac_is_conservative = 0 ...");
+    }
+
 }
 
 void

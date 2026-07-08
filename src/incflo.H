@@ -322,6 +322,9 @@ public:
                               amrex::Vector<amrex::MultiFab const*> const& eta,
                               amrex::Real dt_diff,
                               amrex::Vector<amrex::iMultiFab const*> const* overset_mask = nullptr);
+    void compute_interface_terms (StepType step_type);
+    void add_interface_regularization (StepType step_type);
+    void diffuse_interface (amrex::Real dt_diff);
 
     void fixup_eta_on_domain_faces (int lev,
                                     amrex::Array<amrex::MultiFab,AMREX_SPACEDIM>& fc,
@@ -789,6 +792,17 @@ private:
     // These are related to level set method
     // Coefficient d that is used in level set
     amrex::Real m_level_set_d = amrex::Real(0.1);
+    bool m_diffuse_interface = false;
+    amrex::Real m_interface_epsilon = amrex::Real(0.0);
+    amrex::Real m_interface_epsilon_star = amrex::Real(0.0);
+    bool m_interface_fixed_epsilon = false;
+    amrex::Real m_interface_gamma = amrex::Real(0.0);
+    amrex::Real m_interface_gamma_star = amrex::Real(0.0);
+    bool m_interface_fixed_gamma = false;
+    amrex::Real m_interface_surface_tension = amrex::Real(0.0);
+    amrex::Real m_interface_varepsilon = amrex::Real(1.0e-12);
+    amrex::Real m_interface_smalltol = amrex::Real(1.0e-12);
+    amrex::Real m_interface_phitol = amrex::Real(1.0e-6);
     // This boolean decides if temperature has to be used as granular temperature
     bool m_use_granular_temperature = false;
     amrex::Real m_gran_temp_collisional_dissipation = amrex::Real(0.);
@@ -910,6 +924,9 @@ private:
         amrex::MultiFab laps_o;
         amrex::MultiFab laps_tem;
         amrex::MultiFab laps_tem_o;
+        amrex::MultiFab interface_divA;
+        amrex::MultiFab interface_divA_o;
+        amrex::MultiFab interface_force;
     };
 
     bool m_use_temperature = false;

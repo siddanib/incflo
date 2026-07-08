@@ -227,5 +227,16 @@ void incflo::compute_vel_forces_on_level (int lev,
                     }
                 });
             }
+
+            if (m_diffuse_interface) {
+                Array4<Real const> const& iface_f = m_leveldata[lev]->interface_force.const_array(mfi);
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    Real const rhoinv = Real(1.0) / rho(i,j,k);
+                    AMREX_D_TERM(vel_f(i,j,k,0) += iface_f(i,j,k,0) * rhoinv;,
+                                 vel_f(i,j,k,1) += iface_f(i,j,k,1) * rhoinv;,
+                                 vel_f(i,j,k,2) += iface_f(i,j,k,2) * rhoinv;);
+                });
+            }
     }
 }

@@ -41,6 +41,8 @@ void incflo::update_tracer (StepType step_type, Vector<MultiFab>& tra_eta, Vecto
             tracer_explicit_update_corrector(tra_forces);
         }
 
+        add_interface_regularization(step_type);
+
         // *************************************************************************************
         // Solve diffusion equation for tracer
         // *************************************************************************************

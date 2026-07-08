@@ -118,6 +118,11 @@ void incflo::ApplyCorrector()
     }
 
     // *************************************************************************************
+    // Compute diffuse-interface regularization and momentum forces
+    // *************************************************************************************
+    compute_interface_terms(StepType::Corrector);
+
+    // *************************************************************************************
     // Compute the MAC-projected velocities at all levels
     // *************************************************************************************
     bool include_pressure_gradient = !(m_use_mac_phi_in_godunov);

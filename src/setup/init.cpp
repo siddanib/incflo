@@ -181,6 +181,44 @@ void incflo::ReadParameters ()
         pp.query("two_fluid_cc_rho_conc",m_two_fluid_cc_rho_conc);
         pp.query("two_fluid_max_dt", m_two_fluid_max_dt);
 
+        pp.query("diffuse_interface", m_diffuse_interface);
+        if (m_diffuse_interface) {
+            if (!m_two_fluid) {
+                amrex::Abort("diffuse_interface requires two_fluid");
+            }
+            if (!m_advect_tracer || m_ntrac < 1) {
+                amrex::Abort("diffuse_interface requires advect_tracer and at least one tracer");
+            }
+
+            bool has_epsilon = pp.query("interface_epsilon", m_interface_epsilon);
+            bool has_epsilon_star = pp.query("interface_epsilon_star", m_interface_epsilon_star);
+            m_interface_fixed_epsilon = has_epsilon;
+            if (!has_epsilon && !has_epsilon_star) {
+                amrex::Abort("diffuse_interface requires interface_epsilon or interface_epsilon_star");
+            }
+            if (m_interface_epsilon < Real(0.0) || m_interface_epsilon_star < Real(0.0)) {
+                amrex::Abort("interface_epsilon and interface_epsilon_star must be non-negative");
+            }
+
+            bool has_gamma = pp.query("interface_gamma", m_interface_gamma);
+            bool has_gamma_star = pp.query("interface_gamma_star", m_interface_gamma_star);
+            m_interface_fixed_gamma = has_gamma;
+            if (!has_gamma && !has_gamma_star) {
+                amrex::Abort("diffuse_interface requires interface_gamma or interface_gamma_star");
+            }
+            if (m_interface_gamma < Real(0.0) || m_interface_gamma_star < Real(0.0)) {
+                amrex::Abort("interface_gamma and interface_gamma_star must be non-negative");
+            }
+
+            pp.get("interface_surface_tension", m_interface_surface_tension);
+            if (m_interface_surface_tension < Real(0.0)) {
+                amrex::Abort("interface_surface_tension must be non-negative");
+            }
+            pp.query("interface_varepsilon", m_interface_varepsilon);
+            pp.query("interface_smalltol", m_interface_smalltol);
+            pp.query("interface_phitol", m_interface_phitol);
+        }
+
         // Density (if constant)
         pp.query("ro_0", m_ro_0);
         AMREX_ALWAYS_ASSERT(m_ro_0 >= 0.0);
@@ -188,6 +226,9 @@ void incflo::ReadParameters ()
         // Scalar diffusion coefficients
         m_mu_s.resize(m_ntrac, 0.0);
         pp.queryarr("mu_s", m_mu_s, 0, m_ntrac );
+        if (m_diffuse_interface) {
+            m_mu_s[0] = Real(0.0);
+        }
 
         amrex::Print() << "Scalar diffusion coefficients " << std::endl;
         for (int i = 0; i < m_ntrac; i++) {
