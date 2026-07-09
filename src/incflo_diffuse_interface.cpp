@@ -5,6 +5,7 @@
 #include <AMReX_EBMultiFabUtil.H>
 #endif
 #include <AMReX_MultiFabUtil.H>
+#include <AMReX_PhysBCFunct.H>
 
 #include <cmath>
 #include <limits>
@@ -12,6 +13,96 @@
 using namespace amrex;
 
 namespace {
+
+
+struct InterfaceTrac0Fill
+{
+    int probtype;
+    GpuArray<Real const*, AMREX_SPACEDIM*2> bcv_tra;
+    GpuArray<GpuArray<Real, AMREX_SPACEDIM>, AMREX_SPACEDIM*2> bcv_vel;
+
+    AMREX_GPU_HOST
+    constexpr InterfaceTrac0Fill (
+        int a_probtype,
+        GpuArray<Real const*, AMREX_SPACEDIM*2> const& a_bcv_tra,
+        GpuArray<GpuArray<Real, AMREX_SPACEDIM>, AMREX_SPACEDIM*2> const& a_bcv_vel)
+        : probtype(a_probtype), bcv_tra(a_bcv_tra), bcv_vel(a_bcv_vel) {}
+
+    AMREX_GPU_DEVICE
+    void operator() (IntVect const& iv, Array4<Real> const& phi,
+                     int dcomp, int /*numcomp*/,
+                     GeometryData const& geom, Real /*time*/,
+                     BCRec const* bcr, int bcomp,
+                     int /*orig_comp*/) const
+    {
+        int const i = iv[0];
+        int const j = iv[1];
+#if (AMREX_SPACEDIM == 3)
+        int const k = iv[2];
+#else
+        int const k = 0;
+#endif
+
+        Box const& domain_box = geom.Domain();
+        BCRec const& bc = bcr[bcomp];
+
+        if (1101 == probtype && i < domain_box.smallEnd(0)) {
+            int const half_num_cells = domain_box.length(1) / 2;
+            if (j > half_num_cells) {
+                phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::x,Orientation::low)][0];
+            }
+        } else if (1101 == probtype && i > domain_box.bigEnd(0)) {
+            int const half_num_cells = domain_box.length(1) / 2;
+            if (j <= half_num_cells) {
+                phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::x,Orientation::high)][0];
+            }
+        }
+#if (AMREX_SPACEDIM == 3)
+        else if (1102 == probtype && j > domain_box.bigEnd(1)) {
+            int const half_num_cells = domain_box.length(2) / 2;
+            if (k <= half_num_cells) {
+                phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::y,Orientation::high)][0];
+            }
+        }
+#endif
+        else if ((i < domain_box.smallEnd(0)) &&
+                 ((bc.lo(0) == BCType::ext_dir) ||
+                  (bc.lo(0) == BCType::direction_dependent &&
+                   bcv_vel[Orientation(Direction::x,Orientation::low)][0] >= Real(0.0)))) {
+            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::x,Orientation::low)][0];
+        } else if ((i > domain_box.bigEnd(0)) &&
+                   ((bc.hi(0) == BCType::ext_dir) ||
+                    (bc.hi(0) == BCType::direction_dependent &&
+                     bcv_vel[Orientation(Direction::x,Orientation::high)][0] <= Real(0.0)))) {
+            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::x,Orientation::high)][0];
+        }
+
+        if ((j < domain_box.smallEnd(1)) &&
+            ((bc.lo(1) == BCType::ext_dir) ||
+             (bc.lo(1) == BCType::direction_dependent &&
+              bcv_vel[Orientation(Direction::y,Orientation::low)][1] >= Real(0.0)))) {
+            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::y,Orientation::low)][0];
+        } else if ((j > domain_box.bigEnd(1)) &&
+                   ((bc.hi(1) == BCType::ext_dir) ||
+                    (bc.hi(1) == BCType::direction_dependent &&
+                     bcv_vel[Orientation(Direction::y,Orientation::high)][1] <= Real(0.0)))) {
+            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::y,Orientation::high)][0];
+        }
+#if (AMREX_SPACEDIM == 3)
+        if ((k < domain_box.smallEnd(2)) &&
+            ((bc.lo(2) == BCType::ext_dir) ||
+             (bc.lo(2) == BCType::direction_dependent &&
+              bcv_vel[Orientation(Direction::z,Orientation::low)][2] >= Real(0.0)))) {
+            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::z,Orientation::low)][0];
+        } else if ((k > domain_box.bigEnd(2)) &&
+                   ((bc.hi(2) == BCType::ext_dir) ||
+                    (bc.hi(2) == BCType::direction_dependent &&
+                     bcv_vel[Orientation(Direction::z,Orientation::high)][2] <= Real(0.0)))) {
+            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::z,Orientation::high)][0];
+        }
+#endif
+    }
+};
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 Real avg_cc_to_face_masked (IntVect ijk_hi, int dir,
@@ -40,6 +131,36 @@ Real avg_cc_to_face_masked (IntVect ijk_hi, int dir,
     if (mask_hi) { return cc(ijk_hi, comp); }
     return Real(0.0);
 }
+
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+Real cc_grad_dir_with_face_ghost (int i, int j, int k, int dir, int comp,
+                                  Array4<Real const> const& mf,
+                                  Real dx_dir, Dim3 const& dlo,
+                                  Dim3 const& dhi, bool periodic) noexcept
+{
+    int const di = (dir == 0) ? 1 : 0;
+    int const dj = (dir == 1) ? 1 : 0;
+    int const dk = (dir == 2) ? 1 : 0;
+
+    int const iv_dir = (dir == 0) ? i : (dir == 1) ? j : k;
+    int const lo_lim = (dir == 0) ? dlo.x : (dir == 1) ? dlo.y : dlo.z;
+    int const hi_lim = (dir == 0) ? dhi.x : (dir == 1) ? dhi.y : dhi.z;
+
+    Real xm = -dx_dir;
+    Real xp =  dx_dir;
+    if (!periodic && iv_dir == lo_lim) { xm *= Real(0.5); }
+    if (!periodic && iv_dir == hi_lim) { xp *= Real(0.5); }
+
+    Real const fm = mf(i-di,j-dj,k-dk,comp);
+    Real const fc = mf(i   ,j   ,k   ,comp);
+    Real const fp = mf(i+di,j+dj,k+dk,comp);
+
+    return -(fm * (xp / (xm * (xm - xp)))
+           + fc * ((xm + xp) / (xm * xp))
+           + fp * (xm / ((xp - xm) * xp)));
+}
+
 
 
 #ifdef AMREX_USE_EB
@@ -240,7 +361,21 @@ void incflo::compute_interface_terms (StepType step_type)
         auto const domain = geom[lev].Domain();
         Dim3 const dlo = lbound(domain);
         Dim3 const dhi = ubound(domain);
+        GpuArray<bool, AMREX_SPACEDIM> is_periodic;
+        is_periodic[0] = geom[lev].isPeriodic(0);
+        is_periodic[1] = geom[lev].isPeriodic(1);
+#if (AMREX_SPACEDIM == 3)
+        is_periodic[2] = geom[lev].isPeriodic(2);
+#endif
 
+        if (m_ntrac > 0) {
+            Vector<BCRec> phi_bcrec{m_bcrec_tracer[0]};
+            PhysBCFunct<GpuBndryFuncFab<InterfaceTrac0Fill> > physbc
+                (geom[lev], phi_bcrec,
+                 InterfaceTrac0Fill{m_probtype, m_bc_tracer_d, m_bc_velocity});
+            Real const fill_time = (step_type == StepType::Predictor) ? m_t_old[lev] : m_t_new[lev];
+            physbc.FillBoundary(phi[lev], 0, 1, IntVect(phi[lev].nGrow()), fill_time, 0);
+        }
         phi[lev].FillBoundary(geom[lev].periodicity());
         iMultiFab mask = make_interface_mask(phi[lev], phitol);
 
@@ -333,10 +468,10 @@ void incflo::compute_interface_terms (StepType step_type)
             {
                 ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                 {
-                    Real const psx = Real(0.5) * (ps(i+1,j,k) - ps(i-1,j,k)) * dxi[0];
-                    Real const psy = Real(0.5) * (ps(i,j+1,k) - ps(i,j-1,k)) * dxi[1];
+                    Real const psx = cc_grad_dir_with_face_ghost(i,j,k,0,0,ps,dx[0],dlo,dhi,is_periodic[0]);
+                    Real const psy = cc_grad_dir_with_face_ghost(i,j,k,1,0,ps,dx[1],dlo,dhi,is_periodic[1]);
 #if (AMREX_SPACEDIM == 3)
-                    Real const psz = Real(0.5) * (ps(i,j,k+1) - ps(i,j,k-1)) * dxi[2];
+                    Real const psz = cc_grad_dir_with_face_ghost(i,j,k,2,0,ps,dx[2],dlo,dhi,is_periodic[2]);
 #else
                     Real const psz = Real(0.0);
 #endif
@@ -348,10 +483,10 @@ void incflo::compute_interface_terms (StepType step_type)
                     n(i,j,k,2) = psz * invmag;
 #endif
 
-                    gp(i,j,k,0) = Real(0.5) * (p(i+1,j,k,0) - p(i-1,j,k,0)) * dxi[0];
-                    gp(i,j,k,1) = Real(0.5) * (p(i,j+1,k,0) - p(i,j-1,k,0)) * dxi[1];
+                    gp(i,j,k,0) = cc_grad_dir_with_face_ghost(i,j,k,0,0,p,dx[0],dlo,dhi,is_periodic[0]);
+                    gp(i,j,k,1) = cc_grad_dir_with_face_ghost(i,j,k,1,0,p,dx[1],dlo,dhi,is_periodic[1]);
 #if (AMREX_SPACEDIM == 3)
-                    gp(i,j,k,2) = Real(0.5) * (p(i,j,k+1,0) - p(i,j,k-1,0)) * dxi[2];
+                    gp(i,j,k,2) = cc_grad_dir_with_face_ghost(i,j,k,2,0,p,dx[2],dlo,dhi,is_periodic[2]);
 #endif
                 });
             }
