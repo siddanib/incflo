@@ -1,4 +1,5 @@
 #include <incflo.H>
+#include <prob_bc.H>
 
 #ifdef AMREX_USE_EB
 #include <AMReX_EBCellFlag.H>
@@ -14,95 +15,6 @@ using namespace amrex;
 
 namespace {
 
-
-struct InterfaceTrac0Fill
-{
-    int probtype;
-    GpuArray<Real const*, AMREX_SPACEDIM*2> bcv_tra;
-    GpuArray<GpuArray<Real, AMREX_SPACEDIM>, AMREX_SPACEDIM*2> bcv_vel;
-
-    AMREX_GPU_HOST
-    constexpr InterfaceTrac0Fill (
-        int a_probtype,
-        GpuArray<Real const*, AMREX_SPACEDIM*2> const& a_bcv_tra,
-        GpuArray<GpuArray<Real, AMREX_SPACEDIM>, AMREX_SPACEDIM*2> const& a_bcv_vel)
-        : probtype(a_probtype), bcv_tra(a_bcv_tra), bcv_vel(a_bcv_vel) {}
-
-    AMREX_GPU_DEVICE
-    void operator() (IntVect const& iv, Array4<Real> const& phi,
-                     int dcomp, int /*numcomp*/,
-                     GeometryData const& geom, Real /*time*/,
-                     BCRec const* bcr, int bcomp,
-                     int /*orig_comp*/) const
-    {
-        int const i = iv[0];
-        int const j = iv[1];
-#if (AMREX_SPACEDIM == 3)
-        int const k = iv[2];
-#else
-        int const k = 0;
-#endif
-
-        Box const& domain_box = geom.Domain();
-        BCRec const& bc = bcr[bcomp];
-
-        if (1101 == probtype && i < domain_box.smallEnd(0)) {
-            int const half_num_cells = domain_box.length(1) / 2;
-            if (j > half_num_cells) {
-                phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::x,Orientation::low)][0];
-            }
-        } else if (1101 == probtype && i > domain_box.bigEnd(0)) {
-            int const half_num_cells = domain_box.length(1) / 2;
-            if (j <= half_num_cells) {
-                phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::x,Orientation::high)][0];
-            }
-        }
-#if (AMREX_SPACEDIM == 3)
-        else if (1102 == probtype && j > domain_box.bigEnd(1)) {
-            int const half_num_cells = domain_box.length(2) / 2;
-            if (k <= half_num_cells) {
-                phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::y,Orientation::high)][0];
-            }
-        }
-#endif
-        else if ((i < domain_box.smallEnd(0)) &&
-                 ((bc.lo(0) == BCType::ext_dir) ||
-                  (bc.lo(0) == BCType::direction_dependent &&
-                   bcv_vel[Orientation(Direction::x,Orientation::low)][0] >= Real(0.0)))) {
-            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::x,Orientation::low)][0];
-        } else if ((i > domain_box.bigEnd(0)) &&
-                   ((bc.hi(0) == BCType::ext_dir) ||
-                    (bc.hi(0) == BCType::direction_dependent &&
-                     bcv_vel[Orientation(Direction::x,Orientation::high)][0] <= Real(0.0)))) {
-            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::x,Orientation::high)][0];
-        }
-
-        if ((j < domain_box.smallEnd(1)) &&
-            ((bc.lo(1) == BCType::ext_dir) ||
-             (bc.lo(1) == BCType::direction_dependent &&
-              bcv_vel[Orientation(Direction::y,Orientation::low)][1] >= Real(0.0)))) {
-            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::y,Orientation::low)][0];
-        } else if ((j > domain_box.bigEnd(1)) &&
-                   ((bc.hi(1) == BCType::ext_dir) ||
-                    (bc.hi(1) == BCType::direction_dependent &&
-                     bcv_vel[Orientation(Direction::y,Orientation::high)][1] <= Real(0.0)))) {
-            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::y,Orientation::high)][0];
-        }
-#if (AMREX_SPACEDIM == 3)
-        if ((k < domain_box.smallEnd(2)) &&
-            ((bc.lo(2) == BCType::ext_dir) ||
-             (bc.lo(2) == BCType::direction_dependent &&
-              bcv_vel[Orientation(Direction::z,Orientation::low)][2] >= Real(0.0)))) {
-            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::z,Orientation::low)][0];
-        } else if ((k > domain_box.bigEnd(2)) &&
-                   ((bc.hi(2) == BCType::ext_dir) ||
-                    (bc.hi(2) == BCType::direction_dependent &&
-                     bcv_vel[Orientation(Direction::z,Orientation::high)][2] <= Real(0.0)))) {
-            phi(i,j,k,dcomp) = bcv_tra[Orientation(Direction::z,Orientation::high)][0];
-        }
-#endif
-    }
-};
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 Real avg_cc_to_face_masked (IntVect ijk_hi, int dir,
@@ -370,9 +282,9 @@ void incflo::compute_interface_terms (StepType step_type)
 
         if (m_ntrac > 0) {
             Vector<BCRec> phi_bcrec{m_bcrec_tracer[0]};
-            PhysBCFunct<GpuBndryFuncFab<InterfaceTrac0Fill> > physbc
+            PhysBCFunct<GpuBndryFuncFab<IncfloTracFill> > physbc
                 (geom[lev], phi_bcrec,
-                 InterfaceTrac0Fill{m_probtype, m_bc_tracer_d, m_bc_velocity});
+                 IncfloTracFill{m_probtype, 1, m_bc_tracer_d, m_bc_velocity});
             Real const fill_time = (step_type == StepType::Predictor) ? m_t_old[lev] : m_t_new[lev];
             physbc.FillBoundary(phi[lev], 0, 1, IntVect(phi[lev].nGrow()), fill_time, 0);
         }
@@ -711,4 +623,11 @@ void incflo::diffuse_interface (Real dt_diff)
 
     get_diffusion_scalar_op()->diffuse_scalar(phi_ptr, get_density_new(), eta_ptr,
                                               eb_ptr, {0}, {m_bcrec_tracer[0]}, dt_diff);
+
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        int const ng = tracer[lev]->nGrow();
+        if (ng > 0) {
+            fillpatch_tracer(lev, m_t_new[lev], *tracer[lev], ng);
+        }
+    }
 }
