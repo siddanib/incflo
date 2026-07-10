@@ -54,42 +54,28 @@ bool interface_bc_is_neumann (int bc_type) noexcept
 }
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
-Real cc_grad_dir_with_face_ghost (int i, int j, int k, int dir, int comp,
-                                  Array4<Real const> const& mf,
-                                  Real dx_dir, Dim3 const& dlo,
-                                  Dim3 const& dhi, bool periodic,
-                                  BCRec const& bc) noexcept
+Real interface_domain_neumann_grad_dir (int i, int j, int k, int dir, int comp,
+                                        Array4<Real const> const& mf,
+                                        Real dxi_dir, Dim3 const& dlo,
+                                        Dim3 const& dhi, bool periodic,
+                                        BCRec const& bc) noexcept
 {
-    int const di = (dir == 0) ? 1 : 0;
-    int const dj = (dir == 1) ? 1 : 0;
-    int const dk = (dir == 2) ? 1 : 0;
-
     int const iv_dir = (dir == 0) ? i : (dir == 1) ? j : k;
     int const lo_lim = (dir == 0) ? dlo.x : (dir == 1) ? dlo.y : dlo.z;
     int const hi_lim = (dir == 0) ? dhi.x : (dir == 1) ? dhi.y : dhi.z;
 
-    if (!periodic && iv_dir == lo_lim && interface_bc_is_neumann(bc.lo(dir))) {
+    if (!periodic &&
+        ((iv_dir == lo_lim && interface_bc_is_neumann(bc.lo(dir))) ||
+         (iv_dir == hi_lim && interface_bc_is_neumann(bc.hi(dir))))) {
         return Real(0.0);
     }
-    if (!periodic && iv_dir == hi_lim && interface_bc_is_neumann(bc.hi(dir))) {
-        return Real(0.0);
-    }
 
-    Real xm = -dx_dir;
-    Real xp =  dx_dir;
-    if (!periodic && iv_dir == lo_lim) { xm *= Real(0.5); }
-    if (!periodic && iv_dir == hi_lim) { xp *= Real(0.5); }
-
-    Real const fm = mf(i-di,j-dj,k-dk,comp);
-    Real const fc = mf(i   ,j   ,k   ,comp);
-    Real const fp = mf(i+di,j+dj,k+dk,comp);
-
-    return -(fm * (xp / (xm * (xm - xp)))
-           + fc * ((xm + xp) / (xm * xp))
-           + fp * (xm / ((xp - xm) * xp)));
+    int const di = (dir == 0) ? 1 : 0;
+    int const dj = (dir == 1) ? 1 : 0;
+    int const dk = (dir == 2) ? 1 : 0;
+    return Real(0.5) * (mf(i+di,j+dj,k+dk,comp) -
+                        mf(i-di,j-dj,k-dk,comp)) * dxi_dir;
 }
-
-
 
 #ifdef AMREX_USE_EB
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
@@ -397,10 +383,10 @@ void incflo::compute_interface_terms (StepType step_type)
             {
                 ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                 {
-                    Real const psx = cc_grad_dir_with_face_ghost(i,j,k,0,0,ps,dx[0],dlo,dhi,is_periodic[0],phi_bc);
-                    Real const psy = cc_grad_dir_with_face_ghost(i,j,k,1,0,ps,dx[1],dlo,dhi,is_periodic[1],phi_bc);
+                    Real const psx = interface_domain_neumann_grad_dir(i,j,k,0,0,ps,dxi[0],dlo,dhi,is_periodic[0],phi_bc);
+                    Real const psy = interface_domain_neumann_grad_dir(i,j,k,1,0,ps,dxi[1],dlo,dhi,is_periodic[1],phi_bc);
 #if (AMREX_SPACEDIM == 3)
-                    Real const psz = cc_grad_dir_with_face_ghost(i,j,k,2,0,ps,dx[2],dlo,dhi,is_periodic[2],phi_bc);
+                    Real const psz = interface_domain_neumann_grad_dir(i,j,k,2,0,ps,dxi[2],dlo,dhi,is_periodic[2],phi_bc);
 #else
                     Real const psz = Real(0.0);
 #endif
@@ -412,10 +398,10 @@ void incflo::compute_interface_terms (StepType step_type)
                     n(i,j,k,2) = psz * invmag;
 #endif
 
-                    gp(i,j,k,0) = cc_grad_dir_with_face_ghost(i,j,k,0,0,p,dx[0],dlo,dhi,is_periodic[0],phi_bc);
-                    gp(i,j,k,1) = cc_grad_dir_with_face_ghost(i,j,k,1,0,p,dx[1],dlo,dhi,is_periodic[1],phi_bc);
+                    gp(i,j,k,0) = interface_domain_neumann_grad_dir(i,j,k,0,0,p,dxi[0],dlo,dhi,is_periodic[0],phi_bc);
+                    gp(i,j,k,1) = interface_domain_neumann_grad_dir(i,j,k,1,0,p,dxi[1],dlo,dhi,is_periodic[1],phi_bc);
 #if (AMREX_SPACEDIM == 3)
-                    gp(i,j,k,2) = cc_grad_dir_with_face_ghost(i,j,k,2,0,p,dx[2],dlo,dhi,is_periodic[2],phi_bc);
+                    gp(i,j,k,2) = interface_domain_neumann_grad_dir(i,j,k,2,0,p,dxi[2],dlo,dhi,is_periodic[2],phi_bc);
 #endif
                 });
             }
@@ -465,10 +451,19 @@ void incflo::compute_interface_terms (StepType step_type)
                         diffusion = Gamma * epsilon * (p(iv,0) - p(lo,0)) * dxi[dir];
                     }
 
-                    Real const pfc = avg_cc_to_face_masked(iv, dir, m, ps, lo_lim, hi_lim, periodic);
+                    //Real const pfc = avg_cc_to_face_masked(iv, dir, m, ps, lo_lim, hi_lim, periodic);
                     nf(i,j,k) = avg_cc_to_face_masked(iv, dir, m, n, lo_lim, hi_lim, periodic, dir);
-                    Real const th = std::tanh(pfc / (Real(2.0) * epsilon));
-                    Real const sharpening = -Real(0.25) * Gamma * (Real(1.0) - th*th) * nf(i,j,k);
+                    //Real const th = std::tanh(pfc / (Real(2.0) * epsilon));
+                    //Real const sharpening = -Real(0.25) * Gamma * (Real(1.0) - th*th) * nf(i,j,k);
+                    // Use the same two cell states as the diffusive flux so an
+                    // equilibrium tanh profile cancels discretely at the face.
+                    Real const psi_lo = ps(lo);
+                    Real const psi_hi = ps(iv);
+                    Real const dpsi = psi_hi - psi_lo;
+                    Real const phi_mobility = (std::abs(dpsi) > smalltol)
+                        ? epsilon * (p(iv,0) - p(lo,0)) / dpsi
+                        : Real(0.25) * (p(iv,0) + p(lo,0)) * (Real(2.0) - p(iv,0) - p(lo,0));
+                    Real const sharpening = -Gamma * phi_mobility * nf(i,j,k);
                     ar(i,j,k,1) = sharpening;
                     ar(i,j,k,0) = diffusion + sharpening;
                 });
