@@ -46,10 +46,19 @@ Real avg_cc_to_face_masked (IntVect ijk_hi, int dir,
 
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+bool interface_bc_is_neumann (int bc_type) noexcept
+{
+    return bc_type == BCType::foextrap ||
+           bc_type == BCType::hoextrap ||
+           bc_type == BCType::reflect_even;
+}
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 Real cc_grad_dir_with_face_ghost (int i, int j, int k, int dir, int comp,
                                   Array4<Real const> const& mf,
                                   Real dx_dir, Dim3 const& dlo,
-                                  Dim3 const& dhi, bool periodic) noexcept
+                                  Dim3 const& dhi, bool periodic,
+                                  BCRec const& bc) noexcept
 {
     int const di = (dir == 0) ? 1 : 0;
     int const dj = (dir == 1) ? 1 : 0;
@@ -58,6 +67,13 @@ Real cc_grad_dir_with_face_ghost (int i, int j, int k, int dir, int comp,
     int const iv_dir = (dir == 0) ? i : (dir == 1) ? j : k;
     int const lo_lim = (dir == 0) ? dlo.x : (dir == 1) ? dlo.y : dlo.z;
     int const hi_lim = (dir == 0) ? dhi.x : (dir == 1) ? dhi.y : dhi.z;
+
+    if (!periodic && iv_dir == lo_lim && interface_bc_is_neumann(bc.lo(dir))) {
+        return Real(0.0);
+    }
+    if (!periodic && iv_dir == hi_lim && interface_bc_is_neumann(bc.hi(dir))) {
+        return Real(0.0);
+    }
 
     Real xm = -dx_dir;
     Real xp =  dx_dir;
@@ -279,9 +295,10 @@ void incflo::compute_interface_terms (StepType step_type)
 #if (AMREX_SPACEDIM == 3)
         is_periodic[2] = geom[lev].isPeriodic(2);
 #endif
+        BCRec const phi_bc = m_bcrec_tracer[0];
 
         if (m_ntrac > 0) {
-            Vector<BCRec> phi_bcrec{m_bcrec_tracer[0]};
+            Vector<BCRec> phi_bcrec{phi_bc};
             PhysBCFunct<GpuBndryFuncFab<IncfloTracFill> > physbc
                 (geom[lev], phi_bcrec,
                  IncfloTracFill{m_probtype, 1, m_bc_tracer_d, m_bc_velocity});
@@ -380,10 +397,10 @@ void incflo::compute_interface_terms (StepType step_type)
             {
                 ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                 {
-                    Real const psx = cc_grad_dir_with_face_ghost(i,j,k,0,0,ps,dx[0],dlo,dhi,is_periodic[0]);
-                    Real const psy = cc_grad_dir_with_face_ghost(i,j,k,1,0,ps,dx[1],dlo,dhi,is_periodic[1]);
+                    Real const psx = cc_grad_dir_with_face_ghost(i,j,k,0,0,ps,dx[0],dlo,dhi,is_periodic[0],phi_bc);
+                    Real const psy = cc_grad_dir_with_face_ghost(i,j,k,1,0,ps,dx[1],dlo,dhi,is_periodic[1],phi_bc);
 #if (AMREX_SPACEDIM == 3)
-                    Real const psz = cc_grad_dir_with_face_ghost(i,j,k,2,0,ps,dx[2],dlo,dhi,is_periodic[2]);
+                    Real const psz = cc_grad_dir_with_face_ghost(i,j,k,2,0,ps,dx[2],dlo,dhi,is_periodic[2],phi_bc);
 #else
                     Real const psz = Real(0.0);
 #endif
@@ -395,10 +412,10 @@ void incflo::compute_interface_terms (StepType step_type)
                     n(i,j,k,2) = psz * invmag;
 #endif
 
-                    gp(i,j,k,0) = cc_grad_dir_with_face_ghost(i,j,k,0,0,p,dx[0],dlo,dhi,is_periodic[0]);
-                    gp(i,j,k,1) = cc_grad_dir_with_face_ghost(i,j,k,1,0,p,dx[1],dlo,dhi,is_periodic[1]);
+                    gp(i,j,k,0) = cc_grad_dir_with_face_ghost(i,j,k,0,0,p,dx[0],dlo,dhi,is_periodic[0],phi_bc);
+                    gp(i,j,k,1) = cc_grad_dir_with_face_ghost(i,j,k,1,0,p,dx[1],dlo,dhi,is_periodic[1],phi_bc);
 #if (AMREX_SPACEDIM == 3)
-                    gp(i,j,k,2) = cc_grad_dir_with_face_ghost(i,j,k,2,0,p,dx[2],dlo,dhi,is_periodic[2]);
+                    gp(i,j,k,2) = cc_grad_dir_with_face_ghost(i,j,k,2,0,p,dx[2],dlo,dhi,is_periodic[2],phi_bc);
 #endif
                 });
             }
@@ -426,6 +443,18 @@ void incflo::compute_interface_terms (StepType step_type)
                     IntVect const iv(AMREX_D_DECL(i,j,k));
                     IntVect lo = iv;
                     lo[dir] -= 1;
+
+                    bool const lo_neumann = !periodic && iv[dir] == lo_lim &&
+                        interface_bc_is_neumann(phi_bc.lo(dir));
+                    bool const hi_neumann = !periodic && iv[dir] == hi_lim + 1 &&
+                        interface_bc_is_neumann(phi_bc.hi(dir));
+
+                    if (lo_neumann || hi_neumann) {
+                        nf(i,j,k) = Real(0.0);
+                        ar(i,j,k,0) = Real(0.0);
+                        ar(i,j,k,1) = Real(0.0);
+                        return;
+                    }
 
                     Real diffusion = Real(0.0);
                     if (!periodic && iv[dir] == lo_lim) {
