@@ -1606,12 +1606,25 @@ void NonlinearDiffusionTensorOp::compVelGrad (int amrlev,
         lev_mn_dx /= Real(AMREX_SPACEDIM);
 
         m_eb_apply_op->compVelGrad(amrlev, gradVel, sol, loc);
+        // The supplied velocity (sol) is at cell-center
+        // Interpolate it to cell-centroid as grad_eb_of_phi expects
+        // solution at cell-centroid
+        MultiFab vel_centroid(sol.boxArray(),
+                              sol.DistributionMap(),
+                              AMREX_SPACEDIM, sol.nGrow(),
+                              MFInfo(),sol.Factory());
+        MultiFab::Copy(vel_centroid, sol, 0, 0, AMREX_SPACEDIM,
+                       sol.nGrow());
+        amrex::EB_interp_CC_to_Centroid(vel_centroid, sol, 0, 0,
+                       AMREX_SPACEDIM, m_incflo->Geom(amrlev));
+        vel_centroid.FillBoundary(
+                      m_incflo->Geom(amrlev).periodicity());
         // Population of gradVel_EB
         gradVel_EB->setVal(Real(0.));
         // Create a null vel_eb; as it needs to be zero
         Array4<Real const> vel_eb_arr;
         const auto& factory =
-          dynamic_cast<EBFArrayBoxFactory const&>(sol.Factory());
+          dynamic_cast<EBFArrayBoxFactory const&>(vel_centroid.Factory());
         auto const& flags        = factory.getMultiEBCellFlagFab();
         MultiCutFab const& bcent = factory.getBndryCent();
         MultiCutFab const& ccent = factory.getCentroid();
@@ -1619,7 +1632,7 @@ void NonlinearDiffusionTensorOp::compVelGrad (int amrlev,
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-        for (MFIter mfi(sol,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        for (MFIter mfi(vel_centroid,TilingIfNotGPU()); mfi.isValid(); ++mfi)
         {
             Box const& bx = mfi.tilebox();
             auto const& flag_fab = flags[mfi];
@@ -1629,7 +1642,7 @@ void NonlinearDiffusionTensorOp::compVelGrad (int amrlev,
                 Array4<Real const> const& bcfab      = bcent.const_array(mfi);
                 Array4<Real const> const& ccfab      = ccent.const_array(mfi);
                 Array4<Real const> const& bnrmfab    = bnorm.const_array(mfi);
-                Array4<Real const> const& vel_arr    = sol.const_array(mfi);
+                Array4<Real const> const& vel_arr    = vel_centroid.const_array(mfi);
                 Array4<Real      > const& gradVel_arr = gradVel_EB->array(mfi);
                 ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                 {

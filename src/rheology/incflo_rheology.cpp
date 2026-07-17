@@ -1332,20 +1332,34 @@ void incflo::compute_second_order_coeff (int lev, MultiFab& scnd_coeff,
 {
     scnd_coeff.setVal(Real(0.));
     const int ncomp_ho = scnd_coeff.nComp();
+    // The supplied velocity is at cell-center, use Cell-centroid values
+    const MultiFab* vel_to_use = &velocity;
+#ifdef AMREX_USE_EB
+    MultiFab vel_centroid(velocity.boxArray(),
+                          velocity.DistributionMap(),
+                          AMREX_SPACEDIM, velocity.nGrow(),
+                          MFInfo(),velocity.Factory());
+    MultiFab::Copy(vel_centroid, velocity, 0, 0, AMREX_SPACEDIM,
+                   velocity.nGrow());
+    amrex::EB_interp_CC_to_Centroid(vel_centroid, velocity, 0, 0,
+                   AMREX_SPACEDIM, lev_geom);
+    vel_centroid.FillBoundary(lev_geom.periodicity());
+    vel_to_use = &vel_centroid;
+#endif
 
     if (m_fluid_model_second == FluidModel::GranularPowerlaw
         && m_mu_powerlaw.size() > 1) {
         compute_granular_powerlaw_second_order_coeff(lev, scnd_coeff,
-                velocity, density, conc_second, p_static, lev_geom);
+                *vel_to_use, density, conc_second, p_static, lev_geom);
     }
     else if (m_fluid_model_second == FluidModel::GranularPowerlawTemperature
              && m_mu_powerlaw_temperature.size() > 1) {
         compute_granular_powerlaw_temperature_second_order_coeff(
-                lev, scnd_coeff, velocity, density, conc_second, p_static, lev_geom);
+                lev, scnd_coeff, *vel_to_use, density, conc_second, p_static, lev_geom);
         if (ncomp_ho > 1) {
             // Note that you should only change the second component of scnd_coeff
             compute_granular_powerlaw_temperature_third_order_coeff(
-                lev, scnd_coeff, velocity, density, conc_second, p_static, lev_geom);
+                lev, scnd_coeff, *vel_to_use, density, conc_second, p_static, lev_geom);
         }
     }
     else if (m_probtype == 538) {
