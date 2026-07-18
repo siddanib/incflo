@@ -6,6 +6,31 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
 {
     BL_PROFILE("incflo::update_velocity");
 
+    // Related to modified timestepping. Better code structure needed
+    Vector<MultiFab> timestepping_alpha, timestepping_divtau_o;
+    if (m_gran_rheo_modified_time_stepping) {
+        for (int lev=0; lev<= finest_level; lev++) {
+            auto const& divtau_o = m_leveldata[lev]->divtau_o;
+            timestepping_divtau_o.emplace_back(divtau_o.boxArray(),
+                divtau_o.DistributionMap(), divtau_o.nComp(),
+                divtau_o.nGrow(), MFInfo(), divtau_o.Factory());
+
+            timestepping_alpha.emplace_back(vel_eta[lev].boxArray(),
+                vel_eta[lev].DistributionMap(), vel_eta[lev].nComp(),
+                vel_eta[lev].nGrow(), MFInfo(), vel_eta[lev].Factory());
+
+            timestepping_divtau_o[lev].setVal(Real(0.));
+            timestepping_alpha[lev].setVal(Real(0.));
+            // Choosing alpha based on eta_1
+            MultiFab::Saxpy(timestepping_alpha[lev],
+                m_modified_time_stepping_constant, vel_eta[lev],
+                0, 0, vel_eta[lev].nComp(), vel_eta[lev].nGrow());
+        }
+        compute_divtau(GetVecOfPtrs(timestepping_divtau_o),
+                       get_velocity_old_const(), get_density_old_const(),
+                       GetVecOfConstPtrs(timestepping_alpha));
+    }
+
     Real new_time = m_cur_time + m_dt;
 
     Real l_dt   = m_dt;
@@ -139,6 +164,24 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
                                      vel(i,j,k,1) += l_dt*(dvdt(i,j,k,1)+vel_f(i,j,k,1)+divtau_o(i,j,k,1));,
                                      vel(i,j,k,2) += l_dt*(dvdt(i,j,k,2)+vel_f(i,j,k,2)+divtau_o(i,j,k,2)););
                     });
+                }
+                if (m_gran_rheo_modified_time_stepping) {
+                   Array4<Real const> const& ts_divtau_o = timestepping_divtau_o[lev].const_array(mfi);
+                   if (m_advect_momentum) {
+                       ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                       {
+                           AMREX_D_TERM(vel(i,j,k,0) -= l_dt*(ts_divtau_o(i,j,k,0)/rho_new(i,j,k));,
+                                        vel(i,j,k,1) -= l_dt*(ts_divtau_o(i,j,k,1)/rho_new(i,j,k));,
+                                        vel(i,j,k,2) -= l_dt*(ts_divtau_o(i,j,k,2)/rho_new(i,j,k)););
+                       });
+                   } else {
+                       ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                       {
+                           AMREX_D_TERM(vel(i,j,k,0) -= l_dt*ts_divtau_o(i,j,k,0);,
+                                        vel(i,j,k,1) -= l_dt*ts_divtau_o(i,j,k,1);,
+                                        vel(i,j,k,2) -= l_dt*ts_divtau_o(i,j,k,2););
+                       });
+                   }
                 }
             }
         } // mfi
@@ -386,5 +429,19 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
         }
 #endif
     }
-}
 
+    // *********************************************************************************************
+    // Modified Time Stepping needs to solve diffusion equation for u* but using timestepping_alpha
+    // *********************************************************************************************
+    if (m_gran_rheo_modified_time_stepping) {
+        const int ng_diffusion = 1;
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            fillphysbc_velocity(lev, new_time, m_leveldata[lev]->velocity, ng_diffusion);
+            fillphysbc_density (lev, new_time, m_leveldata[lev]->density , ng_diffusion);
+        }
+
+        Real dt_diff = m_dt;
+        diffuse_velocity(get_velocity_new(), get_density_new(),
+                         GetVecOfConstPtrs(timestepping_alpha), dt_diff);
+    }
+}

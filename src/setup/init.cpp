@@ -180,6 +180,20 @@ void incflo::ReadParameters ()
         pp.query("two_fluid_eta_harmonic",m_two_fluid_eta_harmonic);
         pp.query("two_fluid_cc_rho_conc",m_two_fluid_cc_rho_conc);
         pp.query("two_fluid_max_dt", m_two_fluid_max_dt);
+        // Leverage modified time stepping?
+        if (m_two_fluid) {
+            pp.query("modified_time_stepping",
+                     m_gran_rheo_modified_time_stepping);
+            pp.query("modified_time_stepping_constant",
+                     m_modified_time_stepping_constant);
+            if (m_gran_rheo_modified_time_stepping) {
+                if ((m_diff_type != DiffusionType::Explicit)
+                    || (m_advection_type != "Godunov")) {
+                    amrex::Abort(
+                    "modified_time_stepping needs explicit diffusion and Godunov for now");
+                }
+            }
+        }
 
         // Density (if constant)
         pp.query("ro_0", m_ro_0);

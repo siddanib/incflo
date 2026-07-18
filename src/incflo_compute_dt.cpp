@@ -36,7 +36,8 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
 
     // Make a temporary here for vel_eta; Using for two fluid scenario
     Vector<MultiFab> vel_eta;
-    if (explicit_diffusion && m_two_fluid) {
+    if (explicit_diffusion && m_two_fluid &&
+        (!m_gran_rheo_modified_time_stepping)) {
        for (int lev = 0; lev <= finest_level; ++lev) {
           if (m_nodal_vel_eta) {
               vel_eta.emplace_back(amrex::convert(grids[lev],
@@ -107,7 +108,8 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
             }
             // Should probably use it for every two fluid model,
             // but only using for high-order rheology for now
-            if (explicit_diffusion && m_two_fluid) {
+            if (explicit_diffusion && m_two_fluid &&
+                (!m_gran_rheo_modified_time_stepping)) {
                 diff_lev = amrex::ReduceMax(rho, vel_eta[lev], flag, 0,
                            [=] AMREX_GPU_HOST_DEVICE (Box const& b,
                                                       Array4<Real const> const& r,
@@ -184,7 +186,8 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
 
             // Should probably use it for every two fluid model,
             // but only using for high-order rheology for now
-            if (explicit_diffusion && m_two_fluid) {
+            if (explicit_diffusion && m_two_fluid &&
+                (!m_gran_rheo_modified_time_stepping)) {
                 diff_lev = amrex::ReduceMax(rho, vel_eta[lev], 0,
                            [=] AMREX_GPU_HOST_DEVICE (Box const& b,
                                                       Array4<Real const> const& r,

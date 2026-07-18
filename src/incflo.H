@@ -794,6 +794,9 @@ private:
     amrex::Real m_gran_temp_collisional_dissipation = amrex::Real(0.);
     amrex::Real m_gran_temp_local_fluctuation_production_coeff = amrex::Real(0.);
     amrex::Real m_gran_temp_local_fluctuation_production_expnt = amrex::Real(0.);
+    // This boolean is for modified time stepping for granular rheology
+    bool m_gran_rheo_modified_time_stepping = false;
+    amrex::Real m_modified_time_stepping_constant = amrex::Real(2.0);
 
     int m_plot_int = -1;
 
