@@ -64,7 +64,8 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
             Array4<Real const> const& rho_new  = ld.density.const_array(mfi);
             Array4<Real const> const& rho_nph  = ld.density_nph.const_array(mfi);
 
-            if (m_diff_type == DiffusionType::Implicit) {
+            if (m_diff_type == DiffusionType::Implicit
+                && (!m_gran_rheo_modified_time_stepping)) {
 
                 if (use_tensor_correction)
                 {
@@ -115,7 +116,8 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
                     }
                 }
             }
-            else if (m_diff_type == DiffusionType::Crank_Nicolson)
+            else if (m_diff_type == DiffusionType::Crank_Nicolson
+                     && (!m_gran_rheo_modified_time_stepping))
             {
 
                 Array4<Real const> const& divtau_o = ld.divtau_o.const_array(mfi);
@@ -141,7 +143,7 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
                     });
                 }
             }
-            else if (m_diff_type == DiffusionType::Explicit)
+            else if (velocity_uses_explicit_diffusion_terms())
             {
                 Array4<Real const> const& divtau_o = ld.divtau_o.const_array(mfi);
                 if (m_advect_momentum) {
@@ -215,7 +217,7 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
             Array4<Real const> const& rho_new  = ld.density.const_array(mfi);
             Array4<Real const> const& rho_nph  = ld.density_nph.const_array(mfi);
 
-            if (m_diff_type == DiffusionType::Explicit)
+            if (velocity_uses_explicit_diffusion_terms())
             {
                 Array4<Real const> const& divtau_o = ld.divtau_o.const_array(mfi);
                 Array4<Real const> const& divtau   = ld.divtau.const_array(mfi);
@@ -258,7 +260,8 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
                     });
                 }
             }
-            else if (m_diff_type == DiffusionType::Crank_Nicolson)
+            else if (m_diff_type == DiffusionType::Crank_Nicolson
+                     && (!m_gran_rheo_modified_time_stepping))
             {
                 Array4<Real const> const& divtau_o = ld.divtau_o.const_array(mfi);
 
@@ -369,7 +372,9 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
     // *************************************************************************************
     // Solve diffusion equation for u* but using eta_old at old time
     // *************************************************************************************
-    if (m_diff_type == DiffusionType::Crank_Nicolson || m_diff_type == DiffusionType::Implicit)
+    if ((m_diff_type == DiffusionType::Crank_Nicolson || m_diff_type == DiffusionType::Implicit)
+        &&
+        (!m_gran_rheo_modified_time_stepping))
     {
         const int ng_diffusion = 1;
         for (int lev = 0; lev <= finest_level; ++lev) {

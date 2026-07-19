@@ -44,7 +44,7 @@ DiffusionScalarOp::DiffusionScalarOp (incflo* a_incflo)
             // We don't call setDomainBC here because we will need to call it separately for each component
         }
 
-        if (m_incflo->need_divtau())
+        if (m_incflo->need_scalar_laplacian())
         {
             m_eb_scal_apply_op = std::make_unique<MLEBABecLap>(m_incflo->Geom(0,finest_level),
                                                      m_incflo->boxArray(0,finest_level),
@@ -53,7 +53,7 @@ DiffusionScalarOp::DiffusionScalarOp (incflo* a_incflo)
             m_eb_scal_apply_op->setMaxOrder(m_mg_maxorder);
         }
 
-        if ( (m_incflo->need_divtau() && !m_incflo->useTensorSolve()) ||
+        if ( (m_incflo->need_velocity_divtau() && !m_incflo->useTensorSolve()) ||
               m_incflo->useTensorCorrection() )
         {
             m_eb_vel_apply_op = std::make_unique<MLEBABecLap>(m_incflo->Geom(0,finest_level),
@@ -84,7 +84,7 @@ DiffusionScalarOp::DiffusionScalarOp (incflo* a_incflo)
 
             // We don't call setDomainBC here because we will need to call it separately for each component
         }
-        if (m_incflo->need_divtau()) {
+        if (m_incflo->need_scalar_laplacian()) {
             m_reg_scal_apply_op = std::make_unique<MLABecLaplacian>(m_incflo->Geom(0,m_incflo->finestLevel()),
                                                           m_incflo->boxArray(0,m_incflo->finestLevel()),
                                                           m_incflo->DistributionMap(0,m_incflo->finestLevel()),
@@ -92,7 +92,7 @@ DiffusionScalarOp::DiffusionScalarOp (incflo* a_incflo)
             m_reg_scal_apply_op->setMaxOrder(m_mg_maxorder);
         }
 
-        if ( (m_incflo->need_divtau() && !m_incflo->useTensorSolve()) ||
+        if ( (m_incflo->need_velocity_divtau() && !m_incflo->useTensorSolve()) ||
               m_incflo->useTensorCorrection() )
         {
             m_reg_vel_apply_op = std::make_unique<MLABecLaplacian>(m_incflo->Geom(0,m_incflo->finestLevel()),

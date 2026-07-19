@@ -187,10 +187,13 @@ void incflo::ReadParameters ()
             pp.query("modified_time_stepping_constant",
                      m_modified_time_stepping_constant);
             if (m_gran_rheo_modified_time_stepping) {
-                if ((m_diff_type != DiffusionType::Explicit)
-                    || (m_advection_type != "Godunov")) {
+                if (m_advection_type != "Godunov") {
                     amrex::Abort(
-                    "modified_time_stepping needs explicit diffusion and Godunov for now");
+                    "modified_time_stepping needs Godunov for now");
+                }
+                if (use_tensor_correction) {
+                    amrex::Abort(
+                    "modified_time_stepping cannot be used with tensor correction");
                 }
             }
         }

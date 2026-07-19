@@ -1028,7 +1028,17 @@ private:
     { return 4; }
 #endif
 
-    [[nodiscard]] bool need_divtau () const {
+    [[nodiscard]] bool velocity_uses_explicit_diffusion_terms () const {
+        return ( DiffusionType::Explicit == m_diff_type || m_gran_rheo_modified_time_stepping );
+    }
+
+    [[nodiscard]] bool need_velocity_divtau () const {
+        return ( m_godunov_include_diff_in_forcing ||
+                 DiffusionType::Implicit != m_diff_type ||
+                 m_gran_rheo_modified_time_stepping );
+    }
+
+    [[nodiscard]] bool need_scalar_laplacian () const {
         return ( m_godunov_include_diff_in_forcing || DiffusionType::Implicit != m_diff_type );
     }
 

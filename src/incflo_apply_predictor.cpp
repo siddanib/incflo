@@ -150,7 +150,7 @@ void incflo::ApplyPredictor (bool incremental_projection)
     // Compute explicit viscous term
     // Note that for !advect_momentum, this actually computes divtau / rho
     // *************************************************************************************
-    if (need_divtau() || use_tensor_correction )
+    if (need_velocity_divtau() || use_tensor_correction )
     {
         compute_divtau(get_divtau_old(),get_velocity_old_const(),
                        get_density_old_const(),GetVecOfConstPtrs(vel_eta));
@@ -162,14 +162,14 @@ void incflo::ApplyPredictor (bool incremental_projection)
     if (m_advect_tracer)
     {
         compute_tracer_diff_coeff(GetVecOfPtrs(tra_eta), nghost_eta);
-        if (need_divtau()) {
+        if (need_scalar_laplacian()) {
             compute_laps(get_laps_old(), get_tracer_old_const(), GetVecOfConstPtrs(tra_eta));
         }
     }
     if (m_use_temperature)
     {
         compute_temperature_diff_coeff(m_cur_time, GetVecOfPtrs(tem_eta));
-        if (need_divtau()) {
+        if (need_scalar_laplacian()) {
             compute_laps_T(get_laps_tem_old(), get_temperature_old_const(), GetVecOfConstPtrs(tem_eta));
         }
     }

@@ -64,13 +64,14 @@ incflo::LevelData::LevelData (amrex::BoxArray const& ba,
             conv_temperature.define(ba, dm, 1, 0, MFInfo(), fact);
         }
 
-        bool implicit_diffusion = my_incflo->m_diff_type == DiffusionType::Implicit;
-        if (!implicit_diffusion || my_incflo->use_tensor_correction)
+        bool need_velocity_divtau = my_incflo->need_velocity_divtau();
+        bool need_scalar_laplacian = my_incflo->need_scalar_laplacian();
+        if (need_velocity_divtau || my_incflo->use_tensor_correction)
         {
             divtau.define  (ba, dm, AMREX_SPACEDIM, 0, MFInfo(), fact);
             divtau_o.define(ba, dm, AMREX_SPACEDIM, 0, MFInfo(), fact);
         }
-        if (!implicit_diffusion)
+        if (need_scalar_laplacian)
         {
             if ( my_incflo->m_advect_tracer) {
                 laps.define  (ba, dm, my_incflo->m_ntrac, 0, MFInfo(), fact);

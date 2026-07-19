@@ -48,7 +48,7 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
                                        m_incflo->get_diffuse_tensor_bc(Orientation::high));
         }
 
-        if (m_incflo->need_divtau() || m_incflo->useTensorCorrection())
+        if (m_incflo->need_velocity_divtau() || m_incflo->useTensorCorrection())
         {
             m_eb_apply_op = std::make_unique<MLEBTensorOp>(m_incflo->Geom(0,finest_level),
                                                  m_incflo->boxArray(0,finest_level),
@@ -74,7 +74,7 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
                                         m_incflo->get_diffuse_tensor_bc(Orientation::high));
         }
 
-        if (m_incflo->need_divtau() || m_incflo->useTensorCorrection())
+        if (m_incflo->need_velocity_divtau() || m_incflo->useTensorCorrection())
         {
             m_reg_apply_op = std::make_unique<MLTensorOp>(m_incflo->Geom(0,finest_level),
                                                 m_incflo->boxArray(0,finest_level),
