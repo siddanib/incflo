@@ -446,6 +446,11 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
         }
 
         Real dt_diff = m_dt;
+        // Include vel_eta contribution to timestepping_alpha
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            MultiFab::Add(timestepping_alpha[lev], vel_eta[lev],
+                0, 0, vel_eta[lev].nComp(), vel_eta[lev].nGrow());
+        }
         diffuse_velocity(get_velocity_new(), get_density_new(),
                          GetVecOfConstPtrs(timestepping_alpha), dt_diff);
     }
