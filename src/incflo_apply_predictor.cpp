@@ -153,7 +153,8 @@ void incflo::ApplyPredictor (bool incremental_projection)
     if (need_velocity_divtau() || use_tensor_correction )
     {
         compute_divtau(get_divtau_old(),get_velocity_old_const(),
-                       get_density_old_const(),GetVecOfConstPtrs(vel_eta));
+                       get_density_old_const(),GetVecOfConstPtrs(vel_eta),
+                       !m_gran_rheo_modified_time_stepping, true);
     }
 
     // *************************************************************************************

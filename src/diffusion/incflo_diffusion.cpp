@@ -7,13 +7,22 @@ void
 incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
                        Vector<MultiFab const*> const& vel,
                        Vector<MultiFab const*> const& density,
-                       Vector<MultiFab const*> const& eta)
+                       Vector<MultiFab const*> const& eta,
+                       bool include_linear,
+                       bool include_nonlinear)
 {
     if (use_tensor_correction) {
         if (use_jfnk_tensor_solve) {
-            get_nonlin_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+            get_nonlin_diffusion_tensor_op()->compute_divtau(
+                divtau, vel, density, eta, include_linear, include_nonlinear);
         } else {
-            get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+            if (include_linear) {
+                get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+            } else {
+                for (auto* dt : divtau) {
+                    dt->setVal(Real(0.));
+                }
+            }
        }
 #ifdef AMREX_USE_EB
         EB_set_covered(*divtau[0]     , 0.0);
@@ -24,7 +33,9 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
                                            divtau[0]->nGrow(),MFInfo(),*m_factory[0]));
         divtau_scal[0]->setVal(0.);
 
-        get_diffusion_scalar_op()->compute_divtau({divtau_scal}, vel, density, eta);
+        if (include_linear) {
+            get_diffusion_scalar_op()->compute_divtau({divtau_scal}, vel, density, eta);
+        }
 #ifdef AMREX_USE_EB
         EB_set_covered(*divtau_scal[0], 0.0);
 #endif
@@ -40,7 +51,9 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
         // amrex::Print() << "Z-comp: Norm of tensor apply vs scalar apply " <<
         //                    divtau[0]->norm0(2) << " " << divtau_scal[0]->norm0(2) << std::endl;
 
-        MultiFab::Saxpy(*divtau[0], -1.0, *divtau_scal[0], 0, 0, AMREX_SPACEDIM, 0);
+        if (include_linear) {
+            MultiFab::Saxpy(*divtau[0], -1.0, *divtau_scal[0], 0, 0, AMREX_SPACEDIM, 0);
+        }
 
         // amrex::Print() << "X-comp: Norm of difference of tensor apply vs scalar apply " <<
         //                    divtau[0]->norm0(0) << std::endl;
@@ -51,12 +64,25 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
 
     } else if (use_tensor_solve) {
         if (use_jfnk_tensor_solve) {
-            get_nonlin_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+            get_nonlin_diffusion_tensor_op()->compute_divtau(
+                divtau, vel, density, eta, include_linear, include_nonlinear);
         } else {
-            get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+            if (include_linear) {
+                get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
+            } else {
+                for (auto* dt : divtau) {
+                    dt->setVal(Real(0.));
+                }
+            }
         }
     } else {
-        get_diffusion_scalar_op()->compute_divtau(divtau, vel, density, eta);
+        if (include_linear) {
+            get_diffusion_scalar_op()->compute_divtau(divtau, vel, density, eta);
+        } else {
+            for (auto* dt : divtau) {
+                dt->setVal(Real(0.));
+            }
+        }
     }
 }
 

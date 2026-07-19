@@ -145,7 +145,8 @@ void incflo::ApplyCorrector()
     if ( velocity_uses_explicit_diffusion_terms() || use_tensor_correction )
     {
         compute_divtau(get_divtau_new(), get_velocity_new_const(),
-                       get_density_new_const(), GetVecOfConstPtrs(vel_eta));
+                       get_density_new_const(), GetVecOfConstPtrs(vel_eta),
+                       !m_gran_rheo_modified_time_stepping, true);
     }
 
     // *************************************************************************************

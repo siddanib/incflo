@@ -28,7 +28,8 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
         }
         compute_divtau(GetVecOfPtrs(timestepping_divtau_o),
                        get_velocity_old_const(), get_density_old_const(),
-                       GetVecOfConstPtrs(timestepping_alpha));
+                       GetVecOfConstPtrs(timestepping_alpha),
+                       true, false);
     }
 
     Real new_time = m_cur_time + m_dt;

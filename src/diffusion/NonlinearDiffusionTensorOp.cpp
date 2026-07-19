@@ -471,7 +471,9 @@ void NonlinearDiffusionTensorOp::compute_divtau (
                          Vector<MultiFab*> const& divtau,
                          Vector<MultiFab const*> const& velocity,
                          Vector<MultiFab const*> const& density,
-                         Vector<MultiFab const*> const& eta)
+                         Vector<MultiFab const*> const& eta,
+                         bool include_linear,
+                         bool include_nonlinear)
 {
     // Preparation for two_fluid scenario
     Vector<std::unique_ptr<MultiFab>> conc_second, p_static;
@@ -512,8 +514,6 @@ void NonlinearDiffusionTensorOp::compute_divtau (
         }
     }
     // Evaluation of linear and nonlinear divtau contributions
-    const bool exclude_linear_divtau =
-        m_incflo->m_gran_rheo_modified_time_stepping;
     int finest_level = velocity.size()-1;
 #ifdef AMREX_USE_EB
     if (m_eb_apply_op)
@@ -528,17 +528,19 @@ void NonlinearDiffusionTensorOp::compute_divtau (
             divtau_tmp[lev].setVal(0.0);
         }
 
-        if (!exclude_linear_divtau) {
+        if (include_linear) {
             compute_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
                                           density, eta);
         }
         // Here velocity is used as old_velocity as well;
         // Reason: This is NOT used in implicit solve
-        add_non_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
-                                      density,
-                                      GetVecOfConstPtrs(conc_second),
-                                      GetVecOfConstPtrs(p_static),
-                                      velocity);
+        if (include_nonlinear) {
+            add_non_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
+                                          density,
+                                          GetVecOfConstPtrs(conc_second),
+                                          GetVecOfConstPtrs(p_static),
+                                          velocity);
+        }
         // Redistribution
         for(int lev = 0; lev <= finest_level; lev++)
         {
@@ -552,15 +554,17 @@ void NonlinearDiffusionTensorOp::compute_divtau (
         for (int lev = 0; lev <= finest_level; ++lev) {
             divtau[lev]->setVal(Real(0.));
         }
-        if (!exclude_linear_divtau) {
+        if (include_linear) {
             compute_linear_part_of_divtau(divtau, velocity, density, eta);
         }
         // Here velocity is used as old_velocity as well;
         // Reason: This is NOT used in implicit solve
-        add_non_linear_part_of_divtau(divtau, velocity, density,
-                                      GetVecOfConstPtrs(conc_second),
-                                      GetVecOfConstPtrs(p_static),
-                                      velocity);
+        if (include_nonlinear) {
+            add_non_linear_part_of_divtau(divtau, velocity, density,
+                                          GetVecOfConstPtrs(conc_second),
+                                          GetVecOfConstPtrs(p_static),
+                                          velocity);
+        }
     }
 
     // This is to be consistent with incflo code
