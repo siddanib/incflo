@@ -210,6 +210,130 @@ void alias_tracer0 (Vector<MultiFab>& dst, Vector<MultiFab*> const& tracer)
 
 }
 
+
+void incflo::initialize_diffuse_interface (int lev)
+{
+    if (!m_diffuse_interface || m_ntrac < 1) { return; }
+
+    Real const epsilon = interface_epsilon(geom[lev], m_interface_fixed_epsilon,
+                                           m_interface_epsilon, m_interface_epsilon_star);
+    if (epsilon <= Real(0.0)) {
+        amrex::Abort("diffuse_interface requires a positive interface_epsilon on every level");
+    }
+
+    auto& ld = *m_leveldata[lev];
+    auto const dx = geom[lev].CellSizeArray();
+    Box const domain = geom[lev].Domain();
+    Dim3 const dlo = lbound(domain);
+    Dim3 const dhi = ubound(domain);
+
+    Real min_dx = dx[0];
+    for (int d = 1; d < AMREX_SPACEDIM; ++d) {
+        min_dx = amrex::min(min_dx, dx[d]);
+    }
+
+    Real const percent_cutoff = Real(0.99);
+    Real const cutoff = Real(2.0) * std::atanh(percent_cutoff) * epsilon;
+    int const search_radius = amrex::max(1, static_cast<int>(std::ceil(cutoff / min_dx)) + 2);
+
+    iMultiFab phase(grids[lev], dmap[lev], 1, search_radius, MFInfo());
+    phase.setVal(-1);
+
+#ifdef AMREX_USE_EB
+    auto const& ebfactory = dynamic_cast<EBFArrayBoxFactory const&>(Factory(lev));
+    auto const& flags = ebfactory.getMultiEBCellFlagFab();
+#endif
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(ld.tracer,TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        Box const& bx = mfi.tilebox();
+        Array4<Real const> const& phi = ld.tracer.const_array(mfi);
+        Array4<int> const& ph = phase.array(mfi);
+#ifdef AMREX_USE_EB
+        Array4<EBCellFlag const> const& flag = flags.const_array(mfi);
+#endif
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+#ifdef AMREX_USE_EB
+            if (flag(i,j,k).isCovered()) { return; }
+#endif
+            ph(i,j,k) = (phi(i,j,k,0) >= Real(0.5)) ? 1 : 0;
+        });
+    }
+
+    phase.FillBoundary(geom[lev].periodicity());
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(ld.tracer,TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        Box const& bx = mfi.tilebox();
+        Array4<Real> const& phi = ld.tracer.array(mfi);
+        Array4<Real> const& rho = ld.density.array(mfi);
+        Array4<int const> const& ph = phase.const_array(mfi);
+#ifdef AMREX_USE_EB
+        Array4<EBCellFlag const> const& flag = flags.const_array(mfi);
+#endif
+        Real const rho_1 = m_ro_0;
+        Real const rho_2 = m_ro_0_second;
+
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+#ifdef AMREX_USE_EB
+            if (flag(i,j,k).isCovered()) { return; }
+#endif
+            int const this_phase = ph(i,j,k);
+            if (this_phase < 0) { return; }
+
+            Real constexpr huge_dist2 = Real(1.0e200);
+            Real min_opp_dist2 = huge_dist2;
+            for (int kk = k - search_radius; kk <= k + search_radius; ++kk) {
+#if (AMREX_SPACEDIM == 3)
+                if (kk < dlo.z || kk > dhi.z) { continue; }
+#else
+                if (kk != k) { continue; }
+#endif
+                for (int jj = j - search_radius; jj <= j + search_radius; ++jj) {
+                    if (jj < dlo.y || jj > dhi.y) { continue; }
+                    for (int ii = i - search_radius; ii <= i + search_radius; ++ii) {
+                        if (ii < dlo.x || ii > dhi.x) { continue; }
+                        int const other_phase = ph(ii,jj,kk);
+                        if (other_phase < 0 || other_phase == this_phase) { continue; }
+
+                        Real const xdist = Real(ii - i) * dx[0];
+                        Real const ydist = Real(jj - j) * dx[1];
+#if (AMREX_SPACEDIM == 3)
+                        Real const zdist = Real(kk - k) * dx[2];
+#else
+                        Real const zdist = Real(0.0);
+#endif
+                        Real const dist2 = AMREX_D_TERM(xdist*xdist, + ydist*ydist, + zdist*zdist);
+                        min_opp_dist2 = amrex::min(min_opp_dist2, dist2);
+                    }
+                }
+            }
+
+            Real new_phi = Real(this_phase);
+            if (min_opp_dist2 < huge_dist2) {
+                Real const center_dist = std::sqrt(min_opp_dist2);
+                Real const wall_dist = amrex::max(Real(0.0), center_dist - Real(0.5)*min_dx);
+                if (wall_dist <= cutoff) {
+                    Real const signed_dist = (this_phase == 1) ? wall_dist : -wall_dist;
+                    new_phi = Real(0.5) * (Real(1.0) + std::tanh(signed_dist / (Real(2.0)*epsilon)));
+                }
+            }
+
+            phi(i,j,k,0) = amrex::Clamp(new_phi, Real(0.0), Real(1.0));
+            rho(i,j,k) = rho_1 + (rho_2-rho_1) * phi(i,j,k,0);
+        });
+    }
+
+    ld.tracer.FillBoundary(geom[lev].periodicity());
+    ld.density.FillBoundary(geom[lev].periodicity());
+}
+
 void incflo::compute_interface_terms (StepType step_type)
 {
     if (!m_diffuse_interface) { return; }

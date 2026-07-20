@@ -279,6 +279,10 @@ void incflo::prob_init_fluid (int lev)
             amrex::Abort("prob_init_fluid: unknown m_probtype");
         };
     }
+
+    if (m_diffuse_interface) {
+        initialize_diffuse_interface(lev);
+    }
 }
 
 void incflo::init_rotating_flow (Box const& vbx, Box const& /*gbx*/,

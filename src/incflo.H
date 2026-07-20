@@ -325,6 +325,7 @@ public:
     void compute_interface_terms (StepType step_type);
     void add_interface_regularization (StepType step_type);
     void diffuse_interface (amrex::Real dt_diff);
+    void initialize_diffuse_interface (int lev);
 
     void fixup_eta_on_domain_faces (int lev,
                                     amrex::Array<amrex::MultiFab,AMREX_SPACEDIM>& fc,
