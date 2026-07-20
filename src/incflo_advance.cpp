@@ -26,12 +26,13 @@ void incflo::Advance()
         amrex::Print() << "\nStep " << m_nstep + 1
                        << ": from old_time " << m_cur_time
                        << " to new time " << m_cur_time + m_dt
-                       << " with dt = " << m_dt << ".\n" << std::endl;
+                       << " with dt = " << m_dt << ".\n" << "\n";
     }
 
     copy_from_new_to_old_velocity();
     copy_from_new_to_old_density();
     copy_from_new_to_old_tracer();
+    copy_from_new_to_old_temperature();
 
     int ng = nghost_state();
     for (int lev = 0; lev <= finest_level; ++lev) {
@@ -40,6 +41,9 @@ void incflo::Advance()
         if (m_advect_tracer||m_vof_advect_tracer) {
             fillpatch_tracer(lev, m_t_old[lev], m_leveldata[lev]->tracer_o, ng);
         }
+        if (m_use_temperature) {
+            fillpatch_temperature(lev, m_t_old[lev], m_leveldata[lev]->temperature_o, ng);
+        }
     }
 
 #ifdef AMREX_USE_EB
@@ -47,8 +51,17 @@ void incflo::Advance()
        for (int lev = 0; lev <= finest_level; ++lev) {
          set_eb_velocity(lev, m_t_old[lev], *get_velocity_eb()[lev], 1);
          set_eb_density(lev, m_t_old[lev], *get_density_eb()[lev], 1);
-         set_eb_tracer(lev, m_t_old[lev], *get_tracer_eb()[lev], 1);
        }
+    }
+    if (m_advect_tracer && !m_eb_flow.tracer.empty()) {
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            set_eb_tracer(lev, m_t_old[lev], *get_tracer_eb()[lev], 1);
+        }
+    }
+    if (m_use_temperature && !m_eb_flow.temperature.empty()) {
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            set_eb_temperature(lev, m_t_old[lev], *get_temperature_eb()[lev], 1);
+        }
     }
 #endif
 
@@ -61,6 +74,9 @@ void incflo::Advance()
             if (m_advect_tracer) {
                 fillpatch_tracer(lev, m_t_new[lev], m_leveldata[lev]->tracer, ng);
             }
+            if (m_use_temperature) {
+                fillpatch_temperature(lev, m_t_new[lev], m_leveldata[lev]->temperature, ng);
+            }
         }
 
         ApplyCorrector();
@@ -70,21 +86,19 @@ void incflo::Advance()
     particleData.Redistribute();
 #endif
 
-#if 0
-    // This sums over all levels
-    if (m_test_tracer_conservation) {
-        Real sum = volumeWeightedSum(get_tracer_new_const(),0,geom,ref_ratio);
-        amrex::Print() << "Sum tracer volume wgt2 = " << m_cur_time+m_dt << " " <<
-                           sum << std::endl;
-    }
-#endif
+    // // This sums over all levels
+    // if (m_test_tracer_conservation) {
+    //     Real sum = volumeWeightedSum(get_tracer_new_const(),0,geom,ref_ratio);
+    //     amrex::Print() << "Sum tracer volume wgt2 = " << m_cur_time+m_dt << " " <<
+    //                        sum << "\n";
+    // }
 
     // Stop timing current time step
     Real end_step = static_cast<Real>(ParallelDescriptor::second()) - strt_step;
     ParallelDescriptor::ReduceRealMax(end_step, ParallelDescriptor::IOProcessorNumber());
     if (m_verbose > 0)
     {
-        amrex::Print() << "Time per step " << end_step << std::endl;
+        amrex::Print() << "Time per step " << end_step << "\n";
     }
 }
 

@@ -15,9 +15,12 @@ class DiffusionScalarOp
 public:
     DiffusionScalarOp (incflo* a_incflo);
 
-    void diffuse_scalar (amrex::Vector<amrex::MultiFab*> const& tracer,
-                         amrex::Vector<amrex::MultiFab*> const& density,
+    void diffuse_scalar (amrex::Vector<amrex::MultiFab*> const& a_scalar,
+                         amrex::Vector<amrex::MultiFab*> const& chi,
                          amrex::Vector<amrex::MultiFab const*> const& eta,
+                         amrex::Vector<amrex::MultiFab*> const& eb_dirichlet,
+                         amrex::Vector<int> const& use_chi,
+                         amrex::Vector<amrex::BCRec> bcrec,
                          amrex::Real dt);
 
     void diffuse_vel_components (
@@ -28,7 +31,8 @@ public:
 
     void compute_laps (amrex::Vector<amrex::MultiFab*> const& laps,
                        amrex::Vector<amrex::MultiFab const*> const& a_scalar,
-                       amrex::Vector<amrex::MultiFab const*> const& eta);
+                       amrex::Vector<amrex::MultiFab const*> const& eta,
+                       amrex::Vector<amrex::BCRec> bcrec);
 
     void compute_divtau (amrex::Vector<amrex::MultiFab*> const& a_divtau,
                          amrex::Vector<amrex::MultiFab const*> const& a_vel,

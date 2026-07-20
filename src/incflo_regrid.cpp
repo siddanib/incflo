@@ -14,7 +14,7 @@ void incflo::MakeNewLevelFromCoarse (int lev,
     BL_PROFILE("incflo::MakeNewLevelFromCoarse()");
 
     if (m_verbose > 0) {
-        amrex::Print() << "Making new level " << lev << " from coarse" << std::endl;
+        amrex::Print() << "Making new level " << lev << " from coarse" << "\n";
     }
 
 #ifdef AMREX_USE_EB
@@ -32,6 +32,9 @@ void incflo::MakeNewLevelFromCoarse (int lev,
     fillcoarsepatch_density(lev, time, new_leveldata->density, 0);
     if (m_ntrac > 0) {
         fillcoarsepatch_tracer(lev, time, new_leveldata->tracer, 0);
+    }
+    if (m_use_temperature) {
+        fillcoarsepatch_temperature(lev, time, new_leveldata->temperature, 0);
     }
     fillcoarsepatch_gradp(lev, time, new_leveldata->gp, 0);
 
@@ -62,6 +65,10 @@ void incflo::MakeNewLevelFromCoarse (int lev,
 #else
     macproj = std::make_unique<Hydro::MacProjector>(Geom(0,lev));
 #endif
+
+#ifdef INCFLO_USE_PARTICLES
+    particleData.Redistribute();
+#endif
 }
 
 // Remake an existing level using provided BoxArray and DistributionMapping and
@@ -73,7 +80,7 @@ void incflo::RemakeLevel (int lev, Real time, const BoxArray& ba,
     BL_PROFILE("incflo::RemakeLevel()");
 
     if (m_verbose > 0) {
-        amrex::Print() << "Remaking level " << lev << std::endl;
+        amrex::Print() << "Remaking level " << lev << "\n";
     }
 
 #ifdef AMREX_USE_EB
@@ -96,7 +103,9 @@ void incflo::RemakeLevel (int lev, Real time, const BoxArray& ba,
 // ghost cell values to compute fluxes for cells adjacent to the boundary.
         fillpatch_tracer(lev, time, new_leveldata->tracer, 1);
     }
-
+    if (m_use_temperature) {
+        fillpatch_temperature(lev, time, new_leveldata->temperature, 0);
+    }
     fillpatch_gradp(lev, time, new_leveldata->gp, 0);
 
     if (m_use_cc_proj) {

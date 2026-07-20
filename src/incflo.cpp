@@ -56,21 +56,9 @@ void incflo::InitData ()
         InitFromScratch(m_cur_time);
 
 #ifdef AMREX_USE_EB
-#ifdef INCFLO_USE_PARTICLES
-        const auto& ebfact = EBFactory(0);
-#endif
-#endif
-
-#ifdef INCFLO_USE_PARTICLES
-        initializeTracerParticles( (ParGDBBase*)GetParGDB()
-#ifdef AMREX_USE_EB
-                                  ,ebfact
-#endif
-                                 );
-#endif
-
-#ifdef AMREX_USE_EB
-        InitialRedistribution();
+        if (!EBFactory(0).isAllRegular()) {
+            InitialRedistribution();
+        }
 #endif
 
         if (m_do_initial_proj) {
@@ -105,7 +93,7 @@ void incflo::InitData ()
         if (m_KE_int > 0)
         {
             amrex::Abort("xxxxx m_KE_int todo");
-//          amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " << ComputeKineticEnergy() << std::endl;
+//          amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " << ComputeKineticEnergy() << "\n";
         }
     }
     else
@@ -199,13 +187,13 @@ void incflo::Evolve()
 
         if(m_KE_int > 0 && (m_nstep % m_KE_int == 0))
         {
-            amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " << ComputeKineticEnergy() << std::endl;
+            amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " << ComputeKineticEnergy() << "\n";
         }
 
         // Mechanism to terminate incflo normally.
         do_not_evolve = (m_steady_state && SteadyStateReached()) ||
-                        ((m_stop_time > 0. && (m_cur_time >= m_stop_time - 1.e-12 * m_dt)) ||
-                         (m_max_step >= 0 && m_nstep >= m_max_step));
+            ( (m_stop_time > 0. && (m_cur_time >= m_stop_time - (1.e-12 * m_dt))) ||
+              (m_max_step >= 0 && m_nstep >= m_max_step) );
     }
 
     // Output at the final time
@@ -261,9 +249,9 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
 
     if (m_verbose > 0)
     {
-        amrex::Print() << "Making new level " << lev << " from scratch" << std::endl;
+        amrex::Print() << "Making new level " << lev << " from scratch" << "\n";
         if (m_verbose > 2) {
-            amrex::Print() << "with BoxArray " << new_grids << std::endl;
+            amrex::Print() << "with BoxArray " << new_grids << "\n";
         }
     }
 
@@ -294,6 +282,15 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
 
     if (m_restart_file.empty()) {
         prob_init_fluid(lev);
+
+#ifdef INCFLO_USE_PARTICLES
+        initializeTracerParticles( (ParGDBBase*)GetParGDB()
+#ifdef AMREX_USE_EB
+                                  ,EBFactory(0)
+#endif
+                                 );
+#endif
+
     }
     //make_mixedBC_mask(lev, grids[lev], dmap[lev]);
 
@@ -308,7 +305,7 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
 }
 
 bool
-incflo::writeNow(int a_plot_int, Real a_plot_per_approx, Real a_plot_per_exact)
+incflo::writeNow(int a_plot_int, Real a_plot_per_approx, Real a_plot_per_exact) const
 {
     bool write_now = false;
 

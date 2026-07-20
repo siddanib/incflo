@@ -350,6 +350,7 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
         // Predict normal velocity to faces -- note that the {u_mac, v_mac, w_mac}
         //    returned from this call are on face CENTROIDS
         vel[lev]->FillBoundary(geom[lev].periodicity());
+        // Bhargav, Look into the compiler flag here more carefully
 #if 0
         MOL::ExtrapVelToFaces(*vel[lev],
                               AMREX_D_DECL(*u_mac[lev], *v_mac[lev], *w_mac[lev]),
@@ -412,6 +413,7 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
 
     for (int lev=0; lev <= finest_level; ++lev)
     {
+    // Bhargav, Take a look at this compiler flag
 //#ifdef AMREX_USE_EB
 //        amrex::Abort("Haven't written mac_to_ccvel for EB");
 //#else

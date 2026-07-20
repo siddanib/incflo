@@ -28,23 +28,23 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
 
         // Define divtau to be (divtau_full - divtau_separate)
         if (m_verbose > 0)
-            amrex::Print() << " ... Defining divtau as the difference between tensor and scalar versions" << std::endl;
+            amrex::Print() << " ... Defining divtau as the difference between tensor and scalar versions" << "\n";
 
         // amrex::Print() << "X-comp: Norm of tensor apply vs scalar apply " <<
-        //                    divtau[0]->norm0(0) << " " << divtau_scal[0]->norm0(0) << std::endl;
+        //                    divtau[0]->norm0(0) << " " << divtau_scal[0]->norm0(0) << "\n";
         // amrex::Print() << "Y-comp: Norm of tensor apply vs scalar apply " <<
-        //                    divtau[0]->norm0(1) << " " << divtau_scal[0]->norm0(1) << std::endl;
+        //                    divtau[0]->norm0(1) << " " << divtau_scal[0]->norm0(1) << "\n";
         // amrex::Print() << "Z-comp: Norm of tensor apply vs scalar apply " <<
-        //                    divtau[0]->norm0(2) << " " << divtau_scal[0]->norm0(2) << std::endl;
+        //                    divtau[0]->norm0(2) << " " << divtau_scal[0]->norm0(2) << "\n";
 
         MultiFab::Saxpy(*divtau[0], -1.0, *divtau_scal[0], 0, 0, AMREX_SPACEDIM, 0);
 
         // amrex::Print() << "X-comp: Norm of difference of tensor apply vs scalar apply " <<
-        //                    divtau[0]->norm0(0) << std::endl;
+        //                    divtau[0]->norm0(0) << "\n";
         // amrex::Print() << "Y-comp: Norm of difference of tensor apply vs scalar apply " <<
-        //                    divtau[0]->norm0(1) << std::endl;
+        //                    divtau[0]->norm0(1) << "\n";
         // amrex::Print() << "Z-comp: Norm of difference of tensor apply vs scalar apply " <<
-        //                    divtau[0]->norm0(2) << std::endl;
+        //                    divtau[0]->norm0(2) << "\n";
 
     } else if (use_tensor_solve) {
         get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
@@ -59,7 +59,18 @@ incflo::compute_laps(Vector<MultiFab      *> const& laps,
                      Vector<MultiFab const*> const& scalar,
                      Vector<MultiFab const*> const& eta)
 {
-    get_diffusion_scalar_op()->compute_laps(laps, scalar, eta);
+    get_diffusion_scalar_op()->compute_laps(laps, scalar, eta,
+                                            get_tracer_bcrec());
+
+}
+
+void
+incflo::compute_laps_T(Vector<MultiFab      *> const& laps,
+                       Vector<MultiFab const*> const& scalar,
+                       Vector<MultiFab const*> const& eta)
+{
+    get_diffusion_scalar_op()->compute_laps(laps, scalar, eta,
+                                            get_temperature_bcrec());
 }
 
 void
@@ -68,9 +79,22 @@ incflo::diffuse_scalar(Vector<MultiFab      *> const& scalar,
                        Vector<MultiFab const*> const& eta,
                        Real dt_diff)
 {
-    get_diffusion_scalar_op()->diffuse_scalar(scalar, density, eta, dt_diff);
+    get_diffusion_scalar_op()->diffuse_scalar(scalar, density, eta, get_tracer_eb(),
+                                              get_tracer_iconserv(),
+                                              get_tracer_bcrec(), dt_diff);
 }
 
+void
+incflo::diffuse_temperature(Vector<MultiFab      *> const& temperature,
+                            Vector<MultiFab      *> const& rhocp,
+                            Vector<MultiFab const*> const& eta,
+                            Real dt_diff)
+{
+    get_diffusion_scalar_op()->diffuse_scalar(temperature, rhocp, eta,
+                                              get_temperature_eb(),
+                                              {1} /* use rhocp */,
+                                              get_temperature_bcrec(), dt_diff);
+}
 
 void
 incflo::diffuse_velocity(Vector<MultiFab      *> const& vel,
@@ -79,7 +103,7 @@ incflo::diffuse_velocity(Vector<MultiFab      *> const& vel,
                          Real dt_diff)
 {
     if (use_tensor_correction) {
-        amrex::Print() << " \n ... diffuse components separately but with tensor terms added explicitly... " << std::endl;
+        amrex::Print() << " \n ... diffuse components separately but with tensor terms added explicitly... " << "\n";
         get_diffusion_scalar_op()->diffuse_vel_components(vel, density, eta, dt_diff);
     } else if (use_tensor_solve) {
         get_diffusion_tensor_op()->diffuse_velocity(vel, density, eta, dt_diff);

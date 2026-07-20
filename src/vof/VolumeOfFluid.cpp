@@ -3370,7 +3370,7 @@ void VolumeOfFluid::WriteTecPlotFile(int max_level, Real time, int nstep)
                   }
                   else {
                    //if we ouput data of ghost cells, we need check if the index is in the boundary
-                   if (i<pa.begin.x || i>=pa.end.x || j<pa.begin.y || j>=pa.end.y || k<pa.begin.z || k>=pa.end.z) {
+                   if (i<pa.begin[0] || i>=pa.end[0] || j<pa.begin[1] || j>=pa.end[1] || k<pa.begin[2] || k>=pa.end[2]) {
                      TecplotFile << 0.<<" ";
                    }
                    else

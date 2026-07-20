@@ -39,7 +39,7 @@ void incflo::make_eb_annulus()
     // Compute distance between cylinder centres
     Real offset = 0.0;
     for(int i = 0; i < AMREX_SPACEDIM; i++)
-        offset += std::pow(outer_center[i] - inner_center[i], 2);
+        offset += amrex::Math::powi<2>(outer_center[i] - inner_center[i]);
     offset = std::sqrt(offset);
 
     // Check that the inner cylinder is fully contained in the outer one
@@ -51,23 +51,23 @@ void incflo::make_eb_annulus()
     AMREX_ASSERT((standoff >= 0) && (standoff <= 100));
 
     // Print info about annulus
-    amrex::Print() << " " << std::endl;
-    amrex::Print() << " Direction:       " << direction << std::endl;
-    amrex::Print() << " Outer radius:    " << outer_radius << std::endl;
-    amrex::Print() << " Inner radius:    " << inner_radius << std::endl;
+    amrex::Print() << " " << "\n";
+    amrex::Print() << " Direction:       " << direction << "\n";
+    amrex::Print() << " Outer radius:    " << outer_radius << "\n";
+    amrex::Print() << " Inner radius:    " << inner_radius << "\n";
     amrex::Print() << " Outer center:    " << outer_center[0] << ", " << outer_center[1]
 #if (AMREX_SPACEDIM ==3)
                    << ", " << outer_center[2]
 #endif
-                   << std::endl;
+                   << "\n";
     amrex::Print() << " Inner center:    " << inner_center[0] << ", " << inner_center[1]
 #if (AMREX_SPACEDIM ==3)
                    << ", " << inner_center[2]
 #endif
-                   << std::endl;
-    amrex::Print() << " Offset:          " << offset << std::endl;
-    amrex::Print() << " Smallest gap:    " << smallest_gap_width << std::endl;
-    amrex::Print() << " Standoff:        " << standoff << std::endl;
+                   << "\n";
+    amrex::Print() << " Offset:          " << offset << "\n";
+    amrex::Print() << " Smallest gap:    " << smallest_gap_width << "\n";
+    amrex::Print() << " Standoff:        " << standoff << "\n";
 
     // Build the annulus implifict function as a union of two cylinders
     EB2::CylinderIF outer_cyl(outer_radius, direction, outer_center, true);
