@@ -9,6 +9,18 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
     // Related to modified timestepping. Better code structure needed
     Vector<MultiFab> timestepping_alpha, timestepping_divtau_o;
     if (m_gran_rheo_modified_time_stepping) {
+        if (m_nodal_vel_eta) {
+            amrex::Abort(
+                "Modified granular rheology time stepping requires cell-centered viscosity");
+        }
+
+        const Real alpha_time = (step_type == StepType::Predictor)
+            ? m_cur_time : m_cur_time + m_dt;
+        auto const alpha_velocity = (step_type == StepType::Predictor)
+            ? get_velocity_old_const() : get_velocity_new_const();
+        auto const alpha_density = (step_type == StepType::Predictor)
+            ? get_density_old_const() : get_density_new_const();
+
         for (int lev=0; lev<= finest_level; lev++) {
             auto const& divtau_o = m_leveldata[lev]->divtau_o;
             timestepping_divtau_o.emplace_back(divtau_o.boxArray(),
@@ -21,10 +33,57 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
 
             timestepping_divtau_o[lev].setVal(Real(0.));
             timestepping_alpha[lev].setVal(Real(0.));
-            // Choosing alpha based on eta_1
-            MultiFab::Saxpy(timestepping_alpha[lev],
-                m_modified_time_stepping_constant, vel_eta[lev],
-                0, 0, vel_eta[lev].nComp(), vel_eta[lev].nGrow());
+
+            const int nghost_alpha = vel_eta[lev].nGrow();
+            MultiFab strainrate(vel_eta[lev].boxArray(),
+                vel_eta[lev].DistributionMap(), 1, 0,
+                MFInfo(), vel_eta[lev].Factory());
+            MultiFab conc_second(vel_eta[lev].boxArray(),
+                vel_eta[lev].DistributionMap(), 1, 0,
+                MFInfo(), vel_eta[lev].Factory());
+            MultiFab p_static(vel_eta[lev].boxArray(),
+                vel_eta[lev].DistributionMap(), 1, 0,
+                MFInfo(), vel_eta[lev].Factory());
+            MultiFab eta_ho(vel_eta[lev].boxArray(),
+                vel_eta[lev].DistributionMap(), 1, nghost_alpha,
+                MFInfo(), vel_eta[lev].Factory());
+
+            compute_strainrate_at_level(lev, &strainrate, alpha_velocity[lev],
+                                        Geom(lev), alpha_time, 0);
+            compute_cc_second_fluid_conc(&conc_second, alpha_density[lev],
+                                         0);
+            compute_cc_hydrostatic_pressure_at_level(lev, &p_static,
+                                                     alpha_density[lev],
+                                                     m_mu_p_surf_second,
+                                                     Geom(lev), 0);
+            compute_second_order_coeff(lev, eta_ho, *alpha_velocity[lev],
+                                       *alpha_density[lev], conc_second,
+                                       p_static, Geom(lev));
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+            for (MFIter mfi(timestepping_alpha[lev], TilingIfNotGPU());
+                 mfi.isValid(); ++mfi)
+            {
+                Box const& bx = mfi.tilebox();
+                Array4<Real      > const& alpha_arr =
+                    timestepping_alpha[lev].array(mfi);
+                Array4<Real const> const& sr_arr = strainrate.const_array(mfi);
+                Array4<Real const> const& eta_ho_arr = eta_ho.const_array(mfi);
+                const Real alpha_factor = m_modified_time_stepping_constant;
+                const Real eps = m_mu_sr_eps_second;
+
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    alpha_arr(i,j,k) =
+                        alpha_factor * eta_ho_arr(i,j,k)
+                        * (Real(0.5)*sr_arr(i,j,k) + eps);
+                });
+            }
+            if (nghost_alpha > 0) {
+                timestepping_alpha[lev].FillBoundary(Geom(lev).periodicity());
+            }
         }
         compute_divtau(GetVecOfPtrs(timestepping_divtau_o),
                        get_velocity_old_const(), get_density_old_const(),
