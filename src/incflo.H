@@ -25,8 +25,9 @@
 #include <DiffusionTensorOp.H>
 #include <DiffusionScalarOp.H>
 #include <NonlinearDiffusionTensorOp.H>
-
-enum struct StepType {
+#include <VolumeOfFluid.H>
+#define VOF_NODATA std::numeric_limits<Real>::max()
+enum struct StepType : std::uint8_t {
     Predictor, Corrector
 };
 
@@ -37,8 +38,9 @@ public:
     friend DiffusionTensorOp;
     friend DiffusionScalarOp;
     friend NonlinearDiffusionTensorOp;
+    friend VolumeOfFluid;
 
-    enum struct FluidModel {
+    enum struct FluidModel : std::uint8_t {
         Newtonian, powerlaw, Bingham, HerschelBulkley, deSouzaMendesDutra,
         DataDrivenMPMD, Rauter, GranularPowerlaw, GranularPowerlawTemperature
     };
@@ -117,14 +119,16 @@ public:
                              amrex::Vector<amrex::MultiFab const*> const& density,
                              amrex::Vector<amrex::MultiFab const*> const& tracer_old,
                              amrex::Vector<amrex::MultiFab const*> const& tracer_new,
-                             bool include_pressure_gradient = true);
+                             bool include_pressure_gradient = true,
+                             bool include_SF = false);
     void compute_vel_forces_on_level ( int lev,
                                        amrex::MultiFab& vel_forces,
                                        const amrex::MultiFab& velocity,
                                        const amrex::MultiFab& density,
                                        const amrex::MultiFab& tracer_old,
                                        const amrex::MultiFab& tracer_new,
-                                       bool include_pressure_gradient = true);
+                                       bool include_pressure_gradient = true,
+                                       bool include_SF = false);
 
 
     ///////////////////////////////////////////////////////////////////////////
@@ -303,6 +307,19 @@ public:
                            amrex::Vector<amrex::MultiFab const*> const& eta,
                            amrex::Real dt_diff);
 
+    ///////////////////////////////////////////////////////////////////////////
+    //
+    //  tracer advection by VOF method
+    //
+    ////////////////////////////////////////////////////////////////////////////
+
+    void tracer_vof_advection (amrex::Vector<amrex::MultiFab*> const& tracer,
+                           AMREX_D_DECL(amrex::Vector<amrex::MultiFab const*> const& u_mac,
+                                        amrex::Vector<amrex::MultiFab const*> const& v_mac,
+                                        amrex::Vector<amrex::MultiFab const*> const& w_mac));
+    void update_vof_density (int lev, amrex::MultiFab & density, amrex::MultiFab & tracer);
+
+
     [[nodiscard]] amrex::Array<amrex::MultiFab,AMREX_SPACEDIM>
     average_scalar_eta_to_faces (int lev, int comp, amrex::MultiFab const& cc_eta) const;
 
@@ -398,11 +415,13 @@ public:
     void compute_viscosity (amrex::Vector<amrex::MultiFab*> const& eta,
                             amrex::Vector<amrex::MultiFab*> const& rho,
                             amrex::Vector<amrex::MultiFab*> const& vel,
+                            amrex::Vector<amrex::MultiFab*> const& tracer,
                             amrex::Real time, int nghost);
     void compute_viscosity_at_level (int lev,
                                      amrex::MultiFab* eta,
                                      amrex::MultiFab* rho,
                                      amrex::MultiFab* vel,
+                                     amrex::MultiFab* tracer,
                                      amrex::Geometry& lev_geom,
                                      amrex::Real time, int nghost);
     void compute_cc_non_newtonian_viscosity (int lev,
@@ -730,7 +749,7 @@ private:
     // If true use CC projection; if false use nodal projection
     bool m_use_cc_proj = false;
 
-    enum struct DiffusionType {
+    enum struct DiffusionType : std::uint8_t {
         Invalid, Explicit, Crank_Nicolson, Implicit
     };
     DiffusionType m_diff_type = DiffusionType::Implicit;
@@ -799,6 +818,35 @@ private:
     // This boolean is for modified time stepping for granular rheology
     bool m_gran_rheo_modified_time_stepping = false;
     amrex::Real m_modified_time_stepping_constant = amrex::Real(2.0);
+
+    //the number of averaging process for density
+    int m_number_of_averaging = 0;
+
+    // VOF advection parameters
+    bool m_vof_advect_tracer = false;
+    //Use VOF to update the density
+    bool m_update_density_from_vof = false;
+    // Use this flag to plot results on leaf cells only.
+    // Leaf cells  have no finer sub-grid beneath them.
+    bool m_plot_leaf_cells = true;
+    // when generating quad/oct-tree like grids, the ghost cells of coarse levels
+    // may also need to used. m_fillpatchmethod= 1 or 2 needs to be used.
+    // m_fillpatchmethod = 0, fillpatch interpolation between two levels does not involve ghost cells of the coarser level.
+    // m_fillpatchmethod = 1, fillpatch interpolation between two levels involves ghost cells of the coarser level.
+    // m_fillpatchmethod = 2, fillpathnlevel is used where ghost cells of the coarser level is used too.
+    bool m_fillpatchnlevels = false;
+    int m_fillpatch_method = 0;
+    // density of the phase represented by VOF=1
+    amrex::Vector<amrex::Real> m_ro_s;
+    // surface tension
+    amrex::Vector<amrex::Real> m_sigma;
+    // Flag 'vof_regrid' indicates when to trigger domain remeshing by calling regrid().
+    // Remeshing occurs when interface cells are within a specified distance from
+    // the box boundary, particularly near fine-coarse boundaries. The distance is
+    // defined by 'm_vof_regrid_layer', representing the number of cell layers
+    // perpendicular to the box and fine-coarse boundaries.
+    bool vof_regrid = false;
+    int  m_vof_regrid_layers = 2;
 
     int m_plot_int = -1;
 
@@ -899,6 +947,7 @@ private:
 
         // cell-centered pressure gradient
         amrex::MultiFab gp;
+        amrex::MultiFab gp_mac;
 
         amrex::MultiFab conv_velocity;
         amrex::MultiFab conv_velocity_o;
@@ -923,7 +972,7 @@ private:
 
     amrex::Vector<std::unique_ptr<amrex::FabFactory<amrex::FArrayBox> > > m_factory;
 
-    enum struct BC {
+    enum struct BC : std::uint8_t {
         pressure_inflow, pressure_outflow, mass_inflow, no_slip_wall, slip_wall,
         periodic, mixed, direction_dependent, undefined
     };
@@ -975,6 +1024,8 @@ private:
     int m_mpmd_other_root = 0;
 #endif
 
+    //vof class pointer
+    std::unique_ptr<VolumeOfFluid> ptr_VOF;
     //
     // end of member variables
     //
@@ -1065,6 +1116,8 @@ private:
     DiffusionTensorOp* get_diffusion_tensor_op ();
     DiffusionScalarOp* get_diffusion_scalar_op ();
     NonlinearDiffusionTensorOp* get_nonlin_diffusion_tensor_op ();
+
+    VolumeOfFluid* get_volume_of_fluid ();
 
     amrex::Vector<amrex::MultiFab*> get_velocity_old () noexcept;
     amrex::Vector<amrex::MultiFab*> get_velocity_new () noexcept;
@@ -1191,9 +1244,10 @@ private:
     void copy_from_old_to_new_temperature (      amrex::IntVect const& ng = amrex::IntVect{0});
 
     void Advance ();
-    bool writeNow () { return writeNow(m_plot_int, m_plot_per_approx, m_plot_per_exact); }
-    bool writeNow (int a_plot_int, amrex::Real a_plot_per_approx,
-                   amrex::Real a_plot_per_exact);
+    [[nodiscard]] bool writeNow () {
+        return writeNow(m_plot_int, m_plot_per_approx, m_plot_per_exact); }
+    [[nodiscard]] bool writeNow (int a_plot_int, amrex::Real a_plot_per_approx,
+                                 amrex::Real a_plot_per_exact) const;
 
     ///////////////////////////////////////////////////////////////////////////
     //
@@ -1231,6 +1285,7 @@ private:
     void make_eb_tuscan ();
     void make_eb_parabolic_channel ();
     void make_eb_chkptfile ();
+    void make_eb_stl ();
 #ifdef CSG_EB
     void make_eb_csg (const std::string& csg_file);
 #endif

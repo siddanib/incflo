@@ -78,7 +78,8 @@ void incflo::InitData ()
         }
 
         InitialIterations();
-
+        //get_volume_of_fluid()->WriteTecPlotFile (m_cur_time,m_nstep);
+        //amrex::Abort("finish initial projection");
         // Set m_nstep to 0 before entering time loop
         m_nstep = 0;
 
@@ -159,7 +160,7 @@ void incflo::Evolve()
             amrex::Print() << "\n ============   NEW TIME STEP   ============ \n";
         }
 
-        if (m_regrid_int > 0 && m_nstep > 0 && m_nstep%m_regrid_int == 0)
+        if (m_regrid_int > 0 && m_nstep > 0 && m_nstep%m_regrid_int == 0 || vof_regrid)
         {
             if (m_verbose > 0) amrex::Print() << "Regridding...\n";
             regrid(0, m_cur_time);
@@ -167,7 +168,15 @@ void incflo::Evolve()
                 printGridSummary(amrex::OutStream(), 0, finest_level);
             }
         }
-
+        if(m_vof_advect_tracer){
+          get_volume_of_fluid()->output_droplet(m_cur_time,m_nstep);
+          //if (m_nstep<10)
+          //get_volume_of_fluid()->apply_velocity_field(m_cur_time,m_nstep);
+        }
+        //if (writeNow()&& m_vof_advect_tracer){
+        //    get_volume_of_fluid()->WriteTecPlotFile (finest_level,m_cur_time,m_nstep);
+        //    get_volume_of_fluid()->write_tecplot_surface(finest_level,m_cur_time,m_nstep);
+        //}
         // Advance to time t + dt
         Advance();
         m_nstep++;
@@ -204,8 +213,8 @@ void incflo::Evolve()
 
         // Mechanism to terminate incflo normally.
         do_not_evolve = (m_steady_state && SteadyStateReached()) ||
-                        ((m_stop_time > 0. && (m_cur_time >= m_stop_time - 1.e-12 * m_dt)) ||
-                         (m_max_step >= 0 && m_nstep >= m_max_step));
+            ( (m_stop_time > 0. && (m_cur_time >= m_stop_time - (1.e-12 * m_dt))) ||
+              (m_max_step >= 0 && m_nstep >= m_max_step) );
     }
 
     // Output at the final time
@@ -269,9 +278,9 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
 
     if (m_verbose > 0)
     {
-        amrex::Print() << "Making new level " << lev << " from scratch" << std::endl;
+        amrex::Print() << "Making new level " << lev << " from scratch" << "\n";
         if (m_verbose > 2) {
-            amrex::Print() << "with BoxArray " << new_grids << std::endl;
+            amrex::Print() << "with BoxArray " << new_grids << "\n";
         }
     }
 
@@ -290,6 +299,12 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
 
     m_leveldata[lev] = std::make_unique<LevelData>(grids[lev], dmap[lev], *m_factory[lev],
                                                    this);
+
+    if (m_vof_advect_tracer){
+     get_volume_of_fluid()->m_leveldata[lev] = std::make_unique<VolumeOfFluid::LevelData>
+                                                (grids[lev], dmap[lev], *m_factory[lev],this);
+    }
+
 
     m_t_new[lev] = time;
     m_t_old[lev] = time - Real(1.e200);
@@ -341,7 +356,7 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
 }
 
 bool
-incflo::writeNow(int a_plot_int, Real a_plot_per_approx, Real a_plot_per_exact)
+incflo::writeNow(int a_plot_int, Real a_plot_per_approx, Real a_plot_per_exact) const
 {
     bool write_now = false;
 
@@ -352,7 +367,6 @@ incflo::writeNow(int a_plot_int, Real a_plot_per_approx, Real a_plot_per_exact)
         // Check to see if we've crossed a a_plot_per_approx interval by comparing
         // the number of intervals that have elapsed for both the current
         // time and the time at the beginning of this timestep.
-
         int num_per_old = static_cast<int>(std::round((m_cur_time-m_dt) / a_plot_per_approx));
         int num_per_new = static_cast<int>(std::round((m_cur_time     ) / a_plot_per_approx));
 

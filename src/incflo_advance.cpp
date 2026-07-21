@@ -26,7 +26,7 @@ void incflo::Advance()
         amrex::Print() << "\nStep " << m_nstep + 1
                        << ": from old_time " << m_cur_time
                        << " to new time " << m_cur_time + m_dt
-                       << " with dt = " << m_dt << ".\n" << std::endl;
+                       << " with dt = " << m_dt << ".\n" << "\n";
     }
 
     copy_from_new_to_old_velocity();
@@ -38,7 +38,7 @@ void incflo::Advance()
     for (int lev = 0; lev <= finest_level; ++lev) {
         fillpatch_velocity(lev, m_t_old[lev], m_leveldata[lev]->velocity_o, ng);
         fillpatch_density(lev, m_t_old[lev], m_leveldata[lev]->density_o, ng);
-        if (m_advect_tracer) {
+        if (m_advect_tracer||m_vof_advect_tracer) {
             fillpatch_tracer(lev, m_t_old[lev], m_leveldata[lev]->tracer_o, ng);
         }
         if (m_use_temperature) {
@@ -86,21 +86,19 @@ void incflo::Advance()
     particleData.Redistribute();
 #endif
 
-#if 0
-    // This sums over all levels
-    if (m_test_tracer_conservation) {
-        Real sum = volumeWeightedSum(get_tracer_new_const(),0,geom,ref_ratio);
-        amrex::Print() << "Sum tracer volume wgt2 = " << m_cur_time+m_dt << " " <<
-                           sum << std::endl;
-    }
-#endif
+    // // This sums over all levels
+    // if (m_test_tracer_conservation) {
+    //     Real sum = volumeWeightedSum(get_tracer_new_const(),0,geom,ref_ratio);
+    //     amrex::Print() << "Sum tracer volume wgt2 = " << m_cur_time+m_dt << " " <<
+    //                        sum << "\n";
+    // }
 
     // Stop timing current time step
     Real end_step = static_cast<Real>(ParallelDescriptor::second()) - strt_step;
     ParallelDescriptor::ReduceRealMax(end_step, ParallelDescriptor::IOProcessorNumber());
     if (m_verbose > 0)
     {
-        amrex::Print() << "Time per step " << end_step << std::endl;
+        amrex::Print() << "Time per step " << end_step << "\n";
     }
 }
 

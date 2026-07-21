@@ -123,7 +123,7 @@ void incflo::ApplyCorrector()
     bool include_pressure_gradient = !(m_use_mac_phi_in_godunov);
     compute_vel_forces(GetVecOfPtrs(vel_forces), get_velocity_new_const(),
                        get_density_new_const(), get_tracer_new_const(), get_tracer_new_const(),
-                       include_pressure_gradient);
+                       include_pressure_gradient, m_use_cc_proj?false:true);
     compute_MAC_projected_velocities(get_velocity_new_const(), get_density_new_const(),
                                      AMREX_D_DECL(GetVecOfPtrs(u_mac), GetVecOfPtrs(v_mac),
                                      GetVecOfPtrs(w_mac)), GetVecOfPtrs(vel_forces), new_time);
@@ -139,7 +139,7 @@ void incflo::ApplyCorrector()
     // *************************************************************************************
     // Compute viscosity / diffusive coefficients
     // *************************************************************************************
-    compute_viscosity(GetVecOfPtrs(vel_eta), get_density_new(), get_velocity_new(), new_time, 1);
+    compute_viscosity(GetVecOfPtrs(vel_eta), get_density_new(), get_velocity_new(),get_tracer_new(), new_time, 1);
 
     // Here we create divtau of the (n+1,*) state that was computed in the predictor
     if ( velocity_uses_explicit_diffusion_terms() || use_tensor_correction )
@@ -152,7 +152,7 @@ void incflo::ApplyCorrector()
     // *************************************************************************************
     // Update density
     // *************************************************************************************
-    if (!m_two_fluid) update_density(StepType::Corrector);
+    if (!m_two_fluid || m_update_density_from_vof) update_density(StepType::Corrector);
 
     // *************************************************************************************
     // Update tracer

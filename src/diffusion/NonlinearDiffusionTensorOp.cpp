@@ -316,6 +316,7 @@ NonlinearDiffusionTensorOp::diffuse_velocity_one_step (
         m_incflo->compute_viscosity(GetVecOfPtrs(m_eta),
                                     GetVecOfPtrs(m_density),
                                     GetVecOfPtrs(m_newton_iter_vel),
+                                    m_incflo->get_tracer_new(),
                                     m_incflo->m_cur_time, m_nghost_eta);
     }
 
@@ -1011,6 +1012,7 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
         m_incflo->compute_viscosity(GetVecOfPtrs(m_eta),
                                     GetVecOfPtrs(m_density),
                                     GetVecOfPtrs(m_newton_iter_vel),
+                                    m_incflo->get_tracer_new(),
                                     m_incflo->m_cur_time, m_nghost_eta);
     }
 }

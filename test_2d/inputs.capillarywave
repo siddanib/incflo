@@ -1,0 +1,110 @@
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#            SIMULATION STOP            #
+#.......................................#
+stop_time               =   1.588293017         # Max (simulated) time to evolve
+#stop_time =1.66481717925811447992
+#max_step                = 10          # Max number of time steps
+steady_state            =   0           # Steady-state solver? 
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#         TIME STEP COMPUTATION         #
+#.......................................#
+#incflo.fixed_dt        =   .1         # Use this constant dt if > 0
+incflo.cfl              =   0.005        # CFL factor
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#            INPUT AND OUTPUT           #
+#.......................................#
+amr.plot_int            =  500           # Steps between plot files
+amr.check_int           =   10000        # Steps between checkpoint files
+amr.restart             =   ""          # Checkpoint to restart from 
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#               PHYSICS                 #
+#.......................................#
+incflo.gravity          =   0.  0.    # Gravitational force (3D)
+incflo.ro_0             =   1.0         # Reference density 
+incflo.ntrac            =   1
+incflo.fluid_model      =   "newtonian" # Fluid model (rheology)
+incflo.mu               =   0.0182574185835055         # Dynamic viscosity coefficient
+incflo.vof_advect_tracer=   1
+incflo.mu_s             =   0.000327650582754835 
+incflo.ro_s             =   .0012
+#incflo.mu_s             =   0.0182574185835055
+#incflo.ro_s             =   .1
+
+incflo.sigma            =   1.
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#        ADAPTIVE MESH REFINEMENT       #
+#.......................................#
+#amr.n_cell              =  128 384      # Grid cells at coarsest AMRlevel
+amr.n_cell              =  8 24 
+amr.max_level           =   3           # Max AMR level in hierarchy 
+amr.max_grid_size       =   64 
+amr.blocking_factor = 4
+amr.n_error_buf  = 1
+amr.grid_eff=1.
+incflo.fillpatch_method = 2
+incflo.plot_leaf_cells = 0
+#incflo.tag_region = 1
+#incflo.tag_region_lo = -.5 -.5
+#incflo.tag_region_hi = .5 .5 
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#              GEOMETRY                 #
+#.......................................#
+geometry.prob_lo        =   -.5  -1.5     # Lo corner coordinates
+geometry.prob_hi        =    .5   1.5    # Hi corner coordinates
+geometry.is_periodic    =   1 0       # Periodicity x y z (0/1)
+geometry.coord_sys   =  0
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#           INITIAL CONDITIONS          #
+#.......................................#
+incflo.probtype         =   1109        #
+incflo.ic_u             =   0.
+incflo.ic_v             =   0.
+incflo.ic_w             =   0.
+
+#initialize the VOF field with AMREX EB functions
+incflo.vof_init_with_eb = 1
+#the interface is a cosin function
+incflo.vof_init          ="y - 0.01*cos(2.*3.14159265357*x)"
+# Boundary conditions
+ylo.type                =   "sw"
+#ylo.pressure            =   0.  
+yhi.type                =   "sw"
+#yhi.pressure            =   0.  
+#xlo.type                =   "po"
+#xlo.pressure            =   0.
+#xhi.type                =   "po"
+#xhi.pressure            =   0.0
+#zlo.type                =   "po"
+#zlo.pressure            =   0.
+#zhi.type                =   "po"
+#zhi.pressure            =   0.0
+
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#          NUMERICAL PARAMETERS         #
+#.......................................#
+incflo.steady_state_tol = 1.e-5         # Tolerance for steady-state
+amrex.fpe_trap_invalid  =   1           # Trap NaNs
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#              VERBOSITY                #
+#.......................................#
+incflo.verbose          =   2           # incflo_level
+amrex.fpe_trap_overflow=1
+incflo.use_cc_proj      =   1
+incflo.advect_momentum =  0
+incflo.number_of_averaging = 2
+incflo.diffusion_type = 2
+incflo.output_drop_frequence = 7
+incflo.godunov_include_diff_in_forcing = 1
+incflo.use_mac_phi_in_godunov = 0
+incflo.godunov_use_forces_in_trans = 0
+incflo.initial_iterations =0
+incflo.do_initial_proj = 0
+amrex.fpe_trap_zero=1

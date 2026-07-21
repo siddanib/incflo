@@ -31,6 +31,7 @@ add_subdirectory(projection)
 add_subdirectory(rheology)
 add_subdirectory(setup)
 add_subdirectory(utilities)
+add_subdirectory(vof)
 
 if (INCFLO_EB)
    add_subdirectory(embedded_boundaries)

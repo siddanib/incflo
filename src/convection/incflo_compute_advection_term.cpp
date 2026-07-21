@@ -73,12 +73,14 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
     bool knownFaceStates          = false; // HydroUtils always recompute face states
 
 #ifdef AMREX_USE_EB
-    amrex::Print() << "REDISTRIBUTION TYPE " << m_redistribution_type << std::endl;
+    if ( m_verbose ) {
+        amrex::Print() << "REDISTRIBUTION TYPE " << m_redistribution_type << "\n";
+    }
 #endif
 
     // Make one flux MF at each level to hold all the fluxes (velocity, density, tracers)
     int n_flux_comp = AMREX_SPACEDIM;
-    if (!m_constant_density) n_flux_comp += 1;
+    if (!m_constant_density && !m_update_density_from_vof) n_flux_comp += 1;
     if ( m_advect_tracer)    n_flux_comp += m_ntrac;
     if ( m_use_temperature)  n_flux_comp += 1;
 
@@ -152,7 +154,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
     //    and compute the tracer forcing terms for the first time
     if (m_advection_type != "MOL") {
 
-        compute_vel_forces(vel_forces, vel, density, tracer, tracer);
+        compute_vel_forces(vel_forces, vel, density, tracer, tracer, m_use_cc_proj?false:true);
 
         if (m_godunov_include_diff_in_forcing) {
 
@@ -259,7 +261,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
 
     for (int lev = 0; lev <= finest_level; ++lev)
     {
-        Real time_nph = m_cur_time + 0.5*m_dt;
+        Real time_nph = m_cur_time + Real(0.5)*m_dt;
         if (nghost_mac() > 0)
         {
             // FillPatch umac.
@@ -309,17 +311,10 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
                              u_crse[2] = w_mac[lev-1];);
 
 
-                bool rr_eq_2 = true;
-                for ( int dim = 0; dim < AMREX_SPACEDIM; dim++ )
-                {
-                    if (rr[dim] != 2) {
-                        rr_eq_2 = false;
-                        break;
-                    }
-                }
+                bool rr_eq_2_4 = std::all_of(rr.begin(), rr.end(), [](int x) { return x == 2 || x == 4;} );
 
                 Interpolater* mapper;
-                if ( rr_eq_2 ) {
+                if ( rr_eq_2_4 ) {
                     // Divergence preserving interp. Restricted to refinement ratio = 2
                     mapper = &face_divfree_interp;
                 } else {
@@ -337,187 +332,227 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
                 Array<PhysBCFunct<GpuBndryFuncFab<IncfloVelFill>>,AMREX_SPACEDIM>
                     cbndyFuncArr = {AMREX_D_DECL(crse_bndry_func,crse_bndry_func,crse_bndry_func)};
 
-                // Use piecewise constant interpolation in time
-                Array<int, AMREX_SPACEDIM> idx = {AMREX_D_DECL(0,1,2)};
-                FillPatchTwoLevels(u_fine, IntVect(nghost_mac()), time_nph,
-                                   {u_crse}, {time_nph},
-                                   {u_fine}, {time_nph},
-                                   0, 0, 1,
-                                   geom[lev-1], geom[lev],
-                                   cbndyFuncArr, idx, fbndyFuncArr, idx,
-                                   rr, mapper, bcrecArr, idx);
+               if (/*1*/m_fillpatch_method == 0){
+                  // Use piecewise constant interpolation in time
+                  Array<int, AMREX_SPACEDIM> idx = {AMREX_D_DECL(0,1,2)};
+                  FillPatchTwoLevels(u_fine, IntVect(nghost_mac()), time_nph,
+                                     {u_crse}, {time_nph},
+                                     {u_fine}, {time_nph},
+                                     0, 0, 1,
+                                     geom[lev-1], geom[lev],
+                                     cbndyFuncArr, idx, fbndyFuncArr, idx,
+                                     rr, mapper, bcrecArr, idx);
+                  if ( !rr_eq_2_4 )
+                  {
+                      //
+                      // Correct u_mac to enforce the divergence constraint in the ghost cells.
+                      // Do this by adjusting only the outer face (wrt the valid region) of the ghost
+                      // cell, i.e. for the hi-x face, adjust umac_x(i+1).
+                      // NOTE that this does not fill grid edges or corners.
+                      //
 
-                if ( !rr_eq_2 )
-                {
-                    //
-                    // Correct u_mac to enforce the divergence constraint in the ghost cells.
-                    // Do this by adjusting only the outer face (wrt the valid region) of the ghost
-                    // cell, i.e. for the hi-x face, adjust umac_x(i+1).
-                    // NOTE that this does not fill grid edges or corners.
-                    //
+                      // Need 2 ghost cells here so we can safely check the status of all faces of a
+                      // u_mac ghost cell
+                      iMultiFab coarse_fine_mask(grids[lev], dmap[lev], 1, 2,
+                                                 MFInfo(), DefaultFabFactory<IArrayBox>());
+                      // interior  : interior cells (i.e., valid cells)
+                      // covered   : ghost cells covered by valid cells of this FabArray
+                      //             (including periodically shifted valid cells)
+                      // notcovered: ghost cells not covered by valid cells
+                      //             (including ghost cells outside periodic boundaries where the
+                      //             periodically shifted cells don't exist at this level)
+                      // physbnd   : boundary cells outside the domain (excluding periodic boundaries)
+                      static constexpr int level_mask_interior   = 0; // valid cells
+                      static constexpr int level_mask_covered    = 1; // ghost cells covered by valid cells of this level
+                      static constexpr int level_mask_notcovered = 2; // ghost cells not covered
+                      static constexpr int level_mask_physbnd    = 3; // outside domain
 
-                    // Need 2 ghost cells here so we can safely check the status of all faces of a
-                    // u_mac ghost cell
-                    iMultiFab coarse_fine_mask(grids[lev], dmap[lev], 1, 2,
-                                               MFInfo(), DefaultFabFactory<IArrayBox>());
-                    // interior  : interior cells (i.e., valid cells)
-                    // covered   : ghost cells covered by valid cells of this FabArray
-                    //             (including periodically shifted valid cells)
-                    // notcovered: ghost cells not covered by valid cells
-                    //             (including ghost cells outside periodic boundaries where the
-                    //             periodically shifted cells don't exist at this level)
-                    // physbnd   : boundary cells outside the domain (excluding periodic boundaries)
-                    static constexpr int level_mask_interior   = 0; // valid cells
-                    static constexpr int level_mask_covered    = 1; // ghost cells covered by valid cells of this level
-                    static constexpr int level_mask_notcovered = 2; // ghost cells not covered
-                    static constexpr int level_mask_physbnd    = 3; // outside domain
+                      coarse_fine_mask.BuildMask(geom[lev].Domain(), geom[lev].periodicity(),
+                                                 level_mask_covered, level_mask_notcovered, level_mask_physbnd,
+                                                 level_mask_interior);
 
-                    coarse_fine_mask.BuildMask(geom[lev].Domain(), geom[lev].periodicity(),
-                                               level_mask_covered, level_mask_notcovered, level_mask_physbnd,
-                                               level_mask_interior);
+                      const GpuArray<Real,AMREX_SPACEDIM> dx = geom[lev].CellSizeArray();
+                      const GpuArray<Real,AMREX_SPACEDIM> dxinv = geom[lev].InvCellSizeArray();
 
-                    const GpuArray<Real,AMREX_SPACEDIM> dx = geom[lev].CellSizeArray();
-                    const GpuArray<Real,AMREX_SPACEDIM> dxinv = geom[lev].InvCellSizeArray();
-
-                    MultiFab volume;
-                    Array<MultiFab,AMREX_SPACEDIM> area;
-                    const bool is_rz = geom[0].IsRZ();
-                    if ( is_rz ) {
-                        geom[lev].GetVolume(volume, grids[lev], dmap[lev], 1);
-                        geom[lev].GetFaceArea(area[0], grids[lev], dmap[lev], 0, 1);
-                        geom[lev].GetFaceArea(area[1], grids[lev], dmap[lev], 1, 1);
-                    }
+                      MultiFab volume;
+                      Array<MultiFab,AMREX_SPACEDIM> area;
+                      const bool is_rz = geom[0].IsRZ();
+                      if ( is_rz ) {
+                          geom[lev].GetVolume(volume, grids[lev], dmap[lev], 1);
+                          geom[lev].GetFaceArea(area[0], grids[lev], dmap[lev], 0, 1);
+                          geom[lev].GetFaceArea(area[1], grids[lev], dmap[lev], 1, 1);
+                      }
 
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-                    for (MFIter mfi(coarse_fine_mask,TilingIfNotGPU()); mfi.isValid(); ++mfi)
-                    {
-                        const Box& tbx = mfi.tilebox();
-                        auto const& maskarr = coarse_fine_mask.const_array(mfi);
-                        auto const& umac = u_fine[0]->array(mfi);
-                        auto const& vmac = u_fine[1]->array(mfi);
-                        auto const& wmac = (AMREX_SPACEDIM==3) ? u_fine[2]->array(mfi) : Array4<Real> {};
+                      for (MFIter mfi(coarse_fine_mask,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+                      {
+                          const Box& tbx = mfi.tilebox();
+                          auto const& maskarr = coarse_fine_mask.const_array(mfi);
+                          auto const& umac = u_fine[0]->array(mfi);
+                          auto const& vmac = u_fine[1]->array(mfi);
+                          auto const& wmac = (AMREX_SPACEDIM==3) ? u_fine[2]->array(mfi) : Array4<Real> {};
 
-                        const auto& vol = (is_rz) ?  volume.const_array(mfi): Array4<Real> {};
-                        const auto&  ax = (is_rz) ? area[0].const_array(mfi): Array4<Real> {};
-                        const auto&  ay = (is_rz) ? area[1].const_array(mfi): Array4<Real> {};
+                          const auto& vol = (is_rz) ?  volume.const_array(mfi): Array4<Real> {};
+                          const auto&  ax = (is_rz) ? area[0].const_array(mfi): Array4<Real> {};
+                          const auto&  ay = (is_rz) ? area[1].const_array(mfi): Array4<Real> {};
 #if (AMREX_SPACEDIM == 2)
-                        int ks =  0;
-                        int ke =  0;
+                          int ks =  0;
+                          int ke =  0;
 #else
-                        int ks = -1;
-                        int ke =  1;
+                          int ks = -1;
+                          int ke =  1;
 #endif
 
-                        AMREX_HOST_DEVICE_FOR_3D(mfi.growntilebox(1), i, j, k,
-                        {
-                            if ( maskarr(i,j,k) == level_mask_notcovered )
-                            {
-                                //
-                                // Leave cells on grid edges/corners unaltered.
-                                // This correction scheme doesn't work for concave edges where a cell
-                                // has faces that are all either valid or touching another ghost cell
-                                // because then there's no "free" face to absorb the divergence constraint
-                                // error.
-                                // There are (>=) 1 case that are treatable, but we don't implement here:
-                                // 1. Convex grid edges (cells that don't have any valid faces), e.g. by
-                                //    dividing the divergence constraint error equally between each face
-                                //    not touching another ghost cell
-                                //
+                          AMREX_HOST_DEVICE_FOR_3D(mfi.growntilebox(1), i, j, k,
+                          {
+                              if ( maskarr(i,j,k) == level_mask_notcovered )
+                              {
+                                  //
+                                  // Leave cells on grid edges/corners unaltered.
+                                  // This correction scheme doesn't work for concave edges where a cell
+                                  // has faces that are all either valid or touching another ghost cell
+                                  // because then there's no "free" face to absorb the divergence constraint
+                                  // error.
+                                  // There are (>=) 1 case that are treatable, but we don't implement here:
+                                  // 1. Convex grid edges (cells that don't have any valid faces), e.g. by
+                                  //    dividing the divergence constraint error equally between each face
+                                  //    not touching another ghost cell
+                                  //
 
-                                int count = 0;
-                                for(int kk(ks); kk<=ke; kk++) {
-                                for(int jj(-1); jj<=1;  jj++) {
-                                for(int ii(-1); ii<=1;  ii++) {
-                                    if ( Math::abs(ii)+Math::abs(jj)+Math::abs(kk) == 1 &&
-                                         (maskarr(i+ii,j+jj,k+kk) == level_mask_interior ||
-                                          maskarr(i+ii,j+jj,k+kk) == level_mask_covered) )
-                                    {
-                                        count++;
-                                    }
-                                }}}
+                                  int count = 0;
+                                  for(int kk(ks); kk<=ke; kk++) {
+                                  for(int jj(-1); jj<=1;  jj++) {
+                                  for(int ii(-1); ii<=1;  ii++) {
+                                      if ( Math::abs(ii)+Math::abs(jj)+Math::abs(kk) == 1 &&
+                                           (maskarr(i+ii,j+jj,k+kk) == level_mask_interior ||
+                                            maskarr(i+ii,j+jj,k+kk) == level_mask_covered) )
+                                      {
+                                          count++;
+                                      }
+                                  }}}
 
-                                if ( count == 1 )
-                                {
-                                    // Incompressible only for now, but div is where a divu=S source term would go
-                                    Real div = 0.0;
+                                  if ( count == 1 )
+                                  {
+                                      // Incompressible only for now, but div is where a divu=S source term would go
+                                      Real div = 0.0;
 
-                                    if (is_rz)
-                                    {
-                                        Real dux = (ax(i+1,j,k)*umac(i+1,j,k) - ax(i,j,k)*umac(i,j,k));
-                                        Real duy = (ay(i,j+1,k)*vmac(i,j+1,k) - ay(i,j,k)*vmac(i,j,k));
+                                      if (is_rz)
+                                      {
+                                          Real dux = (ax(i+1,j,k)*umac(i+1,j,k) - ax(i,j,k)*umac(i,j,k));
+                                          Real duy = (ay(i,j+1,k)*vmac(i,j+1,k) - ay(i,j,k)*vmac(i,j,k));
 
-                                        // To avoid inconsistencies between boxes, we make sure to fix box
-                                        // corners (2D) or edges (3D) that are not grid corners/edges.
-                                        // The directional check ensures we only alter one face of these
-                                        // cells.
-                                        // It's unlikely there'd ever be a case of such ghost cells abutting the
-                                        // symmetry axis, but just in case, check here.
-                                        if ( i < tbx.smallEnd(0) && maskarr(i+1,j,k) != level_mask_notcovered
-                                             && ax(i,j,k) != Real(0.0) )
-                                        {
-                                            umac(i,j,k) = (ax(i+1,j,k)*umac(i+1,j,k) + (duy - vol(i,j,k)*div))/ax(i,j,k);
-                                        }
-                                        else if ( i > tbx.bigEnd(0) && maskarr(i-1,j,k) != level_mask_notcovered )
-                                        {
-                                            umac(i+1,j,k) = (ax(i,j,k)*umac(i,j,k) - (duy - vol(i,j,k)*div))/ax(i+1,j,k);
-                                        }
+                                          // To avoid inconsistencies between boxes, we make sure to fix box
+                                          // corners (2D) or edges (3D) that are not grid corners/edges.
+                                          // The directional check ensures we only alter one face of these
+                                          // cells.
+                                          // It's unlikely there'd ever be a case of such ghost cells abutting the
+                                          // symmetry axis, but just in case, check here.
+                                          if ( i < tbx.smallEnd(0) && maskarr(i+1,j,k) != level_mask_notcovered
+                                               && ax(i,j,k) != Real(0.0) )
+                                          {
+                                              umac(i,j,k) = (ax(i+1,j,k)*umac(i+1,j,k) + (duy - vol(i,j,k)*div))/ax(i,j,k);
+                                          }
+                                          else if ( i > tbx.bigEnd(0) && maskarr(i-1,j,k) != level_mask_notcovered )
+                                          {
+                                              umac(i+1,j,k) = (ax(i,j,k)*umac(i,j,k) - (duy - vol(i,j,k)*div))/ax(i+1,j,k);
+                                          }
 
-                                        if ( j < tbx.smallEnd(1) && maskarr(i,j+1,k) != level_mask_notcovered )
-                                        {
-                                            vmac(i,j,k) = (ay(i,j+1,k)*vmac(i,j+1,k) + (dux - vol(i,j,k)*div))/ay(i,j,k);
-                                        }
-                                        else if ( j > tbx.bigEnd(1) && maskarr(i,j-1,k) != level_mask_notcovered )
-                                        {
-                                            vmac(i,j+1,k) = (ay(i,j,k)*vmac(i,j,k) - (dux - vol(i,j,k)*div))/ay(i,j+1,k);
-                                        }
-                                    }
-                                    else
-                                    {
-                                        Real dux =          dxinv[0]*(umac(i+1,j,k) - umac(i,j,k));
-                                        Real duy =          dxinv[1]*(vmac(i,j+1,k) - vmac(i,j,k));
-                                        Real duz = (wmac) ? dxinv[2]*(wmac(i,j,k+1) - wmac(i,j,k)) : 0.0;
+                                          if ( j < tbx.smallEnd(1) && maskarr(i,j+1,k) != level_mask_notcovered )
+                                          {
+                                              vmac(i,j,k) = (ay(i,j+1,k)*vmac(i,j+1,k) + (dux - vol(i,j,k)*div))/ay(i,j,k);
+                                          }
+                                          else if ( j > tbx.bigEnd(1) && maskarr(i,j-1,k) != level_mask_notcovered )
+                                          {
+                                              vmac(i,j+1,k) = (ay(i,j,k)*vmac(i,j,k) - (dux - vol(i,j,k)*div))/ay(i,j+1,k);
+                                          }
+                                      }
+                                      else
+                                      {
+                                          Real dux =          dxinv[0]*(umac(i+1,j,k) - umac(i,j,k));
+                                          Real duy =          dxinv[1]*(vmac(i,j+1,k) - vmac(i,j,k));
+                                          Real duz = (wmac) ? dxinv[2]*(wmac(i,j,k+1) - wmac(i,j,k)) : Real(0);
 
-                                        // To avoid inconsistencies between boxes, we make sure to fix box
-                                        // corners (2D) or edges (3D) that are not grid corners/edges.
-                                        // The directional check ensures we only alter one face of these
-                                        // cells.
-                                        if ( i < tbx.smallEnd(0) && maskarr(i+1,j,k) != level_mask_notcovered )
-                                        {
-                                            umac(i,j,k) = umac(i+1,j,k) + dx[0] * (duy + duz - div);
-                                        }
-                                        else if ( i > tbx.bigEnd(0) && maskarr(i-1,j,k) != level_mask_notcovered )
-                                        {
-                                            umac(i+1,j,k) = umac(i,j,k) - dx[0] * (duy + duz - div);
-                                        }
+                                          // To avoid inconsistencies between boxes, we make sure to fix box
+                                          // corners (2D) or edges (3D) that are not grid corners/edges.
+                                          // The directional check ensures we only alter one face of these
+                                          // cells.
+                                          if ( i < tbx.smallEnd(0) && maskarr(i+1,j,k) != level_mask_notcovered )
+                                          {
+                                              umac(i,j,k) = umac(i+1,j,k) + dx[0] * (duy + duz - div);
+                                          }
+                                          else if ( i > tbx.bigEnd(0) && maskarr(i-1,j,k) != level_mask_notcovered )
+                                          {
+                                              umac(i+1,j,k) = umac(i,j,k) - dx[0] * (duy + duz - div);
+                                          }
 
-                                        if ( j < tbx.smallEnd(1) && maskarr(i,j+1,k) != level_mask_notcovered )
-                                        {
-                                            vmac(i,j,k) = vmac(i,j+1,k) + dx[1] * (dux + duz - div);
-                                        }
-                                        else if ( j > tbx.bigEnd(1) && maskarr(i,j-1,k) != level_mask_notcovered )
-                                        {
-                                            vmac(i,j+1,k) = vmac(i,j,k) - dx[1] * (dux + duz - div);
-                                        }
+                                          if ( j < tbx.smallEnd(1) && maskarr(i,j+1,k) != level_mask_notcovered )
+                                          {
+                                              vmac(i,j,k) = vmac(i,j+1,k) + dx[1] * (dux + duz - div);
+                                          }
+                                          else if ( j > tbx.bigEnd(1) && maskarr(i,j-1,k) != level_mask_notcovered )
+                                          {
+                                              vmac(i,j+1,k) = vmac(i,j,k) - dx[1] * (dux + duz - div);
+                                          }
 
-                                        if (wmac)
-                                        {
-                                            if ( k < tbx.smallEnd(2) && maskarr(i,j,k+1) != level_mask_notcovered )
-                                            {
-                                                wmac(i,j,k) = wmac(i,j,k+1) + dx[2] * (dux + duy - div);
-                                            }
-                                            else if ( k > tbx.bigEnd(2) && maskarr(i,j,k-1) != level_mask_notcovered )
-                                            {
-                                                wmac(i,j,k+1) = wmac(i,j,k) - dx[2] * (dux + duy - div);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        });
+                                          if (wmac)
+                                          {
+                                              if ( k < tbx.smallEnd(2) && maskarr(i,j,k+1) != level_mask_notcovered )
+                                              {
+                                                  wmac(i,j,k) = wmac(i,j,k+1) + dx[2] * (dux + duy - div);
+                                              }
+                                              else if ( k > tbx.bigEnd(2) && maskarr(i,j,k-1) != level_mask_notcovered )
+                                              {
+                                                  wmac(i,j,k+1) = wmac(i,j,k) - dx[2] * (dux + duy - div);
+                                              }
+                                          }
+                                      }
+                                  }
+                              }
+                          });
+                      }
+                  }
+               }else{
+                  mapper = &face_cons_linear_interp;
+                  for (int dir=0;dir<AMREX_SPACEDIM;++dir){
+                    if (m_fillpatch_method == 1){
+                      // This FillPatch operation interpolates using the ghost cells of the coarser level
+                      // via `PhysBCFunctUseCoarseGhost`, which is defined in `AMReX_PhysBCFunct.h`.
+                      // For implementation details, see `AMReX_FillPatchUtil_I.h`.
+                      //
+                      // When the `blocking_factor` is small (e.g., 1, 2, or 4), specifically used for generating
+                      // quad-/octree-like grids, this FillPatch method is necessary instead of the previous one.
+                      FillPatchTwoLevels (*u_fine[dir], IntVect(nghost_mac()), IntVect (0), time_nph,
+                                          {u_crse[dir]}, {time_nph}, {u_fine[dir]}, {time_nph},
+                                          0, 0, 1, geom[lev-1], geom[lev],
+                                          refRatio(lev-1), mapper, bcrecArr[dir], 0);
+                      //The physical boundary condition is not enforced in the above fillpatch, so we have to do it here.
+                      fbndyFuncArr[dir].FillBoundary(*u_fine[dir], 0, 1, IntVect(nghost_mac()), time_nph, 0);
                     }
-                }
+                    else{
+                      //for quad-/Oct-tree like grids, it is safter to use FillPatchNLevels
+                      Vector<PhysBCFunct<GpuBndryFuncFab<IncfloVelFill>>> physbcs;
+                      for (int ilev = 0; ilev <= finest_level; ++ilev) {
+                       physbcs.emplace_back(geom[ilev],m_bcrec_velocity,IncfloVelFill{m_probtype, m_bc_velocity});
+                      }
+                      Vector<Vector<MultiFab*>> smf(finest_level+1);
+                      Vector<Vector<Real>> st(finest_level+1);
+                      for (int ilev = 0; ilev <= finest_level; ++ilev) {
+                        smf[ilev] = dir < 1 ? Vector<MultiFab*>{u_mac[ilev]} :
+#if (AMREX_SPACEDIM == 3)
+                                    dir > 1 ? Vector<MultiFab*>{w_mac[ilev]} :
+#endif
+                                            Vector<MultiFab*>{v_mac[ilev]};
+                        st[ilev] = {time_nph};
+                      }
+                      FillPatchNLevels(*u_fine[dir], lev, IntVect(nghost_mac()), time_nph,
+                                       smf, st, 0, 0, 1, geom,
+                                       physbcs, 0, ref_ratio, mapper, m_bcrec_velocity, 0);
+
+                    }
+                  }
+               }
             }
         } // end umac fill
 
@@ -576,7 +611,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
                     Multiply(vel_nph, rho_nph, 0, n, 1, 1);
                 }
             }
-
+            //vel_nph.setVal(0.);
             if (m_advect_tracer && (m_ntrac>0)) {
                 trac_nph.setVal(0.);
                 fillphysbc_tracer(lev, time_nph, trac_nph, 1);
@@ -714,7 +749,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
             // ************************************************************************
             // Density
             // ************************************************************************
-            if (!m_constant_density)
+            if (!m_constant_density&&!m_update_density_from_vof)
             {
                 face_comp = AMREX_SPACEDIM;
                 ncomp = 1;
@@ -780,7 +815,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
                     });
                 }
 
-                if (m_constant_density)
+                if (m_constant_density||m_update_density_from_vof)
                    face_comp = AMREX_SPACEDIM;
                 else
                    face_comp = AMREX_SPACEDIM+1;
@@ -825,7 +860,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
                 // Temperature adveciton is non-conservative when it is NOT granular Temperature
 
                 face_comp = (m_advect_tracer && (m_ntrac>0)) ? m_ntrac : 0;
-                face_comp += (m_constant_density) ? AMREX_SPACEDIM : AMREX_SPACEDIM+1;
+                face_comp += (m_constant_density || m_update_density_from_vof) ? AMREX_SPACEDIM : AMREX_SPACEDIM+1;
                 ncomp = 1;
                 is_velocity = false;
                 allow_inflow_on_outflow = false;
@@ -975,7 +1010,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
 
         // Note: density is always updated conservatively -- we do not provide an option for
         //       updating density convectively
-        if (!m_constant_density)
+        if (!m_constant_density&&!m_update_density_from_vof)
         {
           int flux_comp = AMREX_SPACEDIM;
 
@@ -1017,7 +1052,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
 
         if (m_advect_tracer && m_ntrac > 0)
         {
-          int flux_comp = (m_constant_density) ? AMREX_SPACEDIM : AMREX_SPACEDIM+1;
+          int flux_comp = (m_constant_density||m_update_density_from_vof) ? AMREX_SPACEDIM : AMREX_SPACEDIM+1;
 
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -1077,7 +1112,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
         if (m_use_temperature)
         {
             int flux_comp = (m_advect_tracer && (m_ntrac>0)) ? m_ntrac : 0;
-            flux_comp += (m_constant_density) ? AMREX_SPACEDIM : AMREX_SPACEDIM+1;
+            flux_comp += (m_constant_density || m_update_density_from_vof) ? AMREX_SPACEDIM : AMREX_SPACEDIM+1;
 
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -1153,7 +1188,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
                               bc_vel, lev);
 
             // density
-            if (!m_constant_density) {
+            if (!m_constant_density&&!m_update_density_from_vof) {
                 auto const& bc_den = get_density_bcrec_device_ptr();
                 redistribute_term(mfi, *conv_r[lev], drdt_tmp,
                                   *density[lev], bc_den, lev);

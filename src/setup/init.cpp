@@ -1,5 +1,8 @@
 #include <AMReX_BC_TYPES.H>
 #include <incflo.H>
+
+#include <cmath>
+#include <sstream>
 #ifdef AMREX_USE_EB
 #include <AMReX_EB_Redistribution.H>
 #endif
@@ -207,10 +210,31 @@ void incflo::ReadParameters ()
         m_mu_s.resize(m_ntrac, 0.0);
         pp.queryarr("mu_s", m_mu_s, 0, m_ntrac );
 
-        amrex::Print() << "Scalar diffusion coefficients " << std::endl;
+        amrex::Print() << "Scalar diffusion coefficients\n";
         for (int i = 0; i < m_ntrac; i++) {
-            amrex::Print() << "Tracer diffusion coeff: " << i << ":" << m_mu_s[i] << std::endl;
+            amrex::Print() << "Tracer diffusion coeff: " << i << ":" << m_mu_s[i] << "\n";
         }
+
+        //vof parameters
+        pp.query("vof_advect_tracer", m_vof_advect_tracer);
+        if (m_vof_advect_tracer && m_advect_tracer) {
+            amrex::Abort("incflo.vof_advect_tracer and incflo.advect_tracer cannot both be true");
+        }
+        if (m_vof_advect_tracer){
+           //the default of the density of VOF phase is same as the background fluid
+           m_ro_s.resize(m_ntrac, m_ro_0);
+           pp.queryarr("ro_s", m_ro_s, 0, m_ntrac );
+           // the default of the surface tension is zero
+           m_sigma.resize(m_ntrac, 0.);
+           pp.queryarr("sigma", m_sigma, 0, m_ntrac );
+
+           m_update_density_from_vof = true;
+           m_constant_density = false;
+        }
+        pp.query("fillpatch_method", m_fillpatch_method);
+        pp.query("number_of_averaging", m_number_of_averaging);
+        pp.query("vof_regrid_layers", m_vof_regrid_layers);
+        pp.query("plot_leaf_cells", m_plot_leaf_cells);
 
         pp.query("use_temperature", m_use_temperature);
         // Checks for things not yet implemented/checked
@@ -241,6 +265,46 @@ void incflo::ReadParameters ()
 
     ReadIOParameters();
     ReadRheologyParameters();
+
+    if (m_vof_advect_tracer && m_two_fluid) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_ntrac > 0,
+            "VOF + two_fluid requires at least one tracer");
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!m_ro_s.empty(),
+            "VOF + two_fluid requires incflo.ro_s[0]");
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!m_mu_s.empty(),
+            "VOF + two_fluid requires incflo.mu_s[0]");
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_number_of_averaging == 0,
+            "VOF + two_fluid requires incflo.number_of_averaging = 0");
+
+        const Real rho_scale = amrex::max(Real(1.0),
+            amrex::max(std::abs(m_ro_s[0]), std::abs(m_ro_0_second)));
+        const Real rho_tol = Real(1.0e-12) * rho_scale;
+        if (std::abs(m_ro_s[0] - m_ro_0_second) > rho_tol) {
+            std::ostringstream msg;
+            msg << "Inconsistent second-fluid density: incflo.ro_s[0] = "
+                << m_ro_s[0] << " but incflo.second_fluid.ro_0 = "
+                << m_ro_0_second << ". These must match when "
+                << "incflo.vof_advect_tracer = true and "
+                << "incflo.two_fluid = true.";
+            amrex::Abort(msg.str().c_str());
+        }
+
+        if (m_fluid_model_second == FluidModel::Newtonian) {
+            const Real mu_scale = amrex::max(Real(1.0),
+                amrex::max(std::abs(m_mu_s[0]), std::abs(m_mu_second)));
+            const Real mu_tol = Real(1.0e-12) * mu_scale;
+            if (std::abs(m_mu_s[0] - m_mu_second) > mu_tol) {
+                std::ostringstream msg;
+                msg << "Inconsistent second-fluid viscosity: incflo.mu_s[0] = "
+                    << m_mu_s[0] << " but incflo.second_fluid.mu = "
+                    << m_mu_second << ". These must match when "
+                    << "incflo.vof_advect_tracer = true, "
+                    << "incflo.two_fluid = true, and the second fluid is "
+                    << "Newtonian.";
+                amrex::Abort(msg.str().c_str());
+            }
+        }
+    }
 
     { // Prefix mac
         ParmParse pp_mac("mac_proj");
@@ -286,7 +350,7 @@ void incflo::ReadParameters ()
 
           amrex::Real tol_deg(0.);
           pp_eb_flow.query("normal_tol", tol_deg);
-          m_eb_flow.normal_tol = tol_deg*M_PI/amrex::Real(180.);
+          m_eb_flow.normal_tol = tol_deg*amrex::Real(M_PI)/amrex::Real(180);
        }
 
        if (pp_eb_flow.contains("omega_mag")) {
@@ -327,7 +391,7 @@ void incflo::ReadParameters ()
 #endif
 
     if (m_use_cc_proj && max_level > 0) {
-        amrex::Abort("Can't yet do multilevel with cell-centered projection");
+//        amrex::Abort("Can't yet do multilevel with cell-centered projection");
     }
 }
 
@@ -552,7 +616,7 @@ void incflo::InitialIterations ()
 
     if (m_verbose && m_initial_iterations > 0)
     {
-        amrex::Print() << "Doing initial pressure iterations with dt = " << m_dt << std::endl;
+        amrex::Print() << "Doing initial pressure iterations with dt = " << m_dt << "\n";
     }
 
     auto mac_phi = get_mac_phi();
@@ -737,7 +801,7 @@ incflo::InitialRedistribution ()
         MultiFab::Copy(ld.velocity_o, ld.velocity, 0, 0, AMREX_SPACEDIM, ld.velocity.nGrow());
         fillpatch_velocity(lev, m_t_new[lev], ld.velocity_o, 3);
 
-        if (!m_constant_density)
+        if (!m_constant_density||m_vof_advect_tracer)
         {
             ld.density.FillBoundary(geom[lev].periodicity());
             MultiFab::Copy(ld.density_o, ld.density, 0, 0, 1, ld.density.nGrow());

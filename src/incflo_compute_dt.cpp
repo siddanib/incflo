@@ -49,7 +49,7 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
        }
        compute_viscosity(GetVecOfPtrs(vel_eta),
                          get_density_new(), get_velocity_new(),
-                         m_cur_time, 0);
+                         get_tracer_new(), m_cur_time, 0);
     }
 
     for (int lev = 0; lev <= finest_level; ++lev)
@@ -66,8 +66,11 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
 
        // Make a temporary here to hold vel_forces
        MultiFab vel_forces(grids[lev], dmap[lev], AMREX_SPACEDIM, 0);
-
-       compute_vel_forces_on_level (lev, vel_forces, vel, rho, tra_o, tra);
+       if(m_vof_advect_tracer)
+         //to include the capillary stability requirement, the last flag is TRUE
+         compute_vel_forces_on_level (lev, vel_forces, vel, rho, tra_o, tra,true,true);
+       else
+         compute_vel_forces_on_level (lev, vel_forces, vel, rho, tra_o, tra);
 
 #ifdef AMREX_USE_EB
         if (!vel.isAllRegular()) {
@@ -333,7 +336,7 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
     {
         amrex::Print() << "WARNING: fixed_dt does not satisfy CFL condition: \n"
                        << "max dt by CFL     : " << dt_new << "\n"
-                       << "fixed dt specified: " << m_fixed_dt << std::endl;
+                       << "fixed dt specified: " << m_fixed_dt << "\n";
     }
     m_dt = m_fixed_dt;
     }

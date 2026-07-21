@@ -70,7 +70,7 @@ void incflo::update_tracer (StepType step_type, Vector<MultiFab>& tra_eta, Vecto
 
     int ng = (step_type == StepType::Corrector) ? 0 : 1;
 
-    if (m_two_fluid)
+    if (m_two_fluid && !m_update_density_from_vof)
     {
         for (int lev = 0; lev <= finest_level; lev++)
         {

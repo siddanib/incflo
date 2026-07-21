@@ -14,7 +14,21 @@ void incflo::update_density (StepType step_type)
     {
         for (int lev = 0; lev <= finest_level; lev++)
         {
-            auto& ld = *m_leveldata[lev];
+          auto& ld = *m_leveldata[lev];
+
+          if(m_update_density_from_vof){
+           //diffuse the VOF by averaging
+            const auto& ba = ld.tracer.boxArray();
+            const auto& dm = ld.tracer.DistributionMap();
+            const auto& fact = ld.tracer.Factory();
+            MultiFab tracer_df(ba,dm,1,ld.tracer.nGrow(),MFInfo(), fact);
+            MultiFab::Copy(tracer_df, ld.tracer, 0, 0, 1, ld.tracer.nGrow());
+            for (int i=0;i<m_number_of_averaging;i++){
+             get_volume_of_fluid()->variable_filtered(lev, tracer_df);
+            }
+           update_vof_density(lev, ld.density, tracer_df);
+          }
+          else{
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -39,6 +53,7 @@ void incflo::update_density (StepType step_type)
                     });
                 }
             } // mfi
+          }
         } // lev
 
         // Average down solution
@@ -67,7 +82,15 @@ void incflo::update_density (StepType step_type)
 
     } else {
         for (int lev = 0; lev <= finest_level; lev++) {
-            MultiFab::Copy(m_leveldata[lev]->density_nph, m_leveldata[lev]->density_o, 0, 0, 1, ng);
+          auto& ld = *m_leveldata[lev];
+          if (m_vof_advect_tracer){
+              //when VOF method is used to advect the tracer, density and viscosity of each cell will
+              //depend the VOF field value of the cell.
+              //fixme
+             update_vof_density (lev, ld.density, ld.tracer);
+             //MultiFab::Copy(m_leveldata[lev]->density, m_leveldata[lev]->density_o, 0, 0, 1, m_leveldata[lev]->density_o.nGrow());
+          }
+          MultiFab::Copy(ld.density_nph, ld.density_o, 0, 0, 1, ng);
         }
     }
 }

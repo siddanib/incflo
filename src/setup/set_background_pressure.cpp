@@ -25,7 +25,7 @@ void incflo::set_background_pressure ()
                     delp_dir = dir;
                     m_gp0[dir] = -m_delp[dir] / problen[dir];
                 } else {
-                    amrex::Abort("set_background_pressure: how did this happen?");
+                    amrex::Abort("set_background_pressure: only one dimension can have delp");
                 }
             }
             // (2) pressure inflow and pressure outflow
@@ -39,7 +39,7 @@ void incflo::set_background_pressure ()
                     m_gp0[dir] = (m_bc_pressure[Orientation(dir,Orientation::high)]
                                 - m_bc_pressure[Orientation(dir,Orientation::low)]) / problen[dir];
                 } else {
-                    amrex::Abort("set_background_pressure: how did this happen?");
+                    amrex::Abort("set_background_pressure: only one dimension can be pressure inflow/outflow");
                 }
             }
             // (3) gravity
@@ -48,8 +48,10 @@ void incflo::set_background_pressure ()
                 if (delp_dir == -1) {
                     delp_dir = dir;
                     m_gp0[dir] = dpdx;
+                } else if (delp_dir != dir) {
+                    m_gp0[dir] = dpdx;
                 } else {
-                    amrex::Abort("set_background_pressure: how did this happen?");
+                    amrex::Abort("set_background_pressure: check gravity");
                 }
             }
         }
