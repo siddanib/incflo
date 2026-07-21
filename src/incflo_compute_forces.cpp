@@ -239,7 +239,8 @@ void incflo::compute_vel_forces_on_level (int lev,
     // rho:   density
 
     //fixme: we just consider the surface tension for the first tracer
-    if (m_vof_advect_tracer && m_sigma[0]!=0./*&&!m_use_cc_proj*/&&include_SF){
+    const Real sigma = m_sigma[0];
+    if (m_vof_advect_tracer && sigma!=0./*&&!m_use_cc_proj*/&&include_SF){
       //choice 1: The original cell-centered kappa and rho are averaged to face center. Grad(VOF) and
       // surface tension (SF) are calculated at face center. Then the face-centered SF is finally averaged to cell center.
       //choice 2: Similar to choice 1, SF is estimated at the face center and then averaged to the cell nodes.
@@ -269,7 +270,7 @@ void incflo::compute_vel_forces_on_level (int lev,
         // The cell-centered force is then obtained by averaging the face-centered value.
         average_cellcenter_to_face(GetArrOfPtrs(face_val), density, Geom(lev));
         for (int idim = 0; idim < AMREX_SPACEDIM; ++idim) {
-          face_val[idim].invert(m_sigma[0], 0);
+          face_val[idim].invert(sigma, 0);
         }
 
 #ifdef _OPENMP
@@ -358,7 +359,7 @@ void incflo::compute_vel_forces_on_level (int lev,
        // Finally, the nodal values are averaged to the cell center.
        average_cellcenter_to_face(GetArrOfPtrs(face_val), density, Geom(lev));
        for (int idim = 0; idim < AMREX_SPACEDIM; ++idim) {
-         face_val[idim].invert(m_sigma[0], 0);
+         face_val[idim].invert(sigma, 0);
        }
 
 #ifdef _OPENMP
@@ -594,8 +595,8 @@ static int oct[3][2] = { { 1, 2 }, { 0, 2 }, { 0, 1 } };
          }
          for (int dim = 0; dim < AMREX_SPACEDIM; ++dim){
            if(kappa(i,j,k,0)!=VOF_NODATA){
-             vel_f(i,j,k,dim) -= m_sigma[0]*kappa(i,j,k,0)/center(i,j,k,1)*gradVof[dim];
-             forarr(i,j,k,dim) =-m_sigma[0]*kappa(i,j,k,0)/center(i,j,k,1)*gradVof[dim];
+             vel_f(i,j,k,dim) -= sigma*kappa(i,j,k,0)/center(i,j,k,1)*gradVof[dim];
+             forarr(i,j,k,dim) =-sigma*kappa(i,j,k,0)/center(i,j,k,1)*gradVof[dim];
            }
            else {
              for (int dim = 0; dim < AMREX_SPACEDIM; ++dim)
@@ -623,7 +624,7 @@ static int oct[3][2] = { { 1, 2 }, { 0, 2 }, { 0, 1 } };
           ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
           {
             if(kappa(i,j,k,0)!=VOF_NODATA){
-              Real sig_kappa = m_sigma[0]*kappa(i,j,k,0)/rho(i,j,k);
+              Real sig_kappa = sigma*kappa(i,j,k,0)/rho(i,j,k);
              //note: the minus sign is used because of the way curvature is calculated
               AMREX_D_TERM(
                vel_f(i,j,k,0) -= Real(0.5)*(tra(i+1,j,k,0)-tra(i-1,j,k,0))/dx[0]*sig_kappa;,

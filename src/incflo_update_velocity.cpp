@@ -678,7 +678,7 @@ static int oct[3][2] = { { 1, 2 }, { 0, 2 }, { 0, 1 } };
            vel(i,j,k,dim) -= Real(0.125)*(nv(i,j  ,k  ,dim) + nv(i+1,j  ,k  ,dim)
                                           + nv(i,j+1,k  ,dim) + nv(i+1,j+1,k  ,dim)
                                           + nv(i,j  ,k+1,dim) + nv(i+1,j  ,k+1,dim)
-                                          + nv(i,j+1,k+1,dim) + nv(i+1,j+1,k+1,dim))*m_dt;
+                                          + nv(i,j+1,k+1,dim) + nv(i+1,j+1,k+1,dim))*l_dt;
            forarr(i,j,k,dim) = -Real(0.125)*(nv(i,j  ,k  ,dim) + nv(i+1,j  ,k  ,dim)
                                           + nv(i,j+1,k  ,dim) + nv(i+1,j+1,k  ,dim)
                                           + nv(i,j  ,k+1,dim) + nv(i+1,j  ,k+1,dim)
