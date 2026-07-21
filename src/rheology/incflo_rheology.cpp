@@ -169,6 +169,8 @@ void incflo::compute_viscosity_at_level (int lev,
       if (!m_vof_advect_tracer)
         vel_eta->setVal(m_mu, 0, 1, nghost);
       else{
+        Real const mu = m_mu;
+        Real const mu_s0 = m_mu_s[0];
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -179,7 +181,7 @@ void incflo::compute_viscosity_at_level (int lev,
            Array4<Real const> const& tracer_arr = tracer->const_array(mfi);
            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
            {  //fixme: we use the property of the tracer 0.
-              eta_arr(i,j,k) = m_mu*(1.-tracer_arr(i,j,k,0))+m_mu_s[0]*tracer_arr(i,j,k,0);
+              eta_arr(i,j,k) = mu*(1.-tracer_arr(i,j,k,0))+mu_s0*tracer_arr(i,j,k,0);
             });
         }
       }

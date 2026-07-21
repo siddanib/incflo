@@ -420,9 +420,10 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
         average_mac_to_ccvel(GetArrOfPtrs(m_fluxes[lev]),*cc_gphi[lev]);
 //#endif
     }
+    bool const vof_advect_tracer = m_vof_advect_tracer;
     // compute the cell-centered surface tension term (see note in VolumeOfFluid:: velocity_face_source)
 
-    if(m_vof_advect_tracer){
+    if(vof_advect_tracer){
       for (int lev=0; lev <= finest_level; ++lev)
       {
         AMREX_D_TERM(Copy(m_fluxes[lev][0],sfu_mac[lev], 0, 0, 1, 0);,
@@ -456,7 +457,7 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
                              u(i,j,k,1) += gphi(i,j,k,1);,
                              u(i,j,k,2) += gphi(i,j,k,2););
                 //we need to add the surface-tension effect to the cell-centered velocity
-                if(m_vof_advect_tracer){
+                if(vof_advect_tracer){
                   AMREX_D_TERM(u(i,j,k,0) -= gsf(i,j,k,0)*scaling_factor;,
                                u(i,j,k,1) -= gsf(i,j,k,1)*scaling_factor;,
                                u(i,j,k,2) -= gsf(i,j,k,2)*scaling_factor;);
@@ -495,7 +496,7 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
                     AMREX_D_TERM(gp_cc(i,j,k,0) = -gphi(i,j,k,0) * rho(i,j,k) / scaling_factor;,
                                  gp_cc(i,j,k,1) = -gphi(i,j,k,1) * rho(i,j,k) / scaling_factor;,
                                  gp_cc(i,j,k,2) = -gphi(i,j,k,2) * rho(i,j,k) / scaling_factor;);
-                    if(m_vof_advect_tracer){
+                    if(vof_advect_tracer){
                       AMREX_D_TERM(gp_cc(i,j,k,0) += gsf(i,j,k,0) * rho(i,j,k);,
                                    gp_cc(i,j,k,1) += gsf(i,j,k,1) * rho(i,j,k);,
                                    gp_cc(i,j,k,2) += gsf(i,j,k,2) * rho(i,j,k););

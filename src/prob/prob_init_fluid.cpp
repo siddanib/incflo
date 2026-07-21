@@ -1255,6 +1255,10 @@ void incflo::init_droplet (Box const& vbx, Box const& /*gbx*/,
                             GpuArray<Real, AMREX_SPACEDIM> const& /*problo*/,
                             GpuArray<Real, AMREX_SPACEDIM> const& /*probhi*/)
 {
+    const Real ic_u = m_ic_u;
+    const Real ic_v = m_ic_v;
+    const Real ic_w = m_ic_w;
+
     ParallelFor(vbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
     {
         Real x = (Real(i)+Real(0.5))*dx[0];
@@ -1262,10 +1266,10 @@ void incflo::init_droplet (Box const& vbx, Box const& /*gbx*/,
         Real z = (Real(k)+Real(0.5))*dx[2];
         Real pi = Real(3.14159265357);
         if (tracer(i,j,k)>1e-4) {
-         vel(i,j,k,0) = m_ic_u;//2*sin(2.*pi*y)*sin(pi*x)*sin(pi*x)*sin(2*pi*z)*cos(pi*0./3.);
-         vel(i,j,k,1) = m_ic_v;//-sin(2.*pi*x)*sin(pi*y)*sin(pi*y)*sin(2*pi*z)*cos(pi*0./3.);
+         vel(i,j,k,0) = ic_u;//2*sin(2.*pi*y)*sin(pi*x)*sin(pi*x)*sin(2*pi*z)*cos(pi*0./3.);
+         vel(i,j,k,1) = ic_v;//-sin(2.*pi*x)*sin(pi*y)*sin(pi*y)*sin(2*pi*z)*cos(pi*0./3.);
 #if (AMREX_SPACEDIM == 3)
-         vel(i,j,k,2) = m_ic_w;//-sin(2.*pi*x)*sin(pi*z)*sin(pi*z)*sin(2*pi*y)*cos(pi*0./3.);
+         vel(i,j,k,2) = ic_w;//-sin(2.*pi*x)*sin(pi*z)*sin(pi*z)*sin(2*pi*y)*cos(pi*0./3.);
 #endif
         }
         else {
