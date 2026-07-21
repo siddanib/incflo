@@ -426,7 +426,7 @@ void incflo::compute_vel_forces_on_level (int lev,
           )    // end AMREX_D_TERM
 
        }
-       static int oct[3][2] = { { 1, 2 }, { 0, 2 }, { 0, 1 } };
+
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -454,7 +454,10 @@ void incflo::compute_vel_forces_on_level (int lev,
               for (int detj = 0; detj < 2; ++detj)
                 for (int deti = 0; deti < 2; ++deti){
                   Array<int,3> in{i, j, k};
-                  in[oct[dim][0]]-=deti,in[oct[dim][1]]-=detj;
+                  int const od0 = (dim == 0) ? 1 : 0;
+                  int const od1 = (dim == 2) ? 1 : 2;
+                  in[od0] -= deti;
+                  in[od1] -= detj;
                      if (dim==0&& xvbx.contains(in[0],in[1],in[2])){
                        nv(i,j,k,dim)+= xfv(in[0],in[1],in[2]);
                        nt++;
@@ -499,7 +502,7 @@ void incflo::compute_vel_forces_on_level (int lev,
       }
       else if (choice ==3){
        MultiFab center_val(ba,dm,2,0,MFInfo(), fact);
-static int oct[3][2] = { { 1, 2 }, { 0, 2 }, { 0, 1 } };
+
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -579,9 +582,13 @@ static int oct[3][2] = { { 1, 2 }, { 0, 2 }, { 0, 1 } };
 #endif
             for (int deti = 0; deti < 2; ++deti){
              Array<int,3> in0{i, j, k},in1{i, j, k};
-             in0[oct[dim][0]]+=deti,in1[oct[dim][0]]+=deti;
+             int const od0 = (dim == 0) ? 1 : 0;
+             int const od1 = (dim == 2) ? 1 : 2;
+             in0[od0] += deti;
+             in1[od0] += deti;
 #if AMREX_SPACEDIM==3
-             in0[oct[dim][1]]+=detj,in1[oct[dim][1]]+=detj;
+             in0[od1] += detj;
+             in1[od1] += detj;
 #endif
              in1[dim] +=1;
              gradVof[dim] +=(nv(in1[0],in1[1],in1[2],AMREX_SPACEDIM)-

@@ -612,7 +612,7 @@ if(0){
        });
 #endif
     }
-static int oct[3][2] = { { 1, 2 }, { 0, 2 }, { 0, 1 } };
+
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -639,16 +639,18 @@ static int oct[3][2] = { { 1, 2 }, { 0, 2 }, { 0, 1 } };
 
          for (int dim = 0; dim < AMREX_SPACEDIM; ++dim){
            nv(i,j,k,dim)=0.;
+           int const od0 = (dim == 0) ? 1 : 0;
+           int const od1 = (dim == 2) ? 1 : 2;
            int nt=0;
            for (int nn=0; nn<4;++nn){
              Array<int,3> in{i, j, k};
              if(nn==1)
-               in[oct[dim][0]]-=1;
+               in[od0]-=1;
              else if (nn==2)
-               in[oct[dim][1]]-=1;
+               in[od1]-=1;
              else if (nn==3) {
-               in[oct[dim][0]]-=1;
-               in[oct[dim][1]]-=1;
+               in[od0]-=1;
+               in[od1]-=1;
              }
              if (dim==0&& xvbx.contains(in[0],in[1],in[2])){
                 nv(i,j,k,dim)+= xfv(in[0],in[1],in[2]);
