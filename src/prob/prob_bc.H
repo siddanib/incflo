@@ -240,7 +240,7 @@ struct IncfloVelFill
                 }
 
                 if ( (bc.lo(dir) == amrex::BCType::ext_dir) ||
-                     (bc.lo(dir) == amrex::BCType::direction_dependent && norm_vel <= 0.) )
+                     (bc.lo(dir) == amrex::BCType::direction_dependent && norm_vel >= 0.) )
                 {
                     if ( orig_comp+nc == dir ) {
                         vel(i,j,k,dcomp+nc) = norm_vel;

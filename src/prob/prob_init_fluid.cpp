@@ -29,7 +29,7 @@ void incflo::prob_init_fluid (int lev)
         ld.tracer.setVal(m_ic_t[comp], comp, 1);
     }
 
-    if (1109 == m_probtype) {
+    if (1109 == m_probtype || 540 == m_probtype) {
         get_volume_of_fluid ()->tracer_vof_init_fraction(lev, ld.tracer);
         if (m_vof_advect_tracer){
           update_vof_density (lev, ld.density,ld.tracer);
@@ -272,7 +272,13 @@ void incflo::prob_init_fluid (int lev)
             smooth_double_layer_inclined_plane_granular(vbx, nbx,
                                      ld.density.array(mfi),
                                      ld.tracer.array(mfi),
-                                     ld.p_nd.array(mfi),
+                                     ld.velocity.array(mfi),
+                                     domain, dx, problo, probhi);
+        }
+        else if (540 == m_probtype) {
+            sinusoidal_vof_gravity_test(vbx, nbx,
+                                     ld.density.array(mfi),
+                                     ld.tracer.array(mfi),
                                      ld.velocity.array(mfi),
                                      domain, dx, problo, probhi);
         }
@@ -303,6 +309,30 @@ void incflo::prob_init_fluid (int lev)
         };
     }
 
+    if (537 == m_probtype && m_vof_advect_tracer) {
+        auto* vof = get_volume_of_fluid();
+        auto& ldvof = *vof->m_leveldata[lev];
+
+        ld.tracer.FillBoundary(geom[lev].periodicity());
+        fillphysbc_tracer(lev, m_t_new[lev], ld.tracer, ld.tracer.nGrow());
+
+        MultiFab::Copy(ld.tracer_o, ld.tracer, 0, 0, 1, ld.tracer.nGrow());
+        ld.tracer_o.FillBoundary(geom[lev].periodicity());
+
+        update_vof_density(lev, ld.density, ld.tracer);
+
+        MultiFab::Copy(ld.density_o, ld.density, 0, 0, 1, ld.density.nGrow());
+        fillpatch_density(lev, m_t_new[lev], ld.density_o, ld.density_o.nGrow());
+
+        MultiFab::Copy(ld.density_nph, ld.density, 0, 0, 1, ld.density.nGrow());
+        fillpatch_density(lev, m_t_new[lev], ld.density_nph, ld.density_nph.nGrow());
+
+        vof->tracer_vof_update(lev, ld.tracer, ldvof.height);
+
+        if (lev == finest_level) {
+            vof->curvature_calculation(lev, ld.tracer, ldvof.height, ldvof.kappa);
+        }
+    }
 
 }
 

@@ -451,7 +451,6 @@ void incflo::double_layer_inclined_plane_granular (Box const& vbx, Box const& nb
 void incflo::smooth_double_layer_inclined_plane_granular (Box const& vbx, Box const& nbx,
                                  Array4<Real> const& density,
                                  Array4<Real> const& tracer,
-                                 Array4<Real> const& pressure,
                                  Array4<Real> const& velocity,
                                  Box const& /*domain*/,
                                  GpuArray<Real, AMREX_SPACEDIM> const& dx,
@@ -459,7 +458,6 @@ void incflo::smooth_double_layer_inclined_plane_granular (Box const& vbx, Box co
                                  GpuArray<Real, AMREX_SPACEDIM> const& probhi) const
 {
     amrex::ignore_unused<Box>(nbx);
-    amrex::ignore_unused<Array4<Real>>(pressure);
     // Ensure it is set to two_fluid
     if (!m_two_fluid) amrex::Abort("probtype 537 requires two_fluid");
     Real grav_mag = m_gravity[0]*m_gravity[0] + m_gravity[1]*m_gravity[1]+
@@ -579,6 +577,46 @@ void incflo::initialize_entire_domain_with_second_fluid (Box const& vbx,
         tracer(i,j,k,0) = Real(1.0);
         density(i,j,k)  = rho_2;
     });
+}
+
+void incflo::sinusoidal_vof_gravity_test (Box const& vbx, Box const& nbx,
+                                 Array4<Real> const& density,
+                                 Array4<Real> const& tracer,
+                                 Array4<Real> const& velocity,
+                                 Box const& domain,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& dx,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& problo,
+                                 GpuArray<Real, AMREX_SPACEDIM> const& probhi) const
+{
+    amrex::ignore_unused<Box>(nbx);
+    amrex::ignore_unused<Box>(domain);
+    amrex::ignore_unused<Array4<Real>>(density);
+    amrex::ignore_unused<Array4<Real>>(tracer);
+    amrex::ignore_unused<GpuArray<Real, AMREX_SPACEDIM>>(dx);
+    amrex::ignore_unused<GpuArray<Real, AMREX_SPACEDIM>>(problo);
+    amrex::ignore_unused<GpuArray<Real, AMREX_SPACEDIM>>(probhi);
+
+#if (AMREX_SPACEDIM != 2)
+    amrex::Abort("probtype 540 is a 2D VOF test");
+#else
+    if (!m_two_fluid) amrex::Abort("probtype 540 requires two_fluid");
+    if (!m_vof_advect_tracer) amrex::Abort("probtype 540 requires vof_advect_tracer");
+    if (m_number_of_averaging != 0) {
+        amrex::Abort("probtype 540 requires incflo.number_of_averaging = 0");
+    }
+    if (std::abs(m_gravity[0]) > Real(0.) || std::abs(m_gravity[1]) == Real(0.)) {
+        amrex::Abort("probtype 540 requires gravity only along y");
+    }
+
+    amrex::ParallelFor(vbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+    {
+        velocity(i,j,k,0) = Real(0.0);
+        velocity(i,j,k,1) = Real(0.0);
+    });
+
+    if (m_initial_iterations == 0 )
+        amrex::Abort("Include non-zero initial_iterations as pressure is not set");
+#endif
 }
 
 #ifdef AMREX_USE_EB

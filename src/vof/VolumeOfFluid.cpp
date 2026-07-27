@@ -1270,7 +1270,7 @@ static bool height_normal (int i,int j,int k, Array4<Real const> const & hb,
   for (int d = 0; d < AMREX_SPACEDIM; d++){
     Real orientation;
     Array4<Real const> const * hv = closest_height (i,j,k,d,hb,ht,&orientation);
-    if (hv != nullptr && fabs ((*hv)(i,j,k,d) <= 1.)) {
+    if (hv != nullptr && fabs ((*hv)(i,j,k,d)) <= 1.) {
       Real H = (*hv)(i,j,k,d);
       Real x[2], h[2][2]={0.}, hd[2]={0.};
       for (int nd = 0; nd < (AMREX_SPACEDIM==3?2:1); nd++) {
@@ -1842,9 +1842,12 @@ if(1){
                 // the column does not cross the interface
                 Real hgh=(*h)(cell[0],cell[1],cell[2],dim);
                 while (!CELL_IS_BOUNDARY(cell,bx.smallEnd(),bx.bigEnd()) &&
-                        hgh!= VOF_NODATA && hgh> BOUNDARY_HIT/2.) {
+                       hgh!= VOF_NODATA && hgh> BOUNDARY_HIT/2.) {
                   (*h)(cell[0],cell[1],cell[2],dim) = VOF_NODATA;
-                    cell[dim]+=nn%2?1:-1;
+                  cell[dim]+=nn%2?1:-1;
+                  if (!CELL_IS_BOUNDARY(cell,bx.smallEnd(),bx.bigEnd())) {
+                    hgh=(*h)(cell[0],cell[1],cell[2],dim);
+                  }
                 }
                }
              }
@@ -2372,6 +2375,9 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
                                dir >= 2? w_mac[lev]:
 #endif
                                v_mac[lev];
+
+       m_fluxes[lev][dir].setVal(0.);
+       vof_fluxes[lev][dir].setVal(0.);
 
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
