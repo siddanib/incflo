@@ -166,9 +166,13 @@ void incflo::compute_viscosity_at_level (int lev,
 {
     if (m_fluid_model == FluidModel::Newtonian)
     {
-      if (!m_vof_advect_tracer)
+      if (!m_vof_advect_tracer || m_two_fluid) {
         vel_eta->setVal(m_mu, 0, 1, nghost);
+      }
       else{
+        // Bhargav, this if and else condition way of doing for VOF is NOT clean.
+        // Note that scalar diffusion is being used for velocity diffusion
+        // THIS ENDS UP DIFFUSING THE INTERFACE WHEN NOT NEEDED.
         Real const mu = m_mu;
         Real const mu_s0 = m_mu_s[0];
 #ifdef _OPENMP

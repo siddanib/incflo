@@ -80,9 +80,6 @@ void incflo::compute_strainrate_at_level (int /*lev*/,
 #ifdef AMREX_USE_EB
                 auto const& flag_fab = flags[mfi];
                 auto typ = flag_fab.getType(bx);
-                Array4<Real const> const& bcfab      = bcent.const_array(mfi);
-                Array4<Real const> const& ccfab      = ccent.const_array(mfi);
-                Array4<Real const> const& bnrmfab    = bnorm.const_array(mfi);
                 if (typ == FabType::covered)
                 {
                     ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -92,6 +89,9 @@ void incflo::compute_strainrate_at_level (int /*lev*/,
                 }
                 else if (typ == FabType::singlevalued)
                 {
+                    Array4<Real const> const& bcfab      = bcent.const_array(mfi);
+                    Array4<Real const> const& ccfab      = ccent.const_array(mfi);
+                    Array4<Real const> const& bnrmfab    = bnorm.const_array(mfi);
                     auto const& flag_arr = flag_fab.const_array();
                     ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                     {

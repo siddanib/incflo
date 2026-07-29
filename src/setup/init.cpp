@@ -271,8 +271,6 @@ void incflo::ReadParameters ()
             "VOF + two_fluid requires at least one tracer");
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!m_ro_s.empty(),
             "VOF + two_fluid requires incflo.ro_s[0]");
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!m_mu_s.empty(),
-            "VOF + two_fluid requires incflo.mu_s[0]");
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_number_of_averaging == 0,
             "VOF + two_fluid requires incflo.number_of_averaging = 0");
 
@@ -287,22 +285,6 @@ void incflo::ReadParameters ()
                 << "incflo.vof_advect_tracer = true and "
                 << "incflo.two_fluid = true.";
             amrex::Abort(msg.str().c_str());
-        }
-
-        if (m_fluid_model_second == FluidModel::Newtonian) {
-            const Real mu_scale = amrex::max(Real(1.0),
-                amrex::max(std::abs(m_mu_s[0]), std::abs(m_mu_second)));
-            const Real mu_tol = Real(1.0e-12) * mu_scale;
-            if (std::abs(m_mu_s[0] - m_mu_second) > mu_tol) {
-                std::ostringstream msg;
-                msg << "Inconsistent second-fluid viscosity: incflo.mu_s[0] = "
-                    << m_mu_s[0] << " but incflo.second_fluid.mu = "
-                    << m_mu_second << ". These must match when "
-                    << "incflo.vof_advect_tracer = true, "
-                    << "incflo.two_fluid = true, and the second fluid is "
-                    << "Newtonian.";
-                amrex::Abort(msg.str().c_str());
-            }
         }
     }
 
