@@ -1629,6 +1629,7 @@ void NonlinearDiffusionTensorOp::compVelGrad (int amrlev,
         AMREX_D_TERM(Real lev_mn_dx = lev_dx,+lev_dy,+lev_dz);
         lev_mn_dx /= Real(AMREX_SPACEDIM);
 
+        m_eb_apply_op->setLevelBC(amrlev, &sol);
         m_eb_apply_op->compVelGrad(amrlev, gradVel, sol, loc);
         // The supplied velocity (sol) is at cell-center
         // Interpolate it to cell-centroid as grad_eb_of_phi expects
@@ -1721,6 +1722,7 @@ void NonlinearDiffusionTensorOp::compVelGrad (int amrlev,
     else
 #endif
     {
+        m_reg_apply_op->setLevelBC(amrlev, &sol);
         m_reg_apply_op->compVelGrad(amrlev, gradVel, sol, loc);
     }
 }
