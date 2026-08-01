@@ -168,11 +168,11 @@ void incflo::Evolve()
                 printGridSummary(amrex::OutStream(), 0, finest_level);
             }
         }
-        if(m_vof_advect_tracer){
-          get_volume_of_fluid()->output_droplet(m_cur_time,m_nstep);
-          //if (m_nstep<10)
-          //get_volume_of_fluid()->apply_velocity_field(m_cur_time,m_nstep);
-        }
+        //if(m_vof_advect_tracer){
+        //  get_volume_of_fluid()->output_droplet(m_cur_time,m_nstep);
+        //  //if (m_nstep<10)
+        //  //get_volume_of_fluid()->apply_velocity_field(m_cur_time,m_nstep);
+        //}
         //if (writeNow()&& m_vof_advect_tracer){
         //    get_volume_of_fluid()->WriteTecPlotFile (finest_level,m_cur_time,m_nstep);
         //    get_volume_of_fluid()->write_tecplot_surface(finest_level,m_cur_time,m_nstep);
