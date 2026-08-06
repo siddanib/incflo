@@ -129,6 +129,11 @@ void incflo::InitData ()
             WriteSmallPlotFile();
             m_last_smallplt = 0;
         }
+
+        // Reduce the m_dt if restart_shrink > 0
+        if (m_restart_shrink > Real(0.)) {
+            m_dt *= m_restart_shrink;
+        }
     }
 
 #ifdef AMREX_USE_EB

@@ -34,56 +34,14 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
             timestepping_divtau_o[lev].setVal(Real(0.));
             timestepping_alpha[lev].setVal(Real(0.));
 
+            MultiFab::Saxpy(timestepping_alpha[lev],m_modified_time_stepping_constant,
+                            vel_eta[lev], 0, 0, 1, 0);
+
             const int nghost_alpha = vel_eta[lev].nGrow();
-            MultiFab strainrate(vel_eta[lev].boxArray(),
-                vel_eta[lev].DistributionMap(), 1, 0,
-                MFInfo(), vel_eta[lev].Factory());
-            MultiFab conc_second(vel_eta[lev].boxArray(),
-                vel_eta[lev].DistributionMap(), 1, 0,
-                MFInfo(), vel_eta[lev].Factory());
-            MultiFab p_static(vel_eta[lev].boxArray(),
-                vel_eta[lev].DistributionMap(), 1, 0,
-                MFInfo(), vel_eta[lev].Factory());
-            MultiFab eta_ho(vel_eta[lev].boxArray(),
-                vel_eta[lev].DistributionMap(), 1, nghost_alpha,
-                MFInfo(), vel_eta[lev].Factory());
-
-            compute_strainrate_at_level(lev, &strainrate, alpha_velocity[lev],
-                                        Geom(lev), alpha_time, 0);
-            compute_cc_second_fluid_conc(&conc_second, alpha_density[lev],
-                                         0);
-            compute_cc_hydrostatic_pressure_at_level(lev, &p_static,
-                                                     alpha_density[lev],
-                                                     m_mu_p_surf_second,
-                                                     Geom(lev), 0);
-            compute_second_order_coeff(lev, eta_ho, *alpha_velocity[lev],
-                                       *alpha_density[lev], conc_second,
-                                       p_static, Geom(lev));
-
-#ifdef _OPENMP
-#pragma omp parallel if (Gpu::notInLaunchRegion())
-#endif
-            for (MFIter mfi(timestepping_alpha[lev], TilingIfNotGPU());
-                 mfi.isValid(); ++mfi)
-            {
-                Box const& bx = mfi.tilebox();
-                Array4<Real      > const& alpha_arr =
-                    timestepping_alpha[lev].array(mfi);
-                Array4<Real const> const& sr_arr = strainrate.const_array(mfi);
-                Array4<Real const> const& eta_ho_arr = eta_ho.const_array(mfi);
-                const Real alpha_factor = m_modified_time_stepping_constant;
-                const Real eps = m_mu_sr_eps_second;
-
-                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
-                {
-                    alpha_arr(i,j,k) =
-                        alpha_factor * eta_ho_arr(i,j,k)
-                        * (Real(0.5)*sr_arr(i,j,k) + eps);
-                });
-            }
             if (nghost_alpha > 0) {
                 timestepping_alpha[lev].FillBoundary(Geom(lev).periodicity());
             }
+
         }
         compute_divtau(GetVecOfPtrs(timestepping_divtau_o),
                        get_velocity_old_const(), get_density_old_const(),
@@ -505,7 +463,7 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
             fillphysbc_density (lev, new_time, m_leveldata[lev]->density , ng_diffusion);
         }
 
-        Real dt_diff = m_dt;
+        Real dt_diff = (m_diff_type == DiffusionType::Implicit) ? m_dt : l_half*m_dt;
         // Include vel_eta contribution to timestepping_alpha
         for (int lev = 0; lev <= finest_level; ++lev) {
             MultiFab::Add(timestepping_alpha[lev], vel_eta[lev],

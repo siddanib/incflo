@@ -868,6 +868,7 @@ private:
 
     bool m_plotfile_on_restart = false;
     bool m_regrid_on_restart = false;
+    amrex::Real m_restart_shrink = amrex::Real(0.);
 
     amrex::Vector<amrex::Real> tag_region_lo;
     amrex::Vector<amrex::Real> tag_region_hi;

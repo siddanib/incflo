@@ -388,6 +388,9 @@ void incflo::ReadIOParameters()
 
     pp.query("plotfile_on_restart", m_plotfile_on_restart);
     pp.query("regrid_on_restart", m_regrid_on_restart);
+    if (!m_restart_file.empty()) {
+        pp.query("restart_shrink", m_restart_shrink);
+    }
 
     pp.query("plot_file", m_plot_file);
     pp.query("plot_int"       , m_plot_int);
