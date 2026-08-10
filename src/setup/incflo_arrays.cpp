@@ -83,6 +83,11 @@ incflo::LevelData::LevelData (amrex::BoxArray const& ba,
             }
         }
     }
+
+    if (my_incflo->m_gran_rheo_modified_time_stepping) {
+        time_stepping_alpha = std::make_unique<MultiFab>(ba, dm, 1, 1, MFInfo(), fact);
+        time_stepping_alpha->setVal(Real(0.));
+    }
 }
 
 // Resize all arrays when instance of incflo class is constructed.

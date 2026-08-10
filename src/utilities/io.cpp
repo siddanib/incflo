@@ -254,6 +254,27 @@ void incflo::ReadCheckpointFile()
         regrid(0, m_cur_time);
     }
 
+    if (m_vof_advect_tracer) {
+        auto* vof = get_volume_of_fluid();
+
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            auto& ldvof = *vof->m_leveldata[lev];
+            vof->tracer_vof_update(lev, m_leveldata[lev]->tracer, ldvof.height);
+        }
+
+        if (finest_level >= 0) {
+            auto& ldvof = *vof->m_leveldata[finest_level];
+            vof->curvature_calculation(finest_level, m_leveldata[finest_level]->tracer,
+                                       ldvof.height, ldvof.kappa);
+
+            for (int lev = finest_level - 1; lev >= 0; --lev) {
+                vof->curvature_average_down(vof->m_leveldata[lev+1]->kappa,
+                                            vof->m_leveldata[lev]->kappa,
+                                            refRatio(lev));
+            }
+        }
+    }
+
     amrex::Print() << "Restart complete" << "\n";
 }
 

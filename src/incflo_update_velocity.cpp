@@ -20,31 +20,54 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
             ? get_velocity_old_const() : get_velocity_new_const();
         auto const alpha_density = (step_type == StepType::Predictor)
             ? get_density_old_const() : get_density_new_const();
+        auto const alpha_tracer = (step_type == StepType::Predictor)
+            ? get_tracer_old_const() : get_tracer_new_const();
+
+        const bool refresh_time_stepping_alpha =
+            (m_time_stepping_alpha_step < 0) ||
+            (m_nstep - m_time_stepping_alpha_step >=
+             m_time_stepping_alpha_refresh_interval);
 
         for (int lev=0; lev<= finest_level; lev++) {
-            auto const& divtau_o = m_leveldata[lev]->divtau_o;
+            auto& ld = *m_leveldata[lev];
+            auto const& divtau_o = ld.divtau_o;
             timestepping_divtau_o.emplace_back(divtau_o.boxArray(),
                 divtau_o.DistributionMap(), divtau_o.nComp(),
                 divtau_o.nGrow(), MFInfo(), divtau_o.Factory());
 
-            timestepping_alpha.emplace_back(vel_eta[lev].boxArray(),
-                vel_eta[lev].DistributionMap(), vel_eta[lev].nComp(),
-                vel_eta[lev].nGrow(), MFInfo(), vel_eta[lev].Factory());
-
             timestepping_divtau_o[lev].setVal(Real(0.));
-            timestepping_alpha[lev].setVal(Real(0.));
 
-            MultiFab::Saxpy(timestepping_alpha[lev],m_modified_time_stepping_constant,
-                            vel_eta[lev], 0, 0, 1, 0);
-
-            const int nghost_alpha = vel_eta[lev].nGrow();
-            if (nghost_alpha > 0) {
-                timestepping_alpha[lev].FillBoundary(Geom(lev).periodicity());
+            if (!ld.time_stepping_alpha) {
+                amrex::Abort("Modified time stepping alpha is not allocated");
             }
 
+            if (refresh_time_stepping_alpha) {
+                auto& alpha_mf = *ld.time_stepping_alpha;
+                const int nghost_alpha = alpha_mf.nGrow();
+                alpha_mf.setVal(Real(0.));
+
+                //MultiFab::Saxpy(alpha_mf, m_eta_max_second-m_mu,
+                //                *alpha_tracer[lev],0,0,1,0);
+                //alpha_mf.plus(m_mu, 0, 1, 0);
+                //alpha_mf.mult(m_modified_time_stepping_constant,0,1,0);
+                MultiFab::Saxpy(alpha_mf, m_modified_time_stepping_constant,
+                                vel_eta[lev],0,0,1,0);
+                if (nghost_alpha > 0) {
+                    alpha_mf.FillBoundary(Geom(lev).periodicity());
+                }
+            }
+
+            timestepping_alpha.emplace_back(ld.time_stepping_alpha->boxArray(),
+                ld.time_stepping_alpha->DistributionMap(), ld.time_stepping_alpha->nComp(),
+                ld.time_stepping_alpha->nGrow(), MFInfo(), ld.time_stepping_alpha->Factory());
+            MultiFab::Copy(timestepping_alpha[lev], *ld.time_stepping_alpha, 0, 0,
+                           ld.time_stepping_alpha->nComp(), ld.time_stepping_alpha->nGrow());
+        }
+        if (refresh_time_stepping_alpha) {
+            m_time_stepping_alpha_step = m_nstep;
         }
         compute_divtau(GetVecOfPtrs(timestepping_divtau_o),
-                       get_velocity_old_const(), get_density_old_const(),
+                       alpha_velocity, alpha_density,
                        GetVecOfConstPtrs(timestepping_alpha),
                        true, false);
     }
