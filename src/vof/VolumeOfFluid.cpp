@@ -1092,12 +1092,15 @@ bool interface_cell (int const i, int const j, int const k,
 
 
 static int half_height (Array <int, 3> cell, Array4<Real const> const & fv, int d,
-                        Real & H, int & n, Array<int,2> range)
+                        Real & H, int & n, Array<int,2> range,
+                        Array<int,2> array_range)
 {
   int s = 0, dim=d/2;
   n = 0;
   cell[dim]+=d%2?-1:1;
   while (n < HMAX && !s) {
+    if (cell[dim]<array_range[0]||cell[dim]>array_range[1])
+      return 0;
     Real f = fv (cell[0],cell[1],cell[2],0);
     if (!CELL_IS_FULL(f)) { /* interfacial cell */
   //  if (f > EPS && f < 1. - EPS) { /* interfacial cell */
@@ -1137,16 +1140,17 @@ static void height_propagation (Array <int, 3> cell, int dim, Array4<Real const>
 }
 
 void calculate_height(int i, int j, int k, int dim, Array4<Real const> const & vof,
-                      Array4<Real > const & hb, Array4<Real > const & ht, Array<int,2> range)
+                      Array4<Real > const & hb, Array4<Real > const & ht, Array<int,2> range,
+                      Array<int,2> array_range)
 {
     Real H = vof(i,j,k,0);
     Array <int, 3> cell={i,j,k};
     // top part of the column
-    int nt, st = half_height (cell, vof, 2*dim, H, nt, range);
+    int nt, st = half_height (cell, vof, 2*dim, H, nt, range, array_range);
     if (!st) /* still an interfacial cell */
       return;
     // bottom part of the column
-    int nb, sb = half_height (cell, vof, 2*dim + 1, H, nb, range);
+    int nb, sb = half_height (cell, vof, 2*dim + 1, H, nb, range, array_range);
     if (!sb) /* still an interfacial cell */
       return;
     if (sb != 2 && st != 2) {
@@ -1185,21 +1189,22 @@ static void height_propagation_from_boundary (Array <int, 3> cell, int dim, int 
                                               Array4<Real > const & hght, Array<int,2> range, int hb)
 {
   Real orientation = (d % 2 ? -1 : 1)*hb;
-  Real H = hght(cell[0],cell[1],cell[2],dim);;
+  Real H = hght(cell[0],cell[1],cell[2],dim);
   cell[dim]+=(d % 2 ? 1 : -1);
-  Real H0=hght(cell[0],cell[1],cell[2],dim);
-  while ( H0!=VOF_NODATA && H0 > BOUNDARY_HIT/2. &&
-          cell[dim]>=range[0]&&cell[dim]<=range[1]) {
+  while (cell[dim]>=range[0]&&cell[dim]<=range[1]) {
+    Real H0=hght(cell[0],cell[1],cell[2],dim);
+    if (H0==VOF_NODATA || H0 <= BOUNDARY_HIT/2.)
+      break;
     H += orientation;
     hght(cell[0],cell[1],cell[2],dim) = H;
     cell[dim]+=(d % 2 ? 1 : -1);
-    H0=hght(cell[0],cell[1],cell[2],dim);
   }
   /* propagate to non-interfacial cells up to DMAX */
-  auto fvol = fv(cell[0],cell[1],cell[2],0);
-  bool interface = !CELL_IS_FULL(fvol);
-  while (fabs (H) < DMAX - 1. && !interface &&
+  while (fabs (H) < DMAX - 1. &&
          cell[dim]>=range[0]&&cell[dim]<=range[1]) {
+    auto fvol = fv(cell[0],cell[1],cell[2],0);
+    if (!CELL_IS_FULL(fvol))
+      break;
     H += orientation;
     hght(cell[0],cell[1],cell[2],dim) = H;
     cell[dim]+=(d % 2 ? 1 : -1);
@@ -1771,6 +1776,8 @@ VolumeOfFluid::tracer_vof_update (int lev, MultiFab const & vof_mf, Array<MultiF
     for (MFIter mfi(vof_mf); mfi.isValid(); ++mfi) {
        Box const& bx = mfi.validbox();
        Array<int,2> range ={bx.smallEnd()[dim], bx.bigEnd()[dim]};
+       int nghost = vof_mf.nGrow();
+       Array<int,2> array_range ={range[0] - nghost, range[1] + nghost};
        Array4<Real const> const& vof_arr = vof_mf.const_array(mfi);
        Array4<Real > const& hb_arr = height[0].array(mfi);
        Array4<Real > const& ht_arr = height[1].array(mfi);
@@ -1779,7 +1786,7 @@ VolumeOfFluid::tracer_vof_update (int lev, MultiFab const & vof_mf, Array<MultiF
          auto fvol = vof_arr(i,j,k,0);
 
          if (!CELL_IS_FULL(fvol)){
-            calculate_height(i, j, k, dim, vof_arr, hb_arr, ht_arr, range);
+            calculate_height(i, j, k, dim, vof_arr, hb_arr, ht_arr, range, array_range);
          }// end if
        }); //end ParallelFor
 
@@ -2787,7 +2794,7 @@ void VolumeOfFluid:: variable_filtered (int lev, MultiFab & variable)
          ParallelFor(nbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
          {
            nv(i,j,k,0)=0.;
-           int nt=0, nrho=0, detk;
+           int nt=0, nrho=0, detk=0;
 #if AMREX_SPACEDIM==3
            for (detk = 0; detk > -2; --detk)
 #endif
