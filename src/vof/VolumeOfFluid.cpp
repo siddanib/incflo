@@ -979,21 +979,20 @@ Real plane_alpha (XDim3 & m, Real c)
   else if (ch < V3) {
     Real p = 2.*m1*m2;
     Real q = 3.*m1*m2*(m12 - 2.*m3*ch)/2.;
-    Real p12 = sqrt (p);
-    Real teta = acos(q/(p*p12))/3.;
+    Real p12 = sqrt(amrex::max(p, Real(0.)));
+    Real teta = acos(amrex::Clamp(q/(p*p12 + Real(1e-50)), Real(-1.), Real(1.)))/3.;
     Real cs = cos(teta);
-    alpha = p12*(sqrt(3.*(1. - cs*cs)) - cs) + m12;
+    alpha = p12*(sqrt(amrex::max(Real(3.)*(Real(1.) - cs*cs), Real(0.))) - cs) + m12;
   }
   else if (m12 <= m3)
     alpha = m3*ch + mm/2.;
   else {
     Real p = m1*(m2 + m3) + m2*m3 - 1./4.;
     Real q = 3.*m1*m2*m3*(1./2. - ch)/2.;
-    Real p12 = sqrt(p);
-//    Print()<<"p q p12  "<<p<<" "<<q<<" "<<p12<<"  "<<"vof"<<c<<"\n";
-    Real teta = acos(q/(p*p12))/3.;
+    Real p12 = sqrt(amrex::max(p, Real(0.)));
+    Real teta = acos(amrex::Clamp(q/(p*p12 + Real(1e-50)), Real(-1.), Real(1.)))/3.;
     Real cs = cos(teta);
-    alpha = p12*(sqrt(3.*(1. - cs*cs)) - cs) + 1./2.;
+    alpha = p12*(sqrt(amrex::max(Real(3.)*(Real(1.) - cs*cs), Real(0.))) - cs) + 1./2.;
   }
   if (c > 1./2.) alpha = 1. - alpha;
 
@@ -1797,6 +1796,7 @@ VolumeOfFluid::tracer_vof_update (int lev, MultiFab const & vof_mf, Array<MultiF
 
 //deal with the situation where interface goes across the MPI or periodic boundaries.
 if(1){
+    Box const& domain = geom.Domain();
     for (MFIter mfi(vof_mf); mfi.isValid(); ++mfi) { /*fixme: no titling*/
        Box const& bx = mfi.validbox();
        Array<IntVect, 2> face_min_max;
@@ -1819,6 +1819,12 @@ if(1){
 // direction%2=1 means the negative direction of a given axis direction    (i.e.,int direction/2)
 // Axis direction = 0 (X-axis), 1(Y-axis), 2(Z-axis)
 // therefore, 'nn=0' here means the positive direction.
+           bool const nonperiodic_domain_face =
+               !geom.isPeriodic(dim) &&
+               ((nn == 0 && range[1] == domain.bigEnd(dim)) ||
+                (nn == 1 && range[0] == domain.smallEnd(dim)));
+           if (nonperiodic_domain_face) continue;
+
            ijk_min[dim]= range[nn?0:1];
            ijk_max[dim]= range[nn?0:1];
            Box bbx(ijk_min, ijk_max);
@@ -2515,7 +2521,11 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
                ++nr[dir];
                vof(i,j,k)+=vof_flux_arr(i,j,k)-vof_flux_arr(nr[0],nr[1],nr[2]);
                vof_eff_arr(i,j,k)+= m_flux_arr(i,j,k)-m_flux_arr(nr[0],nr[1],nr[2]);
-               Real f = vof(i,j,k)/vof_eff_arr(i,j,k);
+               Real f;
+               if (vof_eff_arr(i,j,k) > Real(1e-10))
+                   f = vof(i,j,k)/vof_eff_arr(i,j,k);
+               else
+                   f = vof(i,j,k);
                vof(i,j,k)= f< 1e-10? 0.:f>1.-1e-10? 1.:f;
              /*  if (f > 0. && f < 1.)
                 Print() <<" vof_advection---dir "<<dir<<"  "<<vof_eff_arr(i,j,k)<<"  "
