@@ -60,7 +60,7 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                 // temperature forcing term (Q) is in scratch
                 Array4<Real      > const& tem_f   = scratch[lev].array(mfi);
                 // First tracer used when granular temperature is true
-                Array4<Real const> const& tra_o   = ld.tracer_o.const_array(mfi);
+                Array4<Real const> const& tra_n   = ld.tracer.const_array(mfi);
                 const Real min_conc_scnd = m_min_conc_second;
                 const Real gt_coll_dissp = m_gran_temp_collisional_dissipation;
 
@@ -83,7 +83,7 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                     {
                         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                         {
-                            if (tra_o(i,j,k,0) > min_conc_scnd) {
+                            if (tra_n(i,j,k,0) > min_conc_scnd) {
                                 tem(i,j,k) = tem_o(i,j,k) + l_dt *
                                     ( dtdt_o(i,j,k) + (tem_f(i,j,k) + laps_o(i,j,k))/cp(i,j,k) );
                                 // Adding the collisional dissipation term
@@ -120,7 +120,7 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                             // incflo's temperature diffusion solve
                             tem(i,j,k) *= (cp(i,j,k)/(cp(i,j,k) + gt_coll_dissp*l_dt));
                             // Using overset_mask to only solve for granular region
-                            if (tra_o(i,j,k,0) >= min_conc_scnd ) {
+                            if (tra_n(i,j,k,0) >= min_conc_scnd ) {
                                 osm(i,j,k) = 1;
                             }
                             else {
@@ -159,7 +159,7 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                             // incflo's temperature diffusion solve
                             tem(i,j,k) *= (cp(i,j,k)/(cp(i,j,k) + gt_coll_dissp*l_dt));
                             // Using overset_mask to only solve for granular region
-                            if (tra_o(i,j,k,0) > min_conc_scnd ) {
+                            if (tra_n(i,j,k,0) > min_conc_scnd ) {
                                 osm(i,j,k) = 1;
                             }
                             else {
