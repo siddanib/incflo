@@ -852,6 +852,7 @@ incflo::compute_granular_high_order_divtau_on_level (int ilev,
 #endif
             MultiFab& scndOrderCoeff, bool already_on_centroids)
 {
+    auto& lev_geom = Geom(ilev);
     const int ncomp_ho = scndOrderCoeff.nComp();
     // Face-averaged scndOrderCoeff; This handles boundary faces
     const auto& ba_ho   = scndOrderCoeff.boxArray();
@@ -886,8 +887,10 @@ incflo::compute_granular_high_order_divtau_on_level (int ilev,
     // Get fluxes
     compute_granular_high_order_fluxes_on_level(amrex::GetArrOfPtrs(fluxes),
                     gradVel, amrex::GetArrOfConstPtrs(fc_scndOrdr));
+    for (int idim = 0; idim < AMREX_SPACEDIM; ++idim) {
+        fluxes[idim].OverrideSync(lev_geom.periodicity());
+    }
 
-    auto & lev_geom = Geom(ilev);
     // Get divergence of fluxes
 #ifdef AMREX_USE_EB
     if (!EBFactory(0).isAllRegular())

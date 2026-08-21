@@ -2500,6 +2500,12 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
 #endif
         }
 
+        // Face-centered BoxArrays have overlapping valid faces at grid-box
+        // intersections. Synchronize those duplicate faces before the
+        // cell-centered update consumes the fluxes.
+        m_fluxes[lev][dir].OverrideSync(geom.periodicity());
+        vof_fluxes[lev][dir].OverrideSync(geom.periodicity());
+
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -2781,6 +2787,16 @@ VolumeOfFluid:: velocity_face_source (int lev, Real dt, AMREX_D_DECL(MultiFab& u
        });
 #endif
     }
+
+       // Face-centered MultiFabs have duplicate valid faces where same-level
+       // grid boxes meet. Keep the source-modified MAC data single-valued before
+       // it is consumed by projection or averaged back to cell centers.
+       AMREX_D_TERM(u_mac.OverrideSync(geom.periodicity());,
+                    v_mac.OverrideSync(geom.periodicity());,
+                    w_mac.OverrideSync(geom.periodicity()););
+       AMREX_D_TERM(if (gu_mac) gu_mac->OverrideSync(geom.periodicity());,
+                    if (gv_mac) gv_mac->OverrideSync(geom.periodicity());,
+                    if (gw_mac) gw_mac->OverrideSync(geom.periodicity()););
 
 }
 
