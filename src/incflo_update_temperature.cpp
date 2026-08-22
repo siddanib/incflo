@@ -68,7 +68,26 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                 compute_cp(lev, mfi, cp_fab);
                 Array4<Real      > const& cp      = cp_fab.array();
 
-                if (m_diff_type == DiffusionType::Explicit)
+                if (gran_temp && m_vof_advect_tracer)
+                {
+                    auto const& osm = overset_mask[lev].array(mfi);
+                    ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                    {
+                        Real const production = tem_f(i,j,k);
+                        Real const chi = cp(i,j,k) + gt_coll_dissp*l_dt;
+                        if (tra_n(i,j,k,0) > min_conc_scnd) {
+                            osm(i,j,k) = 1;
+                            tem(i,j,k) += l_dt * production / cp(i,j,k);
+                            tem(i,j,k) *= cp(i,j,k) / chi;
+                        }
+                        else {
+                            osm(i,j,k) = 0;
+                            tem(i,j,k) = Real(0.0);
+                        }
+                        tem_f(i,j,k) = chi;
+                    });
+                }
+                else if (m_diff_type == DiffusionType::Explicit)
                 {
                     Array4<Real const> const& laps_o = ld.laps_tem_o.const_array(mfi);
                     if (!gran_temp)

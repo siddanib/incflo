@@ -15,7 +15,8 @@ public:
                               AMREX_D_DECL(amrex::Vector<amrex::MultiFab const*> const& u_mac,
                                            amrex::Vector<amrex::MultiFab const*> const& v_mac,
                                            amrex::Vector<amrex::MultiFab const*> const& w_mac),
-                              amrex::Real dt);
+                              amrex::Real dt,
+                              amrex::Vector<amrex::MultiFab*> const* temperature = nullptr);
     void tracer_vof_init_fraction(int lev, amrex::MultiFab& a_tracer);
     void tracer_vof_update(int lev, amrex::MultiFab const & a_tracer, amrex::Array<amrex::MultiFab, 2> & a_height);
     void curvature_calculation(int lev, amrex::MultiFab const & a_tracer, amrex::Array<amrex::MultiFab, 2> & a_height,

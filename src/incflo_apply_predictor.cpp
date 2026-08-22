@@ -207,9 +207,15 @@ void incflo::ApplyPredictor (bool incremental_projection)
                             GetVecOfPtrs(tem_forces), m_cur_time);
 
     // use vof to advect tracer
+    Vector<MultiFab*> temperature_new;
+    Vector<MultiFab*> const* vof_temperature = nullptr;
+    if (m_vof_advect_tracer && m_use_granular_temperature) {
+        temperature_new = get_temperature_new();
+        vof_temperature = &temperature_new;
+    }
     if (!incremental_projection && m_vof_advect_tracer)
       tracer_vof_advection(get_tracer_new (), AMREX_D_DECL(GetVecOfConstPtrs(u_mac), GetVecOfConstPtrs(v_mac),
-                           GetVecOfConstPtrs(w_mac)));
+                           GetVecOfConstPtrs(w_mac)), vof_temperature);
 
     // *************************************************************************************
     // Update density

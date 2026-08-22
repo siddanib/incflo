@@ -71,6 +71,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
 {
     bool fluxes_are_area_weighted = false;
     bool knownFaceStates          = false; // HydroUtils always recompute face states
+    bool vof_advects_temperature = m_vof_advect_tracer && m_use_granular_temperature;
 
 #ifdef AMREX_USE_EB
     if ( m_verbose ) {
@@ -82,7 +83,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
     int n_flux_comp = AMREX_SPACEDIM;
     if (!m_constant_density && !m_update_density_from_vof) n_flux_comp += 1;
     if ( m_advect_tracer)    n_flux_comp += m_ntrac;
-    if ( m_use_temperature)  n_flux_comp += 1;
+    if ( m_use_temperature && !vof_advects_temperature)  n_flux_comp += 1;
 
     // This will hold state on faces
     Vector<MultiFab> face_x(finest_level+1);
@@ -206,7 +207,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
                 fillpatch_force(m_cur_time, tra_forces, nghost_force());
         }
 
-        if (m_use_temperature)
+        if (m_use_temperature && !vof_advects_temperature)
         {
             compute_tem_forces(m_cur_time, tem_forces);
             for (int lev = 0; lev <= finest_level; ++lev) {
@@ -591,7 +592,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
             trac_nph.define( tracer[lev]->boxArray(), tracer[lev]->DistributionMap(),m_ntrac,1);
         }
         MultiFab temp_nph;
-        if (m_use_temperature) {
+        if (m_use_temperature && !vof_advects_temperature) {
             temp_nph.define(temperature[lev]->boxArray(),temperature[lev]->DistributionMap(),1,1);
         }
 
@@ -623,7 +624,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
                 }
             }
 
-            if (m_use_temperature) {
+            if (m_use_temperature && !vof_advects_temperature) {
                 temp_nph.setVal(0.);
                 fillphysbc_temperature(lev, time_nph, temp_nph, 1);
             }
@@ -651,7 +652,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
         }
         // FIXME? this may just work as long as we add temp in make_BC_MF()
         std::unique_ptr<iMultiFab> tempBC_MF;
-        if (m_use_temperature && m_has_mixedBC) {
+        if (m_use_temperature && !vof_advects_temperature && m_has_mixedBC) {
             Abort("Temperature equation with mixed BC not completed yet");
             tempBC_MF = make_BC_MF(lev, m_bcrec_temperature_d, "temperature");
         }
@@ -856,7 +857,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
             // ************************************************************************
             // Temperature
             // ************************************************************************
-            if (m_use_temperature) {
+            if (m_use_temperature && !vof_advects_temperature) {
                 // Temperature adveciton is non-conservative when it is NOT granular Temperature
 
                 face_comp = (m_advect_tracer && (m_ntrac>0)) ? m_ntrac : 0;
@@ -1109,7 +1110,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
           } // mfi
         } // advect tracer
 
-        if (m_use_temperature)
+        if (m_use_temperature && !vof_advects_temperature)
         {
             int flux_comp = (m_advect_tracer && (m_ntrac>0)) ? m_ntrac : 0;
             flux_comp += (m_constant_density || m_update_density_from_vof) ? AMREX_SPACEDIM : AMREX_SPACEDIM+1;
@@ -1208,7 +1209,7 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
                                   bc_tra, lev);
             }
 
-            if (m_use_temperature) {
+            if (m_use_temperature && !vof_advects_temperature) {
                 auto const& bc_tem = get_temperature_bcrec_device_ptr();
                 redistribute_term(mfi, *conv_tem[lev], dtemdt_tmp,
                                   *temperature[lev],

@@ -316,7 +316,8 @@ public:
     void tracer_vof_advection (amrex::Vector<amrex::MultiFab*> const& tracer,
                            AMREX_D_DECL(amrex::Vector<amrex::MultiFab const*> const& u_mac,
                                         amrex::Vector<amrex::MultiFab const*> const& v_mac,
-                                        amrex::Vector<amrex::MultiFab const*> const& w_mac));
+                                        amrex::Vector<amrex::MultiFab const*> const& w_mac),
+                           amrex::Vector<amrex::MultiFab*> const* temperature = nullptr);
     void update_vof_density (int lev, amrex::MultiFab & density, amrex::MultiFab & tracer);
 
 
