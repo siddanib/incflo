@@ -106,7 +106,7 @@ void incflo::InitData ()
             }
             else {
                 amrex::Abort("xxxxx m_KE_int todo");
-//          amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " << ComputeKineticEnergy() << std::endl;
+                //amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " << ComputeKineticEnergy() << std::endl;
             }
         }
     }
@@ -154,7 +154,11 @@ void incflo::Evolve()
 {
     BL_PROFILE("incflo::Evolve()");
 
-    bool do_not_evolve = ((m_max_step == 0) || ((m_stop_time >= 0.) && (m_cur_time > m_stop_time)) ||
+    // The stop_time test here mirrors the loop-exit test below, tolerance included, so
+    // that restarting from the final checkpoint of a completed run does not take an
+    // extra step past stop_time.
+    bool do_not_evolve = ((m_max_step == 0) ||
+                           ((m_stop_time > 0.) && (m_cur_time >= m_stop_time - (1.e-12 * m_dt))) ||
                            ((m_stop_time <= 0.) && (m_max_step <= 0)) || (m_max_step >= 0 && m_nstep >= m_max_step) )
                          && !m_steady_state;
 
@@ -372,8 +376,12 @@ incflo::writeNow(int a_plot_int, Real a_plot_per_approx, Real a_plot_per_exact) 
         // Check to see if we've crossed a a_plot_per_approx interval by comparing
         // the number of intervals that have elapsed for both the current
         // time and the time at the beginning of this timestep.
-        int num_per_old = static_cast<int>(std::round((m_cur_time-m_dt) / a_plot_per_approx));
-        int num_per_new = static_cast<int>(std::round((m_cur_time     ) / a_plot_per_approx));
+
+        // Note: this must truncate, not round -- rounding would detect a crossing at
+        // half-multiples of the period (plotting up to half a period early) and would
+        // also make the two epsilon corrections below unreachable.
+        int num_per_old = static_cast<int>(std::floor((m_cur_time-m_dt) / a_plot_per_approx));
+        int num_per_new = static_cast<int>(std::floor((m_cur_time     ) / a_plot_per_approx));
 
         // Before using these, however, we must test for the case where we're
         // within machine epsilon of the next interval. In that case, increment

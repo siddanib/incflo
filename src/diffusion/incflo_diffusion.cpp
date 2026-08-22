@@ -25,19 +25,27 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
             }
        }
 #ifdef AMREX_USE_EB
-        EB_set_covered(*divtau[0]     , 0.0);
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            EB_set_covered(*divtau[lev], 0.0);
+        }
 #endif
 
-        Vector<MultiFab*> divtau_scal;
-        divtau_scal.push_back(new MultiFab(grids[0], dmap[0], divtau[0]->nComp(),
-                                           divtau[0]->nGrow(),MFInfo(),*m_factory[0]));
-        divtau_scal[0]->setVal(0.);
+        // Note that the diffusion ops loop over all levels, so divtau_scal must be
+        // defined on all levels, not just level 0.
+        Vector<MultiFab> divtau_scal(finest_level+1);
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            divtau_scal[lev].define(grids[lev], dmap[lev], divtau[lev]->nComp(),
+                                    divtau[lev]->nGrow(), MFInfo(), *m_factory[lev]);
+            divtau_scal[lev].setVal(0.);
+        }
 
         if (include_linear) {
-            get_diffusion_scalar_op()->compute_divtau({divtau_scal}, vel, density, eta);
+            get_diffusion_scalar_op()->compute_divtau(GetVecOfPtrs(divtau_scal), vel, density, eta);
         }
 #ifdef AMREX_USE_EB
-        EB_set_covered(*divtau_scal[0], 0.0);
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            EB_set_covered(divtau_scal[lev], 0.0);
+        }
 #endif
 
         // Define divtau to be (divtau_full - divtau_separate)
@@ -52,7 +60,9 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
         //                    divtau[0]->norm0(2) << " " << divtau_scal[0]->norm0(2) << "\n";
 
         if (include_linear) {
-            MultiFab::Saxpy(*divtau[0], -1.0, *divtau_scal[0], 0, 0, AMREX_SPACEDIM, 0);
+            for (int lev = 0; lev <= finest_level; ++lev) {
+                MultiFab::Saxpy(*divtau[lev], -1.0, divtau_scal[lev], 0, 0, AMREX_SPACEDIM, 0);
+            }
         }
 
         // amrex::Print() << "X-comp: Norm of difference of tensor apply vs scalar apply " <<
@@ -92,7 +102,7 @@ incflo::compute_laps(Vector<MultiFab      *> const& laps,
                      Vector<MultiFab const*> const& scalar,
                      Vector<MultiFab const*> const& eta)
 {
-    get_diffusion_scalar_op()->compute_laps(laps, scalar, eta,
+    get_diffusion_scalar_op()->compute_laps(laps, scalar, eta, get_tracer_eb(),
                                             get_tracer_bcrec());
 
 }
@@ -102,7 +112,7 @@ incflo::compute_laps_T(Vector<MultiFab      *> const& laps,
                        Vector<MultiFab const*> const& scalar,
                        Vector<MultiFab const*> const& eta)
 {
-    get_diffusion_scalar_op()->compute_laps(laps, scalar, eta,
+    get_diffusion_scalar_op()->compute_laps(laps, scalar, eta, get_temperature_eb(),
                                             get_temperature_bcrec());
 }
 
