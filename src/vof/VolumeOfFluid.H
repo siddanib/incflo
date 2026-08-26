@@ -19,6 +19,8 @@ public:
                               amrex::Vector<amrex::MultiFab*> const* temperature = nullptr);
     void tracer_vof_init_fraction(int lev, amrex::MultiFab& a_tracer);
     void tracer_vof_update(int lev, amrex::MultiFab const & a_tracer, amrex::Array<amrex::MultiFab, 2> & a_height);
+    void tracer_vof_update(int lev, amrex::MultiFab const & a_tracer, amrex::Array<amrex::MultiFab, 2> & a_height,
+                           amrex::MultiFab& a_normal, amrex::MultiFab& a_alpha);
     void curvature_calculation(int lev, amrex::MultiFab const & a_tracer, amrex::Array<amrex::MultiFab, 2> & a_height,
                            amrex::MultiFab & a_kappa);
     void write_tecplot_surface(int max_level, amrex::Real time, int nstep);
@@ -31,6 +33,7 @@ public:
                                                                    amrex::MultiFab& w_mac),
                               AMREX_D_DECL(amrex::MultiFab* sfu_mac, amrex::MultiFab* sfv_mac, amrex::MultiFab* sfw_mac));
     void variable_filtered (int lev, amrex::MultiFab& variable);
+    void signed_distance_filtered (int lev, amrex::MultiFab& variable);
     void curvature_average_down (amrex::MultiFab const & kappa_fine, amrex::MultiFab & kappa_crse, amrex::IntVect const & ratio);
 
 

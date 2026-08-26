@@ -237,6 +237,16 @@ void incflo::ReadParameters ()
         }
         pp.query("fillpatch_method", m_fillpatch_method);
         pp.query("number_of_averaging", m_number_of_averaging);
+        pp.query("level_set_d", m_level_set_d);
+        std::string vof_density_filter = "average";
+        pp.query("vof_density_filter", vof_density_filter);
+        if (vof_density_filter == "average" || vof_density_filter == "averaging") {
+            m_vof_density_filter = 0;
+        } else if (vof_density_filter == "signed_distance" || vof_density_filter == "sdf") {
+            m_vof_density_filter = 1;
+        } else {
+            amrex::Abort("incflo.vof_density_filter must be average or signed_distance");
+        }
         pp.query("vof_regrid_layers", m_vof_regrid_layers);
         pp.query("plot_leaf_cells", m_plot_leaf_cells);
 
@@ -275,8 +285,10 @@ void incflo::ReadParameters ()
             "VOF + two_fluid requires at least one tracer");
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!m_ro_s.empty(),
             "VOF + two_fluid requires incflo.ro_s[0]");
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_number_of_averaging == 0,
-            "VOF + two_fluid requires incflo.number_of_averaging = 0");
+        //AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_number_of_averaging == 0,
+        //    "VOF + two_fluid requires incflo.number_of_averaging = 0");
+        //AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_vof_density_filter == 0,
+        //    "VOF + two_fluid requires incflo.vof_density_filter = average");
 
         const Real rho_scale = amrex::max(Real(1.0),
             amrex::max(std::abs(m_ro_s[0]), std::abs(m_ro_0_second)));

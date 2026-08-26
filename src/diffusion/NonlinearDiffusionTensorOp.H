@@ -30,6 +30,7 @@ public:
     void diffuse_velocity (amrex::Vector<amrex::MultiFab*> const& velocity,
                            amrex::Vector<amrex::MultiFab*> const& density,
                            amrex::Vector<amrex::MultiFab const*> const& eta,
+                           amrex::Vector<amrex::MultiFab const*> const& tracer,
                            amrex::Real dt);
 
     void compute_divtau (amrex::Vector<amrex::MultiFab*> const& divtau,
@@ -37,7 +38,8 @@ public:
                          amrex::Vector<amrex::MultiFab const*> const& density,
                          amrex::Vector<amrex::MultiFab const*> const& eta,
                          bool include_linear = true,
-                         bool include_nonlinear = true);
+                         bool include_nonlinear = true,
+                         amrex::Vector<amrex::MultiFab const*> const* tracer = nullptr);
 
     // All functions required by GMRES
     // Note that most of these functions might have to be modified
@@ -111,12 +113,14 @@ private:
                        amrex::Vector<amrex::MultiFab const*> const& a_density,
                        amrex::Vector<amrex::MultiFab const*> const& a_vel,
                        amrex::Vector<amrex::MultiFab const*> const& a_eta,
+                       amrex::Vector<amrex::MultiFab const*> const& a_tracer,
                        amrex::Real a_dt);
     // Solve one backward-Euler nonlinear diffusion step.
     SolveStats diffuse_velocity_one_step (
                        amrex::Vector<amrex::MultiFab*> const& velocity,
                        amrex::Vector<amrex::MultiFab*> const& density,
                        amrex::Vector<amrex::MultiFab const*> const& eta,
+                       amrex::Vector<amrex::MultiFab const*> const& tracer,
                        amrex::Real dt);
 
     // Needs to be called inside of Newton iteration loop
@@ -166,6 +170,7 @@ private:
     // member variables because they need to be called in "apply" function
     amrex::Vector<std::unique_ptr<amrex::MultiFab>> m_rhs_n,
                              m_density, m_eta,
+                             m_tracer,
                              m_conc_second,
                              m_p_static,
                              m_newton_iter_vel,

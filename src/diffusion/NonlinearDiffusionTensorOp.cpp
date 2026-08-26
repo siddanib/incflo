@@ -188,6 +188,7 @@ void NonlinearDiffusionTensorOp::diffuse_velocity (
                        Vector<MultiFab*> const& velocity,
                        Vector<MultiFab*> const& density,
                        Vector<MultiFab const*> const& eta,
+                       Vector<MultiFab const*> const& tracer,
                        Real dt)
 {
     const int nlevels = velocity.size();
@@ -220,7 +221,7 @@ void NonlinearDiffusionTensorOp::diffuse_velocity (
             }
 
             SolveStats sub_stats =
-                diffuse_velocity_one_step(velocity, density, eta, dt_sub);
+                diffuse_velocity_one_step(velocity, density, eta, tracer, dt_sub);
             attempt_stats.newton_iters += sub_stats.newton_iters;
             attempt_stats.final_alpha_newton_iters =
                 std::max(attempt_stats.final_alpha_newton_iters,
@@ -301,6 +302,7 @@ NonlinearDiffusionTensorOp::diffuse_velocity_one_step (
                        Vector<MultiFab*> const& velocity,
                        Vector<MultiFab*> const& density,
                        Vector<MultiFab const*> const& eta,
+                       Vector<MultiFab const*> const& tracer,
                        Real dt)
 {
     SolveStats total_stats;
@@ -310,13 +312,13 @@ NonlinearDiffusionTensorOp::diffuse_velocity_one_step (
     // iteration 0 velocity to the provided velocity.
     update_member_multifabs(GetVecOfConstPtrs(density),
                             GetVecOfConstPtrs(velocity),
-                            GetVecOfConstPtrs(eta), dt);
+                            GetVecOfConstPtrs(eta), tracer, dt);
 
     if (!m_use_eta_from_prev_time) {
         m_incflo->compute_viscosity(GetVecOfPtrs(m_eta),
                                     GetVecOfPtrs(m_density),
                                     GetVecOfPtrs(m_newton_iter_vel),
-                                    m_incflo->get_tracer_new(),
+                                    GetVecOfPtrs(m_tracer),
                                     m_incflo->m_cur_time, m_nghost_eta);
     }
 
@@ -474,7 +476,8 @@ void NonlinearDiffusionTensorOp::compute_divtau (
                          Vector<MultiFab const*> const& density,
                          Vector<MultiFab const*> const& eta,
                          bool include_linear,
-                         bool include_nonlinear)
+                         bool include_nonlinear,
+                         Vector<MultiFab const*> const* tracer)
 {
     // Preparation for two_fluid scenario
     Vector<std::unique_ptr<MultiFab>> conc_second, p_static;
@@ -494,9 +497,15 @@ void NonlinearDiffusionTensorOp::compute_divtau (
                                             1, 0, MFInfo(),
                                             eta[ilev]->Factory());
            if (m_incflo->m_nodal_vel_eta) {
-              m_incflo->compute_nodal_second_fluid_conc(conc_second[ilev].get(),
-                                                        density[ilev],
-                                                        m_nghost_eta);
+              if (tracer != nullptr) {
+                 m_incflo->compute_nodal_second_fluid_conc_from_tracer(
+                            conc_second[ilev].get(), (*tracer)[ilev],
+                            m_nghost_eta);
+              } else {
+                 m_incflo->compute_nodal_second_fluid_conc(conc_second[ilev].get(),
+                                                           density[ilev],
+                                                           m_nghost_eta);
+              }
               m_incflo->compute_nodal_hydrostatic_pressure_at_level(
                             ilev, p_static[ilev].get(), density[ilev],
                             m_incflo->m_mu_p_surf_second,
@@ -504,9 +513,15 @@ void NonlinearDiffusionTensorOp::compute_divtau (
            }
            else
            {
-              m_incflo->compute_cc_second_fluid_conc(conc_second[ilev].get(),
-                                                     density[ilev],
-                                                     m_nghost_eta);
+              if (tracer != nullptr) {
+                 m_incflo->compute_cc_second_fluid_conc_from_tracer(
+                            conc_second[ilev].get(), (*tracer)[ilev],
+                            m_nghost_eta);
+              } else {
+                 m_incflo->compute_cc_second_fluid_conc(conc_second[ilev].get(),
+                                                        density[ilev],
+                                                        m_nghost_eta);
+              }
               m_incflo->compute_cc_hydrostatic_pressure_at_level(
                             ilev, p_static[ilev].get(), density[ilev],
                             m_incflo->m_mu_p_surf_second,
@@ -840,6 +855,7 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
          Vector<MultiFab const*> const& a_density,
          Vector<MultiFab const*> const& a_vel,
          Vector<MultiFab const*> const& a_eta,
+         Vector<MultiFab const*> const& a_tracer,
          Real a_dt)
 {
     m_dt = a_dt;
@@ -850,6 +866,7 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
     m_rhs_n.resize(nlevels);
     m_density.resize(nlevels);
     m_eta.resize(nlevels);
+    m_tracer.resize(nlevels);
     if (m_incflo->m_two_fluid) {
         m_conc_second.resize(nlevels);
         m_p_static.resize(nlevels);
@@ -874,6 +891,16 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
                                         a_eta[ilev]->DistributionMap(),
                                         1, m_nghost_eta, MFInfo(),
                                         a_eta[ilev]->Factory());
+
+        const int nghost_tracer = m_incflo->m_nodal_vel_eta
+            ? m_nghost_eta + 1 : m_nghost_eta;
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(a_tracer[ilev]->nGrow() >= nghost_tracer,
+            "Tracer needs enough ghost cells for tracer-based second-fluid concentration");
+        m_tracer[ilev] = std::make_unique<MultiFab>(
+                                        a_tracer[ilev]->boxArray(),
+                                        a_tracer[ilev]->DistributionMap(),
+                                        a_tracer[ilev]->nComp(), nghost_tracer,
+                                        MFInfo(), a_tracer[ilev]->Factory());
         if (m_incflo->m_two_fluid) {
             m_conc_second[ilev] = std::make_unique<MultiFab>(
                                             a_eta[ilev]->boxArray(),
@@ -914,6 +941,9 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
         MultiFab::Copy(*m_eta[ilev],*a_eta[ilev],
                        0,0,1,m_nghost_eta);
 
+        MultiFab::Copy(*m_tracer[ilev],*a_tracer[ilev],
+                       0,0,a_tracer[ilev]->nComp(),m_tracer[ilev]->nGrow());
+
         MultiFab::Copy(*m_newton_iter_vel[ilev],*a_vel[ilev],
                        0,0,AMREX_SPACEDIM,m_nghost_vel);
 
@@ -935,9 +965,9 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
         auto a_p_static    = GetVecOfPtrs(m_p_static);
         for (int ilev = 0; ilev < nlevels; ++ilev) {
            if (m_incflo->m_nodal_vel_eta) {
-              m_incflo->compute_nodal_second_fluid_conc(a_conc_second[ilev],
-                                                        a_density[ilev],
-                                                        m_nghost_eta);
+              m_incflo->compute_nodal_second_fluid_conc_from_tracer(
+                            a_conc_second[ilev], m_tracer[ilev].get(),
+                            m_nghost_eta);
               m_incflo->compute_nodal_hydrostatic_pressure_at_level(
                             ilev, a_p_static[ilev], a_density[ilev],
                             m_incflo->m_mu_p_surf_second,
@@ -945,9 +975,9 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
            }
            else
            {
-              m_incflo->compute_cc_second_fluid_conc(a_conc_second[ilev],
-                                                      a_density[ilev],
-                                                      m_nghost_eta);
+              m_incflo->compute_cc_second_fluid_conc_from_tracer(
+                            a_conc_second[ilev], m_tracer[ilev].get(),
+                            m_nghost_eta);
               m_incflo->compute_cc_hydrostatic_pressure_at_level(
                             ilev, a_p_static[ilev], a_density[ilev],
                             m_incflo->m_mu_p_surf_second,
@@ -1012,7 +1042,7 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
         m_incflo->compute_viscosity(GetVecOfPtrs(m_eta),
                                     GetVecOfPtrs(m_density),
                                     GetVecOfPtrs(m_newton_iter_vel),
-                                    m_incflo->get_tracer_new(),
+                                    GetVecOfPtrs(m_tracer),
                                     m_incflo->m_cur_time, m_nghost_eta);
     }
 }

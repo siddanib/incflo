@@ -23,8 +23,12 @@ void incflo::update_density (StepType step_type)
             const auto& fact = ld.tracer.Factory();
             MultiFab tracer_df(ba,dm,1,ld.tracer.nGrow(),MFInfo(), fact);
             MultiFab::Copy(tracer_df, ld.tracer, 0, 0, 1, ld.tracer.nGrow());
-            for (int i=0;i<m_number_of_averaging;i++){
-             get_volume_of_fluid()->variable_filtered(lev, tracer_df);
+            if (m_vof_density_filter == 1) {
+             get_volume_of_fluid()->signed_distance_filtered(lev, tracer_df);
+            } else {
+             for (int i=0;i<m_number_of_averaging;i++){
+              get_volume_of_fluid()->variable_filtered(lev, tracer_df);
+             }
             }
            update_vof_density(lev, ld.density, tracer_df);
           }

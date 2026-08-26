@@ -1760,6 +1760,14 @@ Real curvature_fit (Box const & bx, int i,int j,int k, GpuArray<Real, AMREX_SPAC
 void
 VolumeOfFluid::tracer_vof_update (int lev, MultiFab const & vof_mf, Array<MultiFab,2> & height)
 {
+  tracer_vof_update(lev, vof_mf, height,
+                    m_leveldata[lev]->normal, m_leveldata[lev]->alpha);
+}
+
+void
+VolumeOfFluid::tracer_vof_update (int lev, MultiFab const & vof_mf, Array<MultiFab,2> & height,
+                                  MultiFab& normal, MultiFab& alpha)
+{
   Geometry const& geom =v_incflo->geom[lev];
   auto const& dx = geom.CellSizeArray();
   auto const& problo = geom.ProbLoArray();
@@ -1768,8 +1776,8 @@ VolumeOfFluid::tracer_vof_update (int lev, MultiFab const & vof_mf, Array<MultiF
 //          update height using vof field
 ///////////////////////////////////////////////////
   for (int dim = 0; dim < AMREX_SPACEDIM; dim++){
-    height[0].setVal(VOF_NODATA,dim,1,v_incflo->nghost_state());
-    height[1].setVal(VOF_NODATA,dim,1,v_incflo->nghost_state());
+    height[0].setVal(VOF_NODATA,dim,1,height[0].nGrow());
+    height[1].setVal(VOF_NODATA,dim,1,height[1].nGrow());
     //fixme: have not thought of a way to deal with the MFIter with tiling
     //an option is to use similar way as MPI's implementation.
     for (MFIter mfi(vof_mf); mfi.isValid(); ++mfi) {
@@ -1895,15 +1903,15 @@ if(1){
   }//end for dim
 
   //fixme: need to change for BCs
-  m_leveldata[lev]->normal.setVal(VOF_NODATA,0,AMREX_SPACEDIM,v_incflo->nghost_state());
+  normal.setVal(VOF_NODATA,0,AMREX_SPACEDIM,normal.nGrow());
 /////////////////////////////////////////////////////////////////////////////////////////
 //update the normal and alpha
 /////////////////////////////////////////////////////////////////////////////////////////
     for (MFIter mfi(vof_mf,TilingIfNotGPU()); mfi.isValid(); ++mfi) {
         Box const& bx = mfi.tilebox();
         Array4<Real const> const& vof_arr = vof_mf.const_array(mfi);
-        Array4<Real> const& mv = m_leveldata[lev]->normal.array(mfi);
-        Array4<Real> const& al = m_leveldata[lev]->alpha.array(mfi);
+        Array4<Real> const& mv = normal.array(mfi);
+        Array4<Real> const& al = alpha.array(mfi);
         Array4<Real const > const& hb_arr = height[0].const_array(mfi);
         Array4<Real const > const& ht_arr = height[1].const_array(mfi);
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -1958,8 +1966,8 @@ if(1){
 
     //!!!!!!!!fix me: a temporary solution for the normal and alpha!!!!!!!!!!!
     // fill value of ghost cells (BCs, MPI info.)
-    m_leveldata[lev]->normal.FillBoundary(geom.periodicity());
-    m_leveldata[lev]->alpha.FillBoundary(geom.periodicity());
+    normal.FillBoundary(geom.periodicity());
+    alpha.FillBoundary(geom.periodicity());
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -2990,6 +2998,129 @@ void VolumeOfFluid:: variable_filtered (int lev, MultiFab & variable)
        Copy(variable, center_val , 0, 0, 1, 0);
        //fixme: BCs
        variable.FillBoundary(geom.periodicity());
+}
+
+void VolumeOfFluid:: signed_distance_filtered (int lev, MultiFab & variable)
+{
+    Geometry const& geom = v_incflo->Geom(lev);
+    auto const& dx = geom.CellSizeArray();
+    const Real dx_min = amrex::min(AMREX_D_DECL(dx[0], dx[1], dx[2]));
+    const Real eps = amrex::max(v_incflo->m_level_set_d * dx_min,
+                                Real(1.e-12) * dx_min);
+    const int search_ng = amrex::min(variable.nGrow(),
+                                     amrex::max(1, int(std::ceil(eps / dx_min)) + 1));
+    Box const& domain = geom.Domain();
+    GpuArray<int, AMREX_SPACEDIM> const domain_lo = {
+        AMREX_D_DECL(domain.smallEnd(0), domain.smallEnd(1), domain.smallEnd(2))};
+    GpuArray<int, AMREX_SPACEDIM> const domain_hi = {
+        AMREX_D_DECL(domain.bigEnd(0), domain.bigEnd(1), domain.bigEnd(2))};
+    GpuArray<int, AMREX_SPACEDIM> const is_periodic = {
+        AMREX_D_DECL(geom.isPeriodic(0), geom.isPeriodic(1), geom.isPeriodic(2))};
+
+    const auto& ba = variable.boxArray();
+    const auto& dm = variable.DistributionMap();
+    const auto& fact = variable.Factory();
+
+    MultiFab sdf_normal(ba, dm, AMREX_SPACEDIM, variable.nGrow(), MFInfo(), fact);
+    MultiFab sdf_alpha(ba, dm, 1, variable.nGrow(), MFInfo(), fact);
+    Array<MultiFab,2> sdf_height = {
+        MultiFab(ba, dm, AMREX_SPACEDIM, variable.nGrow(), MFInfo(), fact),
+        MultiFab(ba, dm, AMREX_SPACEDIM, variable.nGrow(), MFInfo(), fact)
+    };
+    sdf_normal.setVal(VOF_NODATA);
+    sdf_alpha.setVal(Real(0.));
+    sdf_height[0].setVal(VOF_NODATA);
+    sdf_height[1].setVal(VOF_NODATA);
+
+    // Reconstruct from the copied VOF field without mutating the live VOF state.
+    tracer_vof_update(lev, variable, sdf_height, sdf_normal, sdf_alpha);
+
+    MultiFab filtered(ba, dm, 1, variable.nGrow(), MFInfo(), fact);
+    MultiFab::Copy(filtered, variable, 0, 0, 1, variable.nGrow());
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(variable,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        Box const& bx = mfi.tilebox();
+        Array4<Real const> const& vof = variable.const_array(mfi);
+        Array4<Real const> const& mv = sdf_normal.const_array(mfi);
+        Array4<Real const> const& al = sdf_alpha.const_array(mfi);
+        Array4<Real> const& filt = filtered.array(mfi);
+
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+            Real sdf = Real(0.);
+            Real min_abs_sdf = std::numeric_limits<Real>::max();
+
+#if AMREX_SPACEDIM==3
+            for (int dk = -search_ng; dk <= search_ng; ++dk)
+#else
+            int dk = 0;
+#endif
+            {
+            for (int dj = -search_ng; dj <= search_ng; ++dj) {
+            for (int di = -search_ng; di <= search_ng; ++di) {
+                const int ii = i + di;
+                const int jj = j + dj;
+                const int kk = k + dk;
+
+                bool outside_physical_domain = false;
+                AMREX_D_TERM(
+                    outside_physical_domain = outside_physical_domain ||
+                        (!is_periodic[0] && (ii < domain_lo[0] || ii > domain_hi[0]));,
+                    outside_physical_domain = outside_physical_domain ||
+                        (!is_periodic[1] && (jj < domain_lo[1] || jj > domain_hi[1]));,
+                    outside_physical_domain = outside_physical_domain ||
+                        (!is_periodic[2] && (kk < domain_lo[2] || kk > domain_hi[2])););
+                if (outside_physical_domain) {
+                    continue;
+                }
+
+                const Real fvol = vof(ii,jj,kk,0);
+
+                if (fvol > Real(0.) && fvol < Real(1.) &&
+                    mv(ii,jj,kk,0) != VOF_NODATA)
+                {
+                    Real plane_offset = al(ii,jj,kk);
+                    Real normal_norm = Real(0.);
+                    AMREX_D_TERM(
+                        const Real x0 = Real(i - ii) + Real(0.5);
+                        plane_offset -= mv(ii,jj,kk,0) * x0;
+                        normal_norm += (mv(ii,jj,kk,0) / dx[0]) *
+                                       (mv(ii,jj,kk,0) / dx[0]);,
+                        const Real x1 = Real(j - jj) + Real(0.5);
+                        plane_offset -= mv(ii,jj,kk,1) * x1;
+                        normal_norm += (mv(ii,jj,kk,1) / dx[1]) *
+                                       (mv(ii,jj,kk,1) / dx[1]);,
+                        const Real x2 = Real(k - kk) + Real(0.5);
+                        plane_offset -= mv(ii,jj,kk,2) * x2;
+                        normal_norm += (mv(ii,jj,kk,2) / dx[2]) *
+                                       (mv(ii,jj,kk,2) / dx[2]););
+
+                    if (normal_norm > Real(0.)) {
+                        const Real candidate = plane_offset / std::sqrt(normal_norm);
+                        const Real abs_candidate = amrex::Math::abs(candidate);
+                        if (abs_candidate < min_abs_sdf) {
+                            min_abs_sdf = abs_candidate;
+                            sdf = candidate;
+                        }
+                    }
+                }
+            }}}
+
+            if (min_abs_sdf < std::numeric_limits<Real>::max()) {
+                filt(i,j,k,0) = amrex::Clamp(Real(0.5) + Real(0.5) * sdf / eps,
+                                             Real(0.), Real(1.));
+            } else {
+                filt(i,j,k,0) = amrex::Clamp(vof(i,j,k,0), Real(0.), Real(1.));
+            }
+        });
+    }
+
+    MultiFab::Copy(variable, filtered, 0, 0, 1, variable.nGrow());
+    variable.FillBoundary(geom.periodicity());
 }
 
 

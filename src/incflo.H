@@ -278,6 +278,16 @@ public:
                                     const amrex::MultiFab* rho_cc,
                                     int nghost) const;
 
+    void compute_cc_second_fluid_conc_from_tracer (
+                                    amrex::MultiFab* conc_second_cc,
+                                    const amrex::MultiFab* tracer,
+                                    int nghost) const;
+
+    void compute_nodal_second_fluid_conc_from_tracer (
+                                    amrex::MultiFab* conc_second_nd,
+                                    const amrex::MultiFab* tracer,
+                                    int nghost) const;
+
     void compute_gradientOfVelocity_on_level (int lev, amrex::MultiFab& gradVel,
                                               const amrex::MultiFab& velocity,
                                               amrex::Geometry& lev_geom);
@@ -300,11 +310,13 @@ public:
                           amrex::Vector<amrex::MultiFab const*> const& density,
                           amrex::Vector<amrex::MultiFab const*> const& eta,
                           bool include_linear = true,
-                          bool include_nonlinear = true);
+                          bool include_nonlinear = true,
+                          amrex::Vector<amrex::MultiFab const*> const* tracer = nullptr);
 
     void diffuse_velocity (amrex::Vector<amrex::MultiFab      *> const&  velocity,
                            amrex::Vector<amrex::MultiFab      *> const&  density,
                            amrex::Vector<amrex::MultiFab const*> const& eta,
+                           amrex::Vector<amrex::MultiFab const*> const& tracer,
                            amrex::Real dt_diff);
 
     ///////////////////////////////////////////////////////////////////////////
@@ -836,6 +848,9 @@ private:
     int m_time_stepping_alpha_refresh_interval = 100;
     //the number of averaging process for density
     int m_number_of_averaging = 0;
+    // VOF density filter:
+    // 0 = repeated nodal averaging, 1 = signed-distance
+    int m_vof_density_filter = 0;
 
     // VOF advection parameters
     bool m_vof_advect_tracer = false;

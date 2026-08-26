@@ -248,11 +248,11 @@ void incflo::compute_viscosity_at_level (int lev,
        // second fluid concentration MultiFab
        MultiFab conc_second(vel_eta->boxArray(),vel_eta->DistributionMap(),1,nghost);
        if (m_nodal_vel_eta) {
-           compute_nodal_second_fluid_conc(&conc_second,rho,nghost);
+           compute_nodal_second_fluid_conc_from_tracer(&conc_second,tracer,nghost);
        }
        else
        {
-           compute_cc_second_fluid_conc(&conc_second,rho,nghost);
+           compute_cc_second_fluid_conc_from_tracer(&conc_second,tracer,nghost);
        }
        // Calculate second fluid viscosity
        compute_second_fluid_viscosity_at_level(lev, rho, vel, lev_geom,

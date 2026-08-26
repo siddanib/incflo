@@ -497,6 +497,54 @@ void incflo::compute_cc_second_fluid_conc (MultiFab* conc_second_cc,
    }
 }
 
+void incflo::compute_cc_second_fluid_conc_from_tracer (
+                                          MultiFab* conc_second_cc,
+                                          const MultiFab* tracer,
+                                          int nghost) const
+{
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+   for (MFIter mfi(*conc_second_cc,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+   {
+       Box const& bx = mfi.growntilebox(nghost);
+       Array4<Real const> const& tracer_arr = tracer->const_array(mfi);
+       Array4<Real> const& conc_second_arr = conc_second_cc->array(mfi);
+       amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+       {
+          conc_second_arr(i,j,k) =
+              amrex::Clamp(tracer_arr(i,j,k,0), Real(0.), Real(1.));
+       });
+   }
+}
+
+void incflo::compute_nodal_second_fluid_conc_from_tracer (
+                                          MultiFab* conc_second_nd,
+                                          const MultiFab* tracer,
+                                          int nghost) const
+{
+    const int cc_nghost = nghost + 1;
+    MultiFab conc_second_cc(tracer->boxArray(), tracer->DistributionMap(),
+                            1, cc_nghost, MFInfo(), tracer->Factory());
+    compute_cc_second_fluid_conc_from_tracer(&conc_second_cc, tracer, cc_nghost);
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(*conc_second_nd,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        Box const& bx = mfi.growntilebox(nghost);
+        Array4<Real const> const& conc_second_cc_arr = conc_second_cc.const_array(mfi);
+        Array4<Real> const& conc_second_nd_arr = conc_second_nd->array(mfi);
+        amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+            conc_second_nd_arr(i,j,k) = amrex::Clamp(
+                incflo_nodal_second_conc(i,j,k,conc_second_cc_arr),
+                Real(0.), Real(1.));
+        });
+    }
+}
+
 void incflo::compute_gradientOfVelocity_on_level (int lev, MultiFab& gradVel,
                                                   const MultiFab& velocity,
                                                   Geometry& lev_geom)

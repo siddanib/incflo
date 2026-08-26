@@ -9,12 +9,14 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
                        Vector<MultiFab const*> const& density,
                        Vector<MultiFab const*> const& eta,
                        bool include_linear,
-                       bool include_nonlinear)
+                       bool include_nonlinear,
+                       Vector<MultiFab const*> const* tracer)
 {
     if (use_tensor_correction) {
         if (use_jfnk_tensor_solve) {
             get_nonlin_diffusion_tensor_op()->compute_divtau(
-                divtau, vel, density, eta, include_linear, include_nonlinear);
+                divtau, vel, density, eta, include_linear, include_nonlinear,
+                tracer);
         } else {
             if (include_linear) {
                 get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
@@ -75,7 +77,8 @@ incflo::compute_divtau(Vector<MultiFab      *> const& divtau,
     } else if (use_tensor_solve) {
         if (use_jfnk_tensor_solve) {
             get_nonlin_diffusion_tensor_op()->compute_divtau(
-                divtau, vel, density, eta, include_linear, include_nonlinear);
+                divtau, vel, density, eta, include_linear, include_nonlinear,
+                tracer);
         } else {
             if (include_linear) {
                 get_diffusion_tensor_op()->compute_divtau(divtau, vel, density, eta);
@@ -145,6 +148,7 @@ void
 incflo::diffuse_velocity(Vector<MultiFab      *> const& vel,
                          Vector<MultiFab      *> const& density,
                          Vector<MultiFab const*> const& eta,
+                         Vector<MultiFab const*> const& tracer,
                          Real dt_diff)
 {
     if (use_tensor_correction) {
@@ -152,7 +156,7 @@ incflo::diffuse_velocity(Vector<MultiFab      *> const& vel,
         get_diffusion_scalar_op()->diffuse_vel_components(vel, density, eta, dt_diff);
     } else if (use_tensor_solve) {
         if (use_jfnk_tensor_solve) {
-            get_nonlin_diffusion_tensor_op()->diffuse_velocity(vel, density, eta, dt_diff);
+            get_nonlin_diffusion_tensor_op()->diffuse_velocity(vel, density, eta, tracer, dt_diff);
         } else {
             get_diffusion_tensor_op()->diffuse_velocity(vel, density, eta, dt_diff);
         }

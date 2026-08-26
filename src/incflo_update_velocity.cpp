@@ -69,7 +69,7 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
         compute_divtau(GetVecOfPtrs(timestepping_divtau_o),
                        alpha_velocity, alpha_density,
                        GetVecOfConstPtrs(timestepping_alpha),
-                       true, false);
+                       true, false, &alpha_tracer);
     }
 
     Real new_time = m_cur_time + m_dt;
@@ -424,10 +424,14 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
             fillphysbc_velocity(lev, new_time, m_leveldata[lev]->velocity, ng_diffusion);
             m_leveldata[lev]->density.FillBoundary(geom[lev].periodicity());
             fillphysbc_density (lev, new_time, m_leveldata[lev]->density , ng_diffusion);
+            const int ng_tracer_diffusion = m_nodal_vel_eta ? ng_diffusion + 1 : ng_diffusion;
+            m_leveldata[lev]->tracer.FillBoundary(geom[lev].periodicity());
+            fillphysbc_tracer (lev, new_time, m_leveldata[lev]->tracer , ng_tracer_diffusion);
         }
 
         Real dt_diff = (m_diff_type == DiffusionType::Implicit) ? m_dt : l_half*m_dt;
-        diffuse_velocity(get_velocity_new(), get_density_new(), GetVecOfConstPtrs(vel_eta), dt_diff);
+        diffuse_velocity(get_velocity_new(), get_density_new(), GetVecOfConstPtrs(vel_eta),
+                         get_tracer_new_const(), dt_diff);
 
 #ifdef AMREX_USE_EB
         if (m_probtype ==  537) {
@@ -487,6 +491,9 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
         for (int lev = 0; lev <= finest_level; ++lev) {
             fillphysbc_velocity(lev, new_time, m_leveldata[lev]->velocity, ng_diffusion);
             fillphysbc_density (lev, new_time, m_leveldata[lev]->density , ng_diffusion);
+            const int ng_tracer_diffusion = m_nodal_vel_eta ? ng_diffusion + 1 : ng_diffusion;
+            m_leveldata[lev]->tracer.FillBoundary(geom[lev].periodicity());
+            fillphysbc_tracer (lev, new_time, m_leveldata[lev]->tracer , ng_tracer_diffusion);
         }
 
         Real dt_diff = (m_diff_type == DiffusionType::Implicit) ? m_dt : l_half*m_dt;
@@ -496,7 +503,8 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
                 0, 0, vel_eta[lev].nComp(), vel_eta[lev].nGrow());
         }
         diffuse_velocity(get_velocity_new(), get_density_new(),
-                         GetVecOfConstPtrs(timestepping_alpha), dt_diff);
+                         GetVecOfConstPtrs(timestepping_alpha),
+                         get_tracer_new_const(), dt_diff);
     }
 
     // add surface tension

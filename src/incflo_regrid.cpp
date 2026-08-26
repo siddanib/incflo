@@ -147,8 +147,12 @@ void incflo::RemakeLevel (int lev, Real time, const BoxArray& ba,
       const auto& dm = m_leveldata[lev]->tracer.DistributionMap();
       MultiFab tracer_df(ba,dm,1,m_leveldata[lev]->tracer.nGrow(),MFInfo(), *m_factory[lev]);
       MultiFab::Copy(tracer_df, m_leveldata[lev]->tracer, 0, 0, 1, m_leveldata[lev]->tracer.nGrow());
-      for (int i=0;i<m_number_of_averaging;i++){
-         ptr_VOF->variable_filtered(lev, tracer_df);
+      if (m_vof_density_filter == 1) {
+         ptr_VOF->signed_distance_filtered(lev, tracer_df);
+      } else {
+         for (int i=0;i<m_number_of_averaging;i++){
+            ptr_VOF->variable_filtered(lev, tracer_df);
+         }
       }
       update_vof_density (lev, m_leveldata[lev]->density, tracer_df);
 
