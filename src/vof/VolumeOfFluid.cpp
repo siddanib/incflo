@@ -119,6 +119,12 @@ VolumeOfFluid::VolumeOfFluid (incflo* a_incflo) : v_incflo(a_incflo)
     ParmParse pp("incflo");
     pp.query("output_drop_frequence", output_drop_frequence);
 }
+
+bool
+VolumeOfFluid::surface_tension_enabled() const
+{
+    return v_incflo != nullptr && !v_incflo->m_sigma.empty() && v_incflo->m_sigma[0] != Real(0.);
+}
 // *************************************************************************************
 // Allocate space for the VOF data for a given level
 // *************************************************************************************
@@ -1978,6 +1984,10 @@ if(1){
 void
 VolumeOfFluid::curvature_calculation (int lev, MultiFab const & vof_mf, Array<MultiFab,2> & height, MultiFab & kappa)
 {
+  if (!surface_tension_enabled()) {
+    kappa.setVal(0., 0, 1, kappa.nGrow());
+    return;
+  }
 
   Geometry const& geom =v_incflo->geom[lev];
   auto const& dx = geom.CellSizeArray();
@@ -2338,6 +2348,7 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
 {
     static int start = 0;
     bool const advect_temperature = (temperature != nullptr);
+    bool const compute_curvature = surface_tension_enabled();
     //amrex::Print() << " VOF Level#" << finest_level<<"\n";
 
 //note: we advect the VOF tracer at the finest level. The VOF of coarse levels
@@ -2698,8 +2709,9 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
         recover_temperature(lev);
       }
 
-      if (lev == v_incflo->finest_level)
+      if (compute_curvature && lev == v_incflo->finest_level) {
          curvature_calculation (lev, *tracer[lev], ldvof.height, ldvof.kappa);
+      }
     }// end lev
 
     // Average down tracer and curvature
@@ -2724,7 +2736,9 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
         recover_temperature(lev);
       }
       // the curvature of coarse cells is obtained by averaging the values of underlying finer cells
-      curvature_average_down(m_leveldata[lev+1]->kappa,m_leveldata[lev]->kappa,v_incflo->refRatio(lev));
+      if (compute_curvature) {
+        curvature_average_down(m_leveldata[lev+1]->kappa,m_leveldata[lev]->kappa,v_incflo->refRatio(lev));
+      }
     }
     for (int lev = 0; lev <= v_incflo->finest_level; ++lev) {
       v_incflo->fillpatch_tracer(lev, 0., *tracer[lev], v_incflo->nghost_state());
@@ -3340,8 +3354,11 @@ VolumeOfFluid::tracer_vof_init_fraction (int lev, MultiFab& a_tracer)
     // intersecting each interface cell.
     tracer_vof_update(lev, a_tracer, ldvof.height);
     //average_down from fine to coarse levels
+    bool const compute_curvature = surface_tension_enabled();
     if (lev == v_incflo->finest_level){
-      curvature_calculation(lev, a_tracer, ldvof.height, ldvof.kappa);
+      if (compute_curvature) {
+        curvature_calculation(lev, a_tracer, ldvof.height, ldvof.kappa);
+      }
       for (int ilev = lev-1; ilev >= 0; --ilev) {
 #ifdef AMREX_USE_EB
         amrex::EB_average_down(v_incflo->m_leveldata[ilev+1]->tracer, v_incflo->m_leveldata[ilev]->tracer,
@@ -3357,7 +3374,9 @@ VolumeOfFluid::tracer_vof_init_fraction (int lev, MultiFab& a_tracer)
         auto& ldvof_1=*m_leveldata[ilev]; /*VOF data for level lev*/
         tracer_vof_update (ilev, v_incflo->m_leveldata[ilev]->tracer, ldvof_1.height);
         // curvature
-        curvature_average_down(m_leveldata[ilev+1]->kappa, ldvof_1.kappa,v_incflo->refRatio(ilev));
+        if (compute_curvature) {
+          curvature_average_down(m_leveldata[ilev+1]->kappa, ldvof_1.kappa,v_incflo->refRatio(ilev));
+        }
       }
     }
     auto tag_vector_ptrs = get_vector_ptr([](LevelData& ld) -> MultiFab& {return ld.tag;});

@@ -329,7 +329,7 @@ void incflo::prob_init_fluid (int lev)
 
         vof->tracer_vof_update(lev, ld.tracer, ldvof.height);
 
-        if (lev == finest_level) {
+        if (lev == finest_level && !m_sigma.empty() && m_sigma[0] != Real(0.)) {
             vof->curvature_calculation(lev, ld.tracer, ldvof.height, ldvof.kappa);
         }
     }

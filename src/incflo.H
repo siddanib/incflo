@@ -456,6 +456,11 @@ public:
                                       amrex::Real time, int nghost,
                                       amrex::MultiFab& vel_eta_second,
                                       amrex::MultiFab& conc_second);
+    void add_vof_interface_viscosity_at_level (int lev,
+                                      amrex::MultiFab* eta,
+                                      amrex::MultiFab const* rho,
+                                      amrex::Geometry& lev_geom,
+                                      int nghost);
     void compute_mu_I_at_level (int lev, amrex::MultiFab* inertial_num,
                                 amrex::MultiFab const* temperature,
                                 int nghost);
@@ -851,6 +856,8 @@ private:
     // VOF density filter:
     // 0 = repeated nodal averaging, 1 = signed-distance
     int m_vof_density_filter = 0;
+    amrex::Real m_vof_interface_viscosity = amrex::Real(0.);
+    amrex::Real m_vof_interface_viscosity_rho_floor = amrex::Real(0.);
 
     // VOF advection parameters
     bool m_vof_advect_tracer = false;

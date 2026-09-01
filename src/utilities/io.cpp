@@ -262,7 +262,7 @@ void incflo::ReadCheckpointFile()
             vof->tracer_vof_update(lev, m_leveldata[lev]->tracer, ldvof.height);
         }
 
-        if (finest_level >= 0) {
+        if (finest_level >= 0 && !m_sigma.empty() && m_sigma[0] != Real(0.)) {
             auto& ldvof = *vof->m_leveldata[finest_level];
             vof->curvature_calculation(finest_level, m_leveldata[finest_level]->tracer,
                                        ldvof.height, ldvof.kappa);

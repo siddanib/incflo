@@ -7,8 +7,25 @@
 #endif
 
 #include <memory>
+#include <fstream>
+#include <iomanip>
 
 using namespace amrex;
+
+namespace
+{
+void WriteGranularKEMonitor (Real time, Real kinetic_energy)
+{
+    if (ParallelDescriptor::IOProcessor()) {
+        std::ofstream ofs("granular_KE_monitor.txt", std::ios::out | std::ios::app);
+        if (!ofs.good()) {
+            amrex::FileOpenFailed("granular_KE_monitor.txt");
+        }
+        ofs << std::scientific << std::setprecision(17)
+            << time << " " << kinetic_energy << "\n";
+    }
+}
+}
 
 incflo::incflo ()
 {
@@ -101,8 +118,10 @@ void incflo::InitData ()
         if (m_KE_int > 0)
         {
             if (m_two_fluid) {
-                amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " <<
-                    ComputeGranularKineticEnergy()<< "\n";
+                const Real granular_ke = ComputeGranularKineticEnergy();
+                amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", "
+                               << granular_ke << "\n";
+                WriteGranularKEMonitor(m_cur_time, granular_ke);
             }
             else {
                 amrex::Abort("xxxxx m_KE_int todo");
@@ -211,8 +230,10 @@ void incflo::Evolve()
         if(m_KE_int > 0 && (m_nstep % m_KE_int == 0))
         {
             if (m_two_fluid) {
-                amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " <<
-                    ComputeGranularKineticEnergy()<< "\n";
+                const Real granular_ke = ComputeGranularKineticEnergy();
+                amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", "
+                               << granular_ke << "\n";
+                WriteGranularKEMonitor(m_cur_time, granular_ke);
             }
             else {
                 amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " <<

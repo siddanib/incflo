@@ -141,7 +141,9 @@ void incflo::RemakeLevel (int lev, Real time, const BoxArray& ba,
       //fixme: it may be better to move the following to incflo::Evolve() after calling regrid()
       auto& ldvof=*ptr_VOF->m_leveldata[lev]; /*VOF data for level lev*/
       ptr_VOF->tracer_vof_update(lev, m_leveldata[lev]->tracer, ldvof.height);
-      ptr_VOF->curvature_calculation(lev, m_leveldata[lev]->tracer, ldvof.height, ldvof.kappa);
+      if (!m_sigma.empty() && m_sigma[0] != Real(0.)) {
+        ptr_VOF->curvature_calculation(lev, m_leveldata[lev]->tracer, ldvof.height, ldvof.kappa);
+      }
       //diffuse the VOF by averaging
       const auto& ba = m_leveldata[lev]->tracer.boxArray();
       const auto& dm = m_leveldata[lev]->tracer.DistributionMap();

@@ -97,6 +97,47 @@ amrex::Real incflo_strainrate (int i, int j, int k,
 }
 
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+amrex::Real incflo_scalar_gradient_magnitude (int i, int j, int k,
+                               AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
+                               amrex::Array4<amrex::Real const> const& phi,
+                               const amrex::Dim3& dlo, const amrex::Dim3& dhi,
+                               const amrex::GpuArray<bool, AMREX_SPACEDIM> is_periodic,
+                               int n = 0) noexcept
+{
+    using namespace amrex;
+
+    Real xm = Real(-1.0)/idx; Real xp = Real(1.0)/idx;
+    if (i == dlo.x && (!is_periodic[0])) { xm *= Real(0.5);}
+    if (i == dhi.x && (!is_periodic[0])) { xp *= Real(0.5);}
+    Real gx = phi(i-1, j, k, n)*(xp/(xm*(xm-xp))) +
+              phi(i  , j, k, n)*((xm+xp)/(xm*xp)) +
+              phi(i+1, j, k, n)*(xm/((xp-xm)*xp));
+    gx *= Real(-1.0);
+
+    Real ym = Real(-1.0)/idy; Real yp = Real(1.0)/idy;
+    if (j == dlo.y && (!is_periodic[1])) { ym *= Real(0.5);}
+    if (j == dhi.y && (!is_periodic[1])) { yp *= Real(0.5);}
+    Real gy = phi(i, j-1, k, n)*(yp/(ym*(ym-yp))) +
+              phi(i, j  , k, n)*((ym+yp)/(ym*yp)) +
+              phi(i, j+1, k, n)*(ym/((yp-ym)*yp));
+    gy *= Real(-1.0);
+
+#if (AMREX_SPACEDIM == 3)
+    Real zm = Real(-1.0)/idz; Real zp = Real(1.0)/idz;
+    if (k == dlo.z && (!is_periodic[2])) { zm *= Real(0.5);}
+    if (k == dhi.z && (!is_periodic[2])) { zp *= Real(0.5);}
+    Real gz = phi(i, j, k-1, n)*(zp/(zm*(zm-zp))) +
+              phi(i, j, k  , n)*((zm+zp)/(zm*zp)) +
+              phi(i, j, k+1, n)*(zm/((zp-zm)*zp));
+    gz *= Real(-1.0);
+
+    return std::sqrt(gx*gx + gy*gy + gz*gz);
+#else
+    return std::sqrt(gx*gx + gy*gy);
+#endif
+}
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
 amrex::Real incflo_strainrate_nodal (int i, int j, int k,
              AMREX_D_DECL(amrex::Real idx, amrex::Real idy, amrex::Real idz),
              amrex::Array4<amrex::Real const> const& vel,

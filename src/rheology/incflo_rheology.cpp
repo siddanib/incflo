@@ -300,9 +300,121 @@ void incflo::compute_viscosity_at_level (int lev,
          }
        }
     }
+    add_vof_interface_viscosity_at_level(lev, vel_eta, rho, lev_geom, nghost);
 #ifdef AMREX_USE_EB
     smooth_eb_cell_centered_coeff(lev, *vel_eta, lev_geom);
 #endif
+}
+
+void incflo::add_vof_interface_viscosity_at_level (int lev,
+                                                   MultiFab* vel_eta,
+                                                   MultiFab const* rho,
+                                                   Geometry& lev_geom,
+                                                   int nghost)
+{
+    if (!m_two_fluid || !m_vof_advect_tracer ||
+        m_vof_interface_viscosity <= Real(0.)) {
+        return;
+    }
+
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!m_nodal_vel_eta,
+        "incflo.vof_interface_viscosity is only implemented for "
+        "cell-centered vel_eta");
+
+    AMREX_D_TERM(const Real idx = Real(1.0) / lev_geom.CellSize(0);,
+                 const Real idy = Real(1.0) / lev_geom.CellSize(1);,
+                 const Real idz = Real(1.0) / lev_geom.CellSize(2););
+
+    Real dx_eff = lev_geom.CellSize(0);
+    dx_eff = amrex::min(dx_eff, lev_geom.CellSize(1));
+#if (AMREX_SPACEDIM == 3)
+    dx_eff = amrex::min(dx_eff, lev_geom.CellSize(2));
+#endif
+
+    const Real rho_scale = amrex::max(Real(1.0),
+        amrex::max(std::abs(m_ro_0), std::abs(m_ro_0_second)));
+    const Real rho_floor =
+        (m_vof_interface_viscosity_rho_floor > Real(0.))
+        ? m_vof_interface_viscosity_rho_floor
+        : Real(1.0e-14) * rho_scale;
+
+    const Dim3 dlo = amrex::lbound(lev_geom.Domain());
+    const Dim3 dhi = amrex::ubound(lev_geom.Domain());
+    GpuArray<bool, AMREX_SPACEDIM> is_periodic;
+    AMREX_D_TERM(is_periodic[0] = lev_geom.isPeriodic(0);,
+                 is_periodic[1] = lev_geom.isPeriodic(1);,
+                 is_periodic[2] = lev_geom.isPeriodic(2););
+
+#ifdef AMREX_USE_EB
+    auto const& fact = EBFactory(lev);
+    auto const& flags = fact.getMultiEBCellFlagFab();
+    MultiCutFab const& bcent = fact.getBndryCent();
+    MultiCutFab const& ccent = fact.getCentroid();
+#endif
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(*vel_eta,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        Box const& bx = mfi.growntilebox(nghost);
+        Array4<Real> const& eta_arr = vel_eta->array(mfi);
+        Array4<Real const> const& rho_arr = rho->const_array(mfi);
+        const Real coeff = m_vof_interface_viscosity;
+#ifdef AMREX_USE_EB
+        auto const& flag_fab = flags[mfi];
+        auto typ = flag_fab.getType(bx);
+        if (typ == FabType::covered)
+        {
+            continue;
+        }
+        else if (typ == FabType::singlevalued)
+        {
+            auto const& flag_arr = flag_fab.const_array();
+            Array4<Real const> const& ccfab = ccent.const_array(mfi);
+            Array4<Real const> const& bcfab = bcent.const_array(mfi);
+            Array4<Real const> rho_eb_arr;
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                if (flag_arr(i,j,k).isCovered()) {
+                    return;
+                }
+
+                Real grad_mag;
+                if (flag_arr(i,j,k).isRegular()) {
+                    grad_mag = incflo_scalar_gradient_magnitude(i,j,k,
+                        AMREX_D_DECL(idx,idy,idz), rho_arr, dlo, dhi,
+                        is_periodic);
+                } else {
+                    Real gx, gy;
+#if (AMREX_SPACEDIM == 3)
+                    Real gz;
+#endif
+                    incflo_grad_eb_of_phi_on_cellcentroids(i,j,k,0,
+                        rho_arr, rho_eb_arr, flag_arr, ccfab, bcfab,
+                        AMREX_D_DECL(gx,gy,gz), false);
+                    AMREX_D_TERM(gx *= idx;, gy *= idy;, gz *= idz;);
+                    grad_mag = std::sqrt(AMREX_D_TERM(gx*gx, + gy*gy, + gz*gz));
+                }
+
+                const Real denom = amrex::max(std::abs(rho_arr(i,j,k)),
+                                              rho_floor);
+                eta_arr(i,j,k) += coeff * dx_eff * dx_eff * grad_mag / denom;
+            });
+        }
+        else
+#endif
+        {
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                const Real grad_mag = incflo_scalar_gradient_magnitude(i,j,k,
+                    AMREX_D_DECL(idx,idy,idz), rho_arr, dlo, dhi, is_periodic);
+                const Real denom = amrex::max(std::abs(rho_arr(i,j,k)),
+                                              rho_floor);
+                eta_arr(i,j,k) += coeff * dx_eff * dx_eff * grad_mag / denom;
+            });
+        }
+    }
 }
 
 void incflo::compute_second_fluid_viscosity_at_level (int lev,

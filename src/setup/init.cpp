@@ -238,6 +238,27 @@ void incflo::ReadParameters ()
         pp.query("fillpatch_method", m_fillpatch_method);
         pp.query("number_of_averaging", m_number_of_averaging);
         pp.query("level_set_d", m_level_set_d);
+        pp.query("vof_interface_viscosity", m_vof_interface_viscosity);
+        pp.query("vof_interface_viscosity_rho_floor",
+                 m_vof_interface_viscosity_rho_floor);
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_vof_interface_viscosity >= Real(0.),
+            "incflo.vof_interface_viscosity must be non-negative");
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            m_vof_interface_viscosity_rho_floor >= Real(0.),
+            "incflo.vof_interface_viscosity_rho_floor must be non-negative");
+        if (m_vof_interface_viscosity > Real(0.)) {
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_two_fluid && m_vof_advect_tracer,
+                "incflo.vof_interface_viscosity requires incflo.two_fluid = true "
+                "and incflo.vof_advect_tracer = true");
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!m_nodal_vel_eta,
+                "incflo.vof_interface_viscosity is only implemented for "
+                "cell-centered vel_eta; set incflo.nodal_vel_eta = 0");
+            amrex::Print() << "VOF interface viscosity enabled with"
+                           << " coefficient = " << m_vof_interface_viscosity
+                           << ", rho_floor = "
+                           << m_vof_interface_viscosity_rho_floor
+                           << std::endl;
+        }
         std::string vof_density_filter = "average";
         pp.query("vof_density_filter", vof_density_filter);
         if (vof_density_filter == "average" || vof_density_filter == "averaging") {
