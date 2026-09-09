@@ -75,13 +75,13 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                     {
                         Real const production = tem_f(i,j,k);
                         Real const chi = cp(i,j,k) + gt_coll_dissp*l_dt;
-                        if (tra_n(i,j,k,0) > min_conc_scnd) {
+                        if (tra_n(i,j,k,0) >= min_conc_scnd) {
                             osm(i,j,k) = 1;
                             tem(i,j,k) += l_dt * production / cp(i,j,k);
                             tem(i,j,k) *= cp(i,j,k) / chi;
                         }
                         else {
-                            osm(i,j,k) = 0;
+                            osm(i,j,k) = 1;
                             tem(i,j,k) = Real(0.0);
                         }
                         tem_f(i,j,k) = chi;
@@ -102,7 +102,7 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                     {
                         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                         {
-                            if (tra_n(i,j,k,0) > min_conc_scnd) {
+                            if (tra_n(i,j,k,0) >= min_conc_scnd) {
                                 tem(i,j,k) = tem_o(i,j,k) + l_dt *
                                     ( dtdt_o(i,j,k) + (tem_f(i,j,k) + laps_o(i,j,k))/cp(i,j,k) );
                                 // Adding the collisional dissipation term
@@ -143,7 +143,7 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                                 osm(i,j,k) = 1;
                             }
                             else {
-                                osm(i,j,k) = 0;
+                                osm(i,j,k) = 1;
                                 // The solution should not change in the masked region
                                 tem(i,j,k) = tem_o(i,j,k);
                             }
@@ -178,11 +178,11 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
                             // incflo's temperature diffusion solve
                             tem(i,j,k) *= (cp(i,j,k)/(cp(i,j,k) + gt_coll_dissp*l_dt));
                             // Using overset_mask to only solve for granular region
-                            if (tra_n(i,j,k,0) > min_conc_scnd ) {
+                            if (tra_n(i,j,k,0) >= min_conc_scnd ) {
                                 osm(i,j,k) = 1;
                             }
                             else {
-                                osm(i,j,k) = 0;
+                                osm(i,j,k) = 1;
                                 // The solution should not change in the masked region
                                 tem(i,j,k) = tem_o(i,j,k);
                             }
@@ -216,6 +216,30 @@ void incflo::update_temperature (StepType step_type, Vector<MultiFab>& tem_eta, 
         // scratch holds rhoCp if it is NOT Granular Temperature
         diffuse_temperature(get_temperature_new(), GetVecOfPtrs(scratch), GetVecOfConstPtrs(tem_eta),
                             dt_diff, gran_temp ? &overset_mask_ptrs : nullptr);
+        if (gran_temp) {
+            constexpr Real abort_min = Real(-1.0e-6);
+            for (int lev = 0; lev <= finest_level; ++lev) {
+                auto& temperature = m_leveldata[lev]->temperature;
+                Real const temp_min = temperature.min(0, 0);
+                if (temp_min < abort_min) {
+                    amrex::Print() << "Minimum granular temperature after diffusion is "
+                                   << temp_min << std::endl;
+                    amrex::Abort("Granular temperature is less than -1.e-6 after diffusion");
+                }
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+                for (MFIter mfi(temperature,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+                {
+                    Box const& bx = mfi.tilebox();
+                    Array4<Real> const& tem = temperature.array(mfi);
+                    ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                    {
+                        tem(i,j,k) = amrex::max(tem(i,j,k), Real(0.0));
+                    });
+                }
+            }
+        }
     }
     else
     {

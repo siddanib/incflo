@@ -192,7 +192,15 @@ void incflo::ReadParameters ()
                      m_gran_rheo_modified_time_stepping);
             pp.query("modified_time_stepping_constant",
                      m_modified_time_stepping_constant);
+            pp.query("modified_time_stepping_include_ho_forces_in_cfl",
+                     m_modified_time_stepping_include_ho_forces_in_cfl);
             if (m_gran_rheo_modified_time_stepping) {
+                if (m_modified_time_stepping_include_ho_forces_in_cfl &&
+                    m_modified_time_stepping_constant != amrex::Real(0.0)) {
+                    amrex::Print()
+                        << "Ignoring incflo.modified_time_stepping_include_ho_forces_in_cfl "
+                        << "because incflo.modified_time_stepping_constant is nonzero.\n";
+                }
                 if (((m_advection_type != "Godunov")
                     && (m_advection_type != "BDS"))
                        || (!use_jfnk_tensor_solve)) {

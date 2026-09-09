@@ -239,8 +239,8 @@ void incflo::compute_vel_forces_on_level (int lev,
     // rho:   density
 
     //fixme: we just consider the surface tension for the first tracer
-    const Real sigma = m_sigma[0];
-    if (m_vof_advect_tracer && sigma!=0./*&&!m_use_cc_proj*/&&include_SF){
+    if (m_vof_advect_tracer && !m_sigma.empty() && m_sigma[0]!=0./*&&!m_use_cc_proj*/&&include_SF){
+      const Real sigma = m_sigma[0];
       //choice 1: The original cell-centered kappa and rho are averaged to face center. Grad(VOF) and
       // surface tension (SF) are calculated at face center. Then the face-centered SF is finally averaged to cell center.
       //choice 2: Similar to choice 1, SF is estimated at the face center and then averaged to the cell nodes.

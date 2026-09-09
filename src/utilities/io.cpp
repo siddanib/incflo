@@ -945,8 +945,8 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
                                   mf[lev].DistributionMap(), 1, 0);
                 MultiFab eta_ho(mf[lev], amrex::make_alias, icomp, ncomp_ho);
 
-                compute_cc_second_fluid_conc(&conc_second,
-                                             &m_leveldata[lev]->density,
+                compute_cc_second_fluid_conc_from_tracer(&conc_second,
+                                             &m_leveldata[lev]->tracer,
                                              0);
                 compute_cc_hydrostatic_pressure_at_level(lev, &p_static,
                                                          &m_leveldata[lev]->density,

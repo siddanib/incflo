@@ -51,6 +51,33 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
                          get_density_new(), get_velocity_new(),
                          get_tracer_new(), m_cur_time, 0);
     }
+    const bool include_ho_divtau_in_cfl =
+        m_gran_rheo_modified_time_stepping &&
+        m_modified_time_stepping_include_ho_forces_in_cfl &&
+        m_modified_time_stepping_constant == Real(0.0);
+    const bool advect_momentum = m_advect_momentum;
+
+    Vector<MultiFab> ho_divtau_cfl;
+    Vector<MultiFab> ho_eta_cfl;
+    if (include_ho_divtau_in_cfl) {
+        // Placeholder eta for the nonlinear-only compute_divtau API;
+        // the high-order coefficient is evaluated in compute_second_order_coeff.
+        ho_divtau_cfl.reserve(finest_level+1);
+        ho_eta_cfl.reserve(finest_level+1);
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            ho_divtau_cfl.emplace_back(grids[lev], dmap[lev], AMREX_SPACEDIM,
+                                       0, MFInfo(), Factory(lev));
+            ho_divtau_cfl[lev].setVal(Real(0.0));
+            ho_eta_cfl.emplace_back(grids[lev], dmap[lev], 1,
+                                    1, MFInfo(), Factory(lev));
+            ho_eta_cfl[lev].setVal(Real(0.0));
+        }
+
+        auto tracer_new = get_tracer_new_const();
+        compute_divtau(GetVecOfPtrs(ho_divtau_cfl), get_velocity_new_const(),
+                       get_density_new_const(), GetVecOfConstPtrs(ho_eta_cfl),
+                       false, true, &tracer_new);
+    }
 
     for (int lev = 0; lev <= finest_level; ++lev)
     {
@@ -71,6 +98,66 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
          compute_vel_forces_on_level (lev, vel_forces, vel, rho, tra_o, tra,true,true);
        else
          compute_vel_forces_on_level (lev, vel_forces, vel, rho, tra_o, tra);
+
+       if (include_ho_divtau_in_cfl) {
+#ifdef AMREX_USE_EB
+          if (!vel.isAllRegular()) {
+              auto const& flags = EBFactory(lev).getMultiEBCellFlagFab();
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+              for (MFIter mfi(vel_forces,TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                  Box const& bx = mfi.tilebox();
+                  auto const& flag_fab = flags[mfi];
+                  auto typ = flag_fab.getType(bx);
+                  if (typ == FabType::covered) {
+                      continue;
+                  }
+                  Array4<Real> const& vf = vel_forces.array(mfi);
+                  Array4<Real const> const& divtau = ho_divtau_cfl[lev].const_array(mfi);
+                  Array4<Real const> const& r = rho.const_array(mfi);
+                  if (typ == FabType::regular) {
+                      ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                      {
+                          AMREX_D_TERM(
+                          vf(i,j,k,0) += advect_momentum ? divtau(i,j,k,0)/r(i,j,k) : divtau(i,j,k,0);,
+                          vf(i,j,k,1) += advect_momentum ? divtau(i,j,k,1)/r(i,j,k) : divtau(i,j,k,1);,
+                          vf(i,j,k,2) += advect_momentum ? divtau(i,j,k,2)/r(i,j,k) : divtau(i,j,k,2););
+                      });
+                  } else {
+                      auto const& flag_arr = flag_fab.const_array();
+                      ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                      {
+                          if (!flag_arr(i,j,k).isCovered()) {
+                              AMREX_D_TERM(
+                              vf(i,j,k,0) += advect_momentum ? divtau(i,j,k,0)/r(i,j,k) : divtau(i,j,k,0);,
+                              vf(i,j,k,1) += advect_momentum ? divtau(i,j,k,1)/r(i,j,k) : divtau(i,j,k,1);,
+                              vf(i,j,k,2) += advect_momentum ? divtau(i,j,k,2)/r(i,j,k) : divtau(i,j,k,2););
+                          }
+                      });
+                  }
+              }
+          } else
+#endif
+          {
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+              for (MFIter mfi(vel_forces,TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                  Box const& bx = mfi.tilebox();
+                  Array4<Real> const& vf = vel_forces.array(mfi);
+                  Array4<Real const> const& divtau = ho_divtau_cfl[lev].const_array(mfi);
+                  Array4<Real const> const& r = rho.const_array(mfi);
+                  ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                  {
+                      AMREX_D_TERM(
+                      vf(i,j,k,0) += advect_momentum ? divtau(i,j,k,0)/r(i,j,k) : divtau(i,j,k,0);,
+                      vf(i,j,k,1) += advect_momentum ? divtau(i,j,k,1)/r(i,j,k) : divtau(i,j,k,1);,
+                      vf(i,j,k,2) += advect_momentum ? divtau(i,j,k,2)/r(i,j,k) : divtau(i,j,k,2););
+                  });
+              }
+          }
+       }
 
 #ifdef AMREX_USE_EB
         if (!vel.isAllRegular()) {

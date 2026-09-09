@@ -849,6 +849,7 @@ private:
     // This boolean is for modified time stepping for granular rheology
     bool m_gran_rheo_modified_time_stepping = false;
     amrex::Real m_modified_time_stepping_constant = amrex::Real(2.0);
+    bool m_modified_time_stepping_include_ho_forces_in_cfl = false;
     int m_time_stepping_alpha_step = -1;
     int m_time_stepping_alpha_refresh_interval = 100;
     //the number of averaging process for density
