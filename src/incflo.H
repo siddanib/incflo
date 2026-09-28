@@ -232,6 +232,7 @@ public:
     void ComputeDrag ();
     [[nodiscard]] static amrex::Real ComputeKineticEnergy ();
     amrex::Real ComputeGranularKineticEnergy ();
+    amrex::Real ComputeTotalMass ();
 
     void DiffFromExact (int lev, amrex::Geometry& lev_geom, amrex::Real time, amrex::Real dt,
                         amrex::MultiFab& error, int soln_comp, int err_comp) const;
@@ -481,7 +482,9 @@ public:
                                                       const amrex::MultiFab* scndOrderCoeff);
     void smooth_eb_cell_centered_coeff (int lev,
                                         amrex::MultiFab& mf,
-                                        amrex::Geometry& lev_geom);
+                                        amrex::Geometry& lev_geom,
+                                        amrex::Real coeff_min,
+                                        amrex::Real coeff_max);
 #endif
     void compute_second_order_coeff (int lev,
                                      amrex::MultiFab& scnd_coeff,
@@ -862,6 +865,7 @@ private:
 
     // VOF advection parameters
     bool m_vof_advect_tracer = false;
+    bool m_vof_redistribution = false;
     //Use VOF to update the density
     bool m_update_density_from_vof = false;
     // Use this flag to plot results on leaf cells only.

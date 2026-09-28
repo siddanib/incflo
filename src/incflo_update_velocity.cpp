@@ -62,10 +62,13 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
                 ld.time_stepping_alpha->nGrow(), MFInfo(), ld.time_stepping_alpha->Factory());
             MultiFab::Copy(timestepping_alpha[lev], *ld.time_stepping_alpha, 0, 0,
                            ld.time_stepping_alpha->nComp(), ld.time_stepping_alpha->nGrow());
+            MultiFab::Add(timestepping_alpha[lev], vel_eta[lev], 0, 0,
+                          vel_eta[lev].nComp(), vel_eta[lev].nGrow());
         }
         if (refresh_time_stepping_alpha) {
             m_time_stepping_alpha_step = m_nstep;
         }
+        // Subtract the old implicit operator so eta and alpha are not double counted.
         compute_divtau(GetVecOfPtrs(timestepping_divtau_o),
                        alpha_velocity, alpha_density,
                        GetVecOfConstPtrs(timestepping_alpha),
@@ -76,6 +79,8 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
 
     Real l_dt   = m_dt;
     Real l_half = Real(0.5);
+    Real const modified_diffusion_theta =
+        m_diff_type == DiffusionType::Implicit ? Real(1.0) : l_half;
 
     if (step_type == StepType::Predictor) {
 
@@ -213,16 +218,16 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
                    if (m_advect_momentum) {
                        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                        {
-                           AMREX_D_TERM(vel(i,j,k,0) -= l_dt*(ts_divtau_o(i,j,k,0)/rho_new(i,j,k));,
-                                        vel(i,j,k,1) -= l_dt*(ts_divtau_o(i,j,k,1)/rho_new(i,j,k));,
-                                        vel(i,j,k,2) -= l_dt*(ts_divtau_o(i,j,k,2)/rho_new(i,j,k)););
+                           AMREX_D_TERM(vel(i,j,k,0) -= modified_diffusion_theta*l_dt*(ts_divtau_o(i,j,k,0)/rho_new(i,j,k));,
+                                        vel(i,j,k,1) -= modified_diffusion_theta*l_dt*(ts_divtau_o(i,j,k,1)/rho_new(i,j,k));,
+                                        vel(i,j,k,2) -= modified_diffusion_theta*l_dt*(ts_divtau_o(i,j,k,2)/rho_new(i,j,k)););
                        });
                    } else {
                        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                        {
-                           AMREX_D_TERM(vel(i,j,k,0) -= l_dt*ts_divtau_o(i,j,k,0);,
-                                        vel(i,j,k,1) -= l_dt*ts_divtau_o(i,j,k,1);,
-                                        vel(i,j,k,2) -= l_dt*ts_divtau_o(i,j,k,2););
+                           AMREX_D_TERM(vel(i,j,k,0) -= modified_diffusion_theta*l_dt*ts_divtau_o(i,j,k,0);,
+                                        vel(i,j,k,1) -= modified_diffusion_theta*l_dt*ts_divtau_o(i,j,k,1);,
+                                        vel(i,j,k,2) -= modified_diffusion_theta*l_dt*ts_divtau_o(i,j,k,2););
                        });
                    }
                 }
@@ -418,10 +423,12 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
         (!m_gran_rheo_modified_time_stepping))
     {
         const int ng_diffusion = 1;
+        const int ng_velocity_diffusion = use_jfnk_tensor_solve ? 2 : ng_diffusion;
         for (int lev = 0; lev <= finest_level; ++lev) {
             // Periodic fill necessary for corner ghost cells when physbc and periodic touch
             m_leveldata[lev]->velocity.FillBoundary(geom[lev].periodicity());
-            fillphysbc_velocity(lev, new_time, m_leveldata[lev]->velocity, ng_diffusion);
+            fillphysbc_velocity(lev, new_time, m_leveldata[lev]->velocity,
+                                ng_velocity_diffusion);
             m_leveldata[lev]->density.FillBoundary(geom[lev].periodicity());
             fillphysbc_density (lev, new_time, m_leveldata[lev]->density , ng_diffusion);
             const int ng_tracer_diffusion = m_nodal_vel_eta ? ng_diffusion + 1 : ng_diffusion;
@@ -488,20 +495,18 @@ void incflo::update_velocity (StepType step_type, Vector<MultiFab>& vel_eta, Vec
     // *********************************************************************************************
     if (m_gran_rheo_modified_time_stepping) {
         const int ng_diffusion = 1;
+        const int ng_velocity_diffusion = use_jfnk_tensor_solve ? 2 : ng_diffusion;
         for (int lev = 0; lev <= finest_level; ++lev) {
-            fillphysbc_velocity(lev, new_time, m_leveldata[lev]->velocity, ng_diffusion);
+            m_leveldata[lev]->velocity.FillBoundary(geom[lev].periodicity());
+            fillphysbc_velocity(lev, new_time, m_leveldata[lev]->velocity,
+                                ng_velocity_diffusion);
             fillphysbc_density (lev, new_time, m_leveldata[lev]->density , ng_diffusion);
             const int ng_tracer_diffusion = m_nodal_vel_eta ? ng_diffusion + 1 : ng_diffusion;
             m_leveldata[lev]->tracer.FillBoundary(geom[lev].periodicity());
             fillphysbc_tracer (lev, new_time, m_leveldata[lev]->tracer , ng_tracer_diffusion);
         }
 
-        Real dt_diff = (m_diff_type == DiffusionType::Implicit) ? m_dt : l_half*m_dt;
-        // Include vel_eta contribution to timestepping_alpha
-        for (int lev = 0; lev <= finest_level; ++lev) {
-            MultiFab::Add(timestepping_alpha[lev], vel_eta[lev],
-                0, 0, vel_eta[lev].nComp(), vel_eta[lev].nGrow());
-        }
+        Real dt_diff = modified_diffusion_theta*m_dt;
         diffuse_velocity(get_velocity_new(), get_density_new(),
                          GetVecOfConstPtrs(timestepping_alpha),
                          get_tracer_new_const(), dt_diff);

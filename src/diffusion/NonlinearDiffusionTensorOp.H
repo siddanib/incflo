@@ -2,6 +2,7 @@
 #define INCFLO_NON_LIN_DIFF_TENSOR_OP_H_
 
 #include <AMReX_GMRES.H>
+#include <AMReX_iMultiFab.H>
 #include <AMReX_MLMG.H>
 #ifdef AMREX_USE_EB
 #include <AMReX_MLEBTensorOp.H>
@@ -178,6 +179,9 @@ private:
                              // not updated during Newton iterations.
                              m_old_iter_vel,
                              m_newton_iter_func;
+    // One on cells represented by this AMR level and zero where a finer
+    // level supplies the composite-grid solution.
+    amrex::Vector<std::unique_ptr<amrex::iMultiFab>> m_norm_fine_mask;
     // This will be set at the beginning of diffuse_velocity
     amrex::Real m_dt;
     int m_nghost_density = 1;

@@ -302,7 +302,8 @@ void incflo::compute_viscosity_at_level (int lev,
     }
     add_vof_interface_viscosity_at_level(lev, vel_eta, rho, lev_geom, nghost);
 #ifdef AMREX_USE_EB
-    smooth_eb_cell_centered_coeff(lev, *vel_eta, lev_geom);
+    smooth_eb_cell_centered_coeff(lev, *vel_eta, lev_geom,
+                                  m_eta_min, m_eta_max);
 #endif
 }
 
@@ -660,9 +661,6 @@ void incflo::compute_cc_non_newtonian_viscosity (int lev,
 #ifdef AMREX_USE_EB
     auto const& fact = EBFactory(lev);
     auto const& flags = fact.getMultiEBCellFlagFab();
-    MultiCutFab const& bcent = fact.getBndryCent();
-    MultiCutFab const& ccent = fact.getCentroid();
-    MultiCutFab const& bnorm = fact.getBndryNormal();
 #endif
 
     Real idx = Real(1.0) / lev_geom.CellSize(0);
@@ -687,9 +685,6 @@ void incflo::compute_cc_non_newtonian_viscosity (int lev,
 #ifdef AMREX_USE_EB
         auto const& flag_fab = flags[mfi];
         auto typ = flag_fab.getType(bx);
-        Array4<Real const> const& bcfab      = bcent.const_array(mfi);
-        Array4<Real const> const& ccfab      = ccent.const_array(mfi);
-        Array4<Real const> const& bnrmfab    = bnorm.const_array(mfi);
         if (typ == FabType::covered)
         {
             ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -700,6 +695,12 @@ void incflo::compute_cc_non_newtonian_viscosity (int lev,
         else if (typ == FabType::singlevalued)
         {
             auto const& flag_arr = flag_fab.const_array();
+            Array4<Real const> const& bcfab =
+                fact.getBndryCent().const_array(mfi);
+            Array4<Real const> const& ccfab =
+                fact.getCentroid().const_array(mfi);
+            Array4<Real const> const& bnrmfab =
+                fact.getBndryNormal().const_array(mfi);
             ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
                 Real sr = incflo_strainrate_eb(i,j,k,AMREX_D_DECL(idx,idy,idz),
@@ -832,7 +833,9 @@ void incflo::compute_mu_I_at_level (int lev, MultiFab* inertial_num,
 #ifdef AMREX_USE_EB
 void incflo::smooth_eb_cell_centered_coeff (int lev,
                                             MultiFab& mf,
-                                            Geometry& lev_geom)
+                                            Geometry& lev_geom,
+                                            Real coeff_min,
+                                            Real coeff_max)
 {
     if (!m_eb_smooth_cutcell_viscosity || EBFactory(lev).isAllRegular()) {
         return;
@@ -874,8 +877,8 @@ void incflo::smooth_eb_cell_centered_coeff (int lev,
         Array4<Real const> const& src_arr = mf.const_array(mfi);
         Array4<Real> const& dst_arr = mf_smooth.array(mfi);
         const int ncomp = mf.nComp();
-        const Real eta_min = m_eta_min;
-        const Real eta_max = m_eta_max;
+        const Real eta_min = coeff_min;
+        const Real eta_max = coeff_max;
 
         ParallelFor(bx, ncomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n) noexcept
         {
@@ -1011,7 +1014,7 @@ incflo::compute_granular_high_order_divtau_on_level (int ilev,
 
     // Get divergence of fluxes
 #ifdef AMREX_USE_EB
-    if (!EBFactory(0).isAllRegular())
+    if (!EBFactory(ilev).isAllRegular())
     {
         MultiFab divtau_regfaces(a_divtau.boxArray(), a_divtau.DistributionMap(),
                                  AMREX_SPACEDIM, a_divtau.nGrow(), MFInfo(),
@@ -1165,7 +1168,7 @@ incflo::compute_granular_high_order_fluxes_on_level (
           if (ncomp_ho > 1) {
               Real B_11 = Real(0.25)*(-uy+vx)*(uy+vx)
                           - Real(0.25)*(uy-vx)*(uy+vx);
-              Real B_12 = Real(0.25)*(uy-vx)*(ux-vy);
+              Real B_12 = Real(0.5)*(uy-vx)*(ux-vy);
 #if (AMREX_SPACEDIM == 3)
               B_11 += Real(0.25)*(-uz+wx)*(uz+wx)
                       - Real(0.25)*(uz-wx)*(uz+wx);
@@ -1173,7 +1176,7 @@ incflo::compute_granular_high_order_fluxes_on_level (
                       + Real(0.25)*(uz+wx)*(-vz+wy);
               Real B_13 = -Real(0.25)*(uy-vx)*(vz+wy)
                           + Real(0.25)*(uy+vx)*(vz-wy)
-                          + Real(0.25)*(uz-wx)*(ux-wz);
+                          + Real(0.5)*(uz-wx)*(ux-wz);
 #endif
               // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
               // BE A MINUS IN FRONT OF THE TERMS
@@ -1248,7 +1251,7 @@ incflo::compute_granular_high_order_fluxes_on_level (
           A_23 *= Real(-1.0); flux_arr(i,j,k,2) = A_23;
 #endif
           if (ncomp_ho > 1) {
-              Real B_12 = Real(0.25)*(uy-vx)*(ux-vy);
+              Real B_12 = Real(0.5)*(uy-vx)*(ux-vy);
               Real B_22 = -Real(0.25)*(-uy+vx)*(uy+vx)
                           +Real(0.25)*(uy-vx)*(uy+vx);
 #if (AMREX_SPACEDIM == 3)
@@ -1258,7 +1261,7 @@ incflo::compute_granular_high_order_fluxes_on_level (
                       -Real(0.25)*(vz-wy)*(vz+wy);
               Real B_23 = -Real(0.25)*(-uy+vx)*(uz+wx)
                           +Real(0.25)*(uy+vx)*(uz-wx)
-                          +Real(0.25)*(vz-wy)*(vy-wz);
+                          +Real(0.5)*(vz-wy)*(vy-wz);
 #endif
               // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
               // BE A MINUS IN FRONT OF THE TERMS
@@ -1323,10 +1326,10 @@ incflo::compute_granular_high_order_fluxes_on_level (
           if (ncomp_ho > 1) {
               Real B_13 = -Real(0.25)*(uy-vx)*(vz+wy)
                           + Real(0.25)*(uy+vx)*(vz-wy)
-                          + Real(0.25)*(uz-wx)*(ux-wz);
+                          + Real(0.5)*(uz-wx)*(ux-wz);
               Real B_23 = -Real(0.25)*(-uy+vx)*(uz+wx)
                           +Real(0.25)*(uy+vx)*(uz-wx)
-                          +Real(0.25)*(vz-wy)*(vy-wz);
+                          +Real(0.5)*(vz-wy)*(vy-wz);
               Real B_33 = -Real(0.25)*(-uz+wx)*(uz+wx)
                           +Real(0.25)*(uz-wx)*(uz+wx)
                           -Real(0.25)*(-vz+wy)*(vz+wy)
@@ -1428,7 +1431,7 @@ incflo::compute_granular_high_order_fluxes_on_level (MultiFab* flux_eb,
                         const Real eta_3 = scndCoeff_arr(i,j,k,1);
                         Real B_11 = Real(0.25)*(-uy+vx)*(uy+vx)
                                     - Real(0.25)*(uy-vx)*(uy+vx);
-                        Real B_12 = Real(0.25)*(uy-vx)*(ux-vy);
+                        Real B_12 = Real(0.5)*(uy-vx)*(ux-vy);
                         Real B_22 = -Real(0.25)*(-uy+vx)*(uy+vx)
                                     +Real(0.25)*(uy-vx)*(uy+vx);
 #if (AMREX_SPACEDIM == 3)
@@ -1440,10 +1443,10 @@ incflo::compute_granular_high_order_fluxes_on_level (MultiFab* flux_eb,
                                 -Real(0.25)*(vz-wy)*(vz+wy);
                         Real B_13 = -Real(0.25)*(uy-vx)*(vz+wy)
                                     + Real(0.25)*(uy+vx)*(vz-wy)
-                                    + Real(0.25)*(uz-wx)*(ux-wz);
+                                    + Real(0.5)*(uz-wx)*(ux-wz);
                         Real B_23 = -Real(0.25)*(-uy+vx)*(uz+wx)
                                     +Real(0.25)*(uy+vx)*(uz-wx)
-                                    +Real(0.25)*(vz-wy)*(vy-wz);
+                                    +Real(0.5)*(vz-wy)*(vy-wz);
                         Real B_33 = -Real(0.25)*(-uz+wx)*(uz+wx)
                                     +Real(0.25)*(uz-wx)*(uz+wx)
                                     -Real(0.25)*(-vz+wy)*(vz+wy)
@@ -1516,7 +1519,16 @@ void incflo::compute_second_order_coeff (int lev, MultiFab& scnd_coeff,
         scnd_coeff.FillBoundary(lev_geom.periodicity());
     }
 #ifdef AMREX_USE_EB
-    smooth_eb_cell_centered_coeff(lev, scnd_coeff, lev_geom);
+    MultiFab ho1_coeff(scnd_coeff, amrex::make_alias, 0, 1);
+    smooth_eb_cell_centered_coeff(lev, ho1_coeff, lev_geom,
+                                  m_eta_ho1_min_second,
+                                  m_eta_ho1_max_second);
+    if (ncomp_ho > 1) {
+        MultiFab ho2_coeff(scnd_coeff, amrex::make_alias, 1, 1);
+        smooth_eb_cell_centered_coeff(lev, ho2_coeff, lev_geom,
+                                      m_eta_ho2_min_second,
+                                      m_eta_ho2_max_second);
+    }
 #endif
     // Clamp the high-order granular coefficient with its own limiter range.
 #ifdef _OPENMP

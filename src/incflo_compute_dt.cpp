@@ -88,6 +88,9 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
         MultiFab const& tra_o = m_leveldata[lev]->tracer_o;
 
         Real conv_lev = Real(0.0);
+        AMREX_D_TERM(Real conv_lev_x = Real(0.);,
+                     Real conv_lev_y = Real(0.);,
+                     Real conv_lev_z = Real(0.););
         Real diff_lev = Real(0.0);
         Real forc_lev = Real(0.0);
 
@@ -100,6 +103,7 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
          compute_vel_forces_on_level (lev, vel_forces, vel, rho, tra_o, tra);
 
        if (include_ho_divtau_in_cfl) {
+          // ADDING WITHOUT TAKING ABSOLUTE CAN NULLIFY DIFFERENT EFFECTS
 #ifdef AMREX_USE_EB
           if (!vel.isAllRegular()) {
               auto const& flags = EBFactory(lev).getMultiEBCellFlagFab();
@@ -120,9 +124,14 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
                       ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                       {
                           AMREX_D_TERM(
-                          vf(i,j,k,0) += advect_momentum ? divtau(i,j,k,0)/r(i,j,k) : divtau(i,j,k,0);,
-                          vf(i,j,k,1) += advect_momentum ? divtau(i,j,k,1)/r(i,j,k) : divtau(i,j,k,1);,
-                          vf(i,j,k,2) += advect_momentum ? divtau(i,j,k,2)/r(i,j,k) : divtau(i,j,k,2););
+                          vf(i,j,k,0) = std::abs(vf(i,j,k,0));,
+                          vf(i,j,k,1) = std::abs(vf(i,j,k,1));,
+                          vf(i,j,k,2) = std::abs(vf(i,j,k,2)););
+
+                          AMREX_D_TERM(
+                          vf(i,j,k,0) += advect_momentum ? std::abs(divtau(i,j,k,0)/r(i,j,k)) : std::abs(divtau(i,j,k,0));,
+                          vf(i,j,k,1) += advect_momentum ? std::abs(divtau(i,j,k,1)/r(i,j,k)) : std::abs(divtau(i,j,k,1));,
+                          vf(i,j,k,2) += advect_momentum ? std::abs(divtau(i,j,k,2)/r(i,j,k)) : std::abs(divtau(i,j,k,2)););
                       });
                   } else {
                       auto const& flag_arr = flag_fab.const_array();
@@ -130,9 +139,13 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
                       {
                           if (!flag_arr(i,j,k).isCovered()) {
                               AMREX_D_TERM(
-                              vf(i,j,k,0) += advect_momentum ? divtau(i,j,k,0)/r(i,j,k) : divtau(i,j,k,0);,
-                              vf(i,j,k,1) += advect_momentum ? divtau(i,j,k,1)/r(i,j,k) : divtau(i,j,k,1);,
-                              vf(i,j,k,2) += advect_momentum ? divtau(i,j,k,2)/r(i,j,k) : divtau(i,j,k,2););
+                              vf(i,j,k,0) = std::abs(vf(i,j,k,0));,
+                              vf(i,j,k,1) = std::abs(vf(i,j,k,1));,
+                              vf(i,j,k,2) = std::abs(vf(i,j,k,2)););
+                              AMREX_D_TERM(
+                              vf(i,j,k,0) += advect_momentum ? std::abs(divtau(i,j,k,0)/r(i,j,k)) : std::abs(divtau(i,j,k,0));,
+                              vf(i,j,k,1) += advect_momentum ? std::abs(divtau(i,j,k,1)/r(i,j,k)) : std::abs(divtau(i,j,k,1));,
+                              vf(i,j,k,2) += advect_momentum ? std::abs(divtau(i,j,k,2)/r(i,j,k)) : std::abs(divtau(i,j,k,2)););
                           }
                       });
                   }
@@ -151,9 +164,13 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
                   ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                   {
                       AMREX_D_TERM(
-                      vf(i,j,k,0) += advect_momentum ? divtau(i,j,k,0)/r(i,j,k) : divtau(i,j,k,0);,
-                      vf(i,j,k,1) += advect_momentum ? divtau(i,j,k,1)/r(i,j,k) : divtau(i,j,k,1);,
-                      vf(i,j,k,2) += advect_momentum ? divtau(i,j,k,2)/r(i,j,k) : divtau(i,j,k,2););
+                      vf(i,j,k,0) = std::abs(vf(i,j,k,0));,
+                      vf(i,j,k,1) = std::abs(vf(i,j,k,1));,
+                      vf(i,j,k,2) = std::abs(vf(i,j,k,2)););
+                      AMREX_D_TERM(
+                      vf(i,j,k,0) += advect_momentum ? std::abs(divtau(i,j,k,0)/r(i,j,k)) : std::abs(divtau(i,j,k,0));,
+                      vf(i,j,k,1) += advect_momentum ? std::abs(divtau(i,j,k,1)/r(i,j,k)) : std::abs(divtau(i,j,k,1));,
+                      vf(i,j,k,2) += advect_momentum ? std::abs(divtau(i,j,k,2)/r(i,j,k)) : std::abs(divtau(i,j,k,2)););
                   });
               }
           }
@@ -162,7 +179,7 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
 #ifdef AMREX_USE_EB
         if (!vel.isAllRegular()) {
             auto const& flag = EBFactory(lev).getMultiEBCellFlagFab();
-            conv_lev = amrex::ReduceMax(vel, flag, 0,
+            conv_lev_x = amrex::ReduceMax(vel, flag, 0,
                        [=] AMREX_GPU_HOST_DEVICE (Box const& b,
                                                   Array4<Real const> const& v,
                                                   Array4<EBCellFlag const> const& f) -> Real
@@ -171,13 +188,41 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
                            amrex::Loop(b, [=,&mx] (int i, int j, int k) noexcept
                            {
                                if (!f(i,j,k).isCovered()) {
-                                   mx = amrex::max(AMREX_D_DECL(amrex::Math::abs(v(i,j,k,0))*dxinv[0],
-                                                                amrex::Math::abs(v(i,j,k,1))*dxinv[1],
-                                                                amrex::Math::abs(v(i,j,k,2))*dxinv[2]), mx);
+                                   mx = amrex::max(amrex::Math::abs(v(i,j,k,0))*dxinv[0], mx);
                                }
                            });
                            return mx;
                        });
+            conv_lev_y = amrex::ReduceMax(vel, flag, 0,
+                       [=] AMREX_GPU_HOST_DEVICE (Box const& b,
+                                                  Array4<Real const> const& v,
+                                                  Array4<EBCellFlag const> const& f) -> Real
+                       {
+                           Real mx = -1.0;
+                           amrex::Loop(b, [=,&mx] (int i, int j, int k) noexcept
+                           {
+                               if (!f(i,j,k).isCovered()) {
+                                   mx = amrex::max(amrex::Math::abs(v(i,j,k,1))*dxinv[1], mx);
+                               }
+                           });
+                           return mx;
+                       });
+#if (AMREX_SPACEDIM == 3)
+            conv_lev_z = amrex::ReduceMax(vel, flag, 0,
+                       [=] AMREX_GPU_HOST_DEVICE (Box const& b,
+                                                  Array4<Real const> const& v,
+                                                  Array4<EBCellFlag const> const& f) -> Real
+                       {
+                           Real mx = -1.0;
+                           amrex::Loop(b, [=,&mx] (int i, int j, int k) noexcept
+                           {
+                               if (!f(i,j,k).isCovered()) {
+                                   mx = amrex::max(amrex::Math::abs(v(i,j,k,2))*dxinv[2], mx);
+                               }
+                           });
+                           return mx;
+                       });
+#endif
             if (explicit_diffusion && (!m_two_fluid)) {
                 diff_lev = amrex::ReduceMax(rho, flag, 0,
                            [=] AMREX_GPU_HOST_DEVICE (Box const& b,
@@ -234,9 +279,9 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
                       amrex::Loop(b, [=,&mx] (int i, int j, int k) noexcept
                       {
                           if (!f(i,j,k).isCovered()) {
-                              mx = amrex::max(AMREX_D_DECL(amrex::Math::abs(vf(i,j,k,0))*dxinv[0],
-                                                           amrex::Math::abs(vf(i,j,k,1))*dxinv[1],
-                                                           amrex::Math::abs(vf(i,j,k,2))*dxinv[2]), mx);
+                              mx = amrex::max(AMREX_D_TERM(amrex::Math::abs(vf(i,j,k,0))*dxinv[0],
+                                                           + amrex::Math::abs(vf(i,j,k,1))*dxinv[1],
+                                                           + amrex::Math::abs(vf(i,j,k,2))*dxinv[2]), mx);
                           }
                       });
                       return mx;
@@ -244,19 +289,41 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
         } else
 #endif
         {
-            conv_lev = amrex::ReduceMax(vel, 0,
+            conv_lev_x = amrex::ReduceMax(vel, 0,
                        [=] AMREX_GPU_HOST_DEVICE (Box const& b,
                                                   Array4<Real const> const& v) -> Real
                        {
                            Real mx = Real(-1.0);
                            amrex::Loop(b, [=,&mx] (int i, int j, int k) noexcept
                            {
-                               mx = amrex::max(AMREX_D_DECL(amrex::Math::abs(v(i,j,k,0))*dxinv[0],
-                                                            amrex::Math::abs(v(i,j,k,1))*dxinv[1],
-                                                            amrex::Math::abs(v(i,j,k,2))*dxinv[2]), mx);
+                               mx = amrex::max(amrex::Math::abs(v(i,j,k,0))*dxinv[0], mx);
                            });
                            return mx;
                        });
+            conv_lev_y = amrex::ReduceMax(vel, 0,
+                       [=] AMREX_GPU_HOST_DEVICE (Box const& b,
+                                                  Array4<Real const> const& v) -> Real
+                       {
+                           Real mx = Real(-1.0);
+                           amrex::Loop(b, [=,&mx] (int i, int j, int k) noexcept
+                           {
+                               mx = amrex::max(amrex::Math::abs(v(i,j,k,1))*dxinv[1], mx);
+                           });
+                           return mx;
+                       });
+#if (AMREX_SPACEDIM==3)
+            conv_lev_z = amrex::ReduceMax(vel, 0,
+                       [=] AMREX_GPU_HOST_DEVICE (Box const& b,
+                                                  Array4<Real const> const& v) -> Real
+                       {
+                           Real mx = Real(-1.0);
+                           amrex::Loop(b, [=,&mx] (int i, int j, int k) noexcept
+                           {
+                               mx = amrex::max(amrex::Math::abs(v(i,j,k,2))*dxinv[2], mx);
+                           });
+                           return mx;
+                       });
+#endif
 
             if (explicit_diffusion && (!m_two_fluid)) {
                 diff_lev = amrex::ReduceMax(rho, 0,
@@ -308,15 +375,18 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion)
                       Real mx = Real(-1.0);
                       amrex::Loop(b, [=,&mx] (int i, int j, int k) noexcept
                       {
-                          mx = amrex::max(AMREX_D_DECL(amrex::Math::abs(vf(i,j,k,0))*dxinv[0],
-                                                       amrex::Math::abs(vf(i,j,k,1))*dxinv[1],
-                                                       amrex::Math::abs(vf(i,j,k,2))*dxinv[2]), mx);
+                          mx = amrex::max(AMREX_D_TERM(amrex::Math::abs(vf(i,j,k,0))*dxinv[0],
+                                                       + amrex::Math::abs(vf(i,j,k,1))*dxinv[1],
+                                                       + amrex::Math::abs(vf(i,j,k,2))*dxinv[2]), mx);
                       });
                       return mx;
                   });
         }
 
         forc_cfl = std::max(forc_cfl, forc_lev);
+        ParallelAllReduce::Max<Real>({AMREX_D_DECL(conv_lev_x, conv_lev_y, conv_lev_z)},
+                                     ParallelContext::CommunicatorSub());
+        conv_lev = AMREX_D_TERM(conv_lev_x, + conv_lev_y, + conv_lev_z);
         conv_cfl = std::max(conv_cfl, conv_lev);
 
 #if (AMREX_SPACEDIM == 2)

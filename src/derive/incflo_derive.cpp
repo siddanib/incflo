@@ -723,6 +723,63 @@ Real incflo::ComputeGranularKineticEnergy ()
     return KE;
 }
 
+Real incflo::ComputeTotalMass ()
+{
+    BL_PROFILE("incflo::ComputeTotalMass");
+
+    // integrated total mass
+    Real mass = Real(0.0);
+
+    auto density = get_density_new();
+
+    for(int lev = 0; lev <= finest_level; lev++)
+    {
+        Real cell_vol = geom[lev].CellSize()[0]*geom[lev].CellSize()[1]*geom[lev].CellSize()[2];
+
+        MultiFab copy_dens(density[lev]->boxArray(), density[lev]->DistributionMap(),
+                           1, 0, MFInfo(), density[lev]->Factory());
+        copy_dens.setVal(Real(0.));
+#ifdef AMREX_USE_EB
+        if (auto const* factory_eb =
+                 dynamic_cast<EBFArrayBoxFactory const*>(&(density[lev]->Factory()))) {
+            MultiFab const& temp_mf = factory_eb->getVolFrac();
+            MultiFab::AddProduct(copy_dens, *density[lev], 0, temp_mf, 0,
+                                 0, 1, 0);
+        }
+        else
+#endif
+        {
+            MultiFab::Copy(copy_dens,*density[lev],0,0,1,0);
+        }
+        // Level_mask creation
+        iMultiFab level_mask(grids[lev], dmap[lev], 1, 0);
+        if (lev < finest_level) {
+            level_mask = amrex::makeFineMask(grids[lev], dmap[lev],
+                                grids[lev+1], refRatio(lev), 1, 0);
+        } else {
+            level_mask.setVal(1);
+        }
+
+        mass += amrex::ReduceSum(copy_dens,level_mask,0,
+        [=] AMREX_GPU_HOST_DEVICE (Box const& bx,
+                                   Array4<Real const> const& den_arr,
+                                   Array4<int const>  const& mask_arr) -> Real
+        {
+            Real mass_Fab = Real(0.0);
+
+            amrex::Loop(bx, [=,&mass_Fab] (int i, int j, int k) noexcept
+            {
+                mass_Fab += cell_vol*mask_arr(i,j,k)*den_arr(i,j,k);
+            });
+            return mass_Fab;
+        });
+    }
+
+    ParallelDescriptor::ReduceRealSum(mass);
+
+    return mass;
+}
+
 #ifdef AMREX_USE_EB
 void incflo::ComputeMagVel (int lev,
 #else

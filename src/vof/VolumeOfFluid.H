@@ -74,6 +74,7 @@ private:
    int n_tag = 0;
    int output_drop_frequence = 1;
    bool surface_tension_enabled() const;
+   void redistribute_vof(int lev, amrex::MultiFab& tracer);
 
    struct LevelData {
         LevelData () = default;

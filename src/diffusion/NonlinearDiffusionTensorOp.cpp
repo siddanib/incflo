@@ -23,12 +23,39 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
     m_gmres->setVerbose(m_gmres_verbose);
 
     if (m_incflo->m_nodal_vel_eta) {m_nghost_eta = 0;}
+    // A centered velocity-gradient stencil needs one velocity cell beyond
+    // every cell where cell-centered viscosity is evaluated.
+    m_nghost_vel = m_nghost_eta + 1;
+
+    // GMRES norms and inner products must use the composite AMR hierarchy.
+    // Mask coarse cells covered by the next finer level.  Keeping an all-one
+    // mask on the finest level gives the reduction below one uniform path.
+    m_norm_fine_mask.resize(finest_level + 1);
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        if (lev < finest_level) {
+            m_norm_fine_mask[lev] = std::make_unique<iMultiFab>(
+                makeFineMask(m_incflo->boxArray(lev),
+                             m_incflo->DistributionMap(lev),
+                             m_incflo->boxArray(lev+1),
+                             m_incflo->refRatio(lev), 1, 0));
+        } else {
+            m_norm_fine_mask[lev] = std::make_unique<iMultiFab>(
+                m_incflo->boxArray(lev),
+                m_incflo->DistributionMap(lev), 1, 0);
+            m_norm_fine_mask[lev]->setVal(1);
+        }
+    }
 
     // The below code is related to linear part of divtau
     LPInfo info_solve;
     info_solve.setMaxCoarseningLevel(m_mg_max_coarsening_level);
     LPInfo info_apply;
     info_apply.setMaxCoarseningLevel(0);
+    const bool need_apply_op =
+        m_incflo->need_velocity_divtau()
+        || m_incflo->useTensorCorrection()
+        || (m_incflo->useTensorSolve()
+            && m_incflo->use_jfnk_tensor_solve);
 #ifdef AMREX_USE_EB
     if (!m_incflo->EBFactory(0).isAllRegular())
     {
@@ -48,7 +75,7 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
                                        m_incflo->get_diffuse_tensor_bc(Orientation::high));
         }
 
-        if (m_incflo->need_velocity_divtau() || m_incflo->useTensorCorrection())
+        if (need_apply_op)
         {
             m_eb_apply_op = std::make_unique<MLEBTensorOp>(m_incflo->Geom(0,finest_level),
                                                  m_incflo->boxArray(0,finest_level),
@@ -74,7 +101,7 @@ NonlinearDiffusionTensorOp::NonlinearDiffusionTensorOp (incflo* a_incflo)
                                         m_incflo->get_diffuse_tensor_bc(Orientation::high));
         }
 
-        if (m_incflo->need_velocity_divtau() || m_incflo->useTensorCorrection())
+        if (need_apply_op)
         {
             m_reg_apply_op = std::make_unique<MLTensorOp>(m_incflo->Geom(0,finest_level),
                                                 m_incflo->boxArray(0,finest_level),
@@ -385,7 +412,7 @@ NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
     bool converged = false;
     bool residual_grew = false;
     int inewt;
-    for (inewt=0; inewt < m_newton_max_iter;) {
+    for (inewt=0; inewt <= m_newton_max_iter;) {
         // Evaluate current residual's norm
         norm_abs = get_norm_of_residual();
         if (inewt == 0) {
@@ -428,6 +455,16 @@ NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
                  << ". SOLVER DIVERGED! relative tolerance = " << norm_rel << "\n";
             break;
         }
+
+        // The residual at iteration m_newton_max_iter has now been checked,
+        // but the configured number of Newton updates has been exhausted.
+        if (inewt >= m_newton_max_iter) {
+            if (m_verbose) {
+                amrex::Print() << "Newton: exiting at iter = " << std::setw(3) << inewt
+                     << ". Maximum iteration reached: iter = " << m_newton_max_iter << "\n";
+            }
+            break;
+        }
         // Update RHS of Newton Iteration
         for (int ilev=0; ilev < nlevels; ++ilev) {
             MultiFab::Copy(rhs_newton[ilev], *m_newton_iter_func[ilev],
@@ -441,13 +478,6 @@ NonlinearDiffusionTensorOp::diffuse_velocity_alpha_factor (
         update_newton_iteration_multifabs(
                       GetVecOfConstPtrs(vel_incrmt_newton));
         inewt++;
-        if (inewt >= m_newton_max_iter) {
-            if (m_verbose) {
-                amrex::Print() << "Newton: exiting at iter = " << std::setw(3) << inewt
-                     << ". Maximum iteration reached: iter = " << m_newton_max_iter << "\n";
-            }
-            break;
-        }
     }  // end of Newton Iteration loop
 
     stats.converged = converged && !residual_grew;
@@ -935,6 +965,10 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
     }
     // Update the member variables
     for (int ilev = 0; ilev < nlevels; ++ilev) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            a_vel[ilev]->nGrow() >= m_nghost_vel,
+            "Nonlinear diffusion requires at least m_nghost_eta + 1 velocity ghost cells");
+
         MultiFab::Copy(*m_density[ilev],*a_density[ilev],
                        0,0,1,m_nghost_density);
 
@@ -997,6 +1031,18 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
     int nlevels = a_vel_increment.size();
     Real norm_old, norm_new;
     norm_old = get_norm_of_residual();
+    auto update_residual = [&] () {
+        if (!m_use_eta_from_prev_time) {
+            m_incflo->compute_viscosity(GetVecOfPtrs(m_eta),
+                                        GetVecOfPtrs(m_density),
+                                        GetVecOfPtrs(m_newton_iter_vel),
+                                        GetVecOfPtrs(m_tracer),
+                                        m_incflo->m_cur_time, m_nghost_eta);
+        }
+        compute_viscous_solve_equation(GetVecOfPtrs(m_newton_iter_func),
+                                       GetVecOfConstPtrs(m_newton_iter_vel));
+        return get_norm_of_residual();
+    };
     // Add the incremental velocity without ghost and covered cells
     increment(GetVecOfPtrs(m_newton_iter_vel),
               a_vel_increment, Real(1.0));
@@ -1005,10 +1051,7 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
         m_newton_iter_vel[ilev]->FillBoundary(
                           m_incflo->Geom(ilev).periodicity());
     }
-    // Update m_newton_iter_func
-    compute_viscous_solve_equation(GetVecOfPtrs(m_newton_iter_func),
-                                   GetVecOfConstPtrs(m_newton_iter_vel));
-    norm_new = get_norm_of_residual();
+    norm_new = update_residual();
 
     if (norm_new >= norm_old) {
         // Update using a factor of lambda
@@ -1027,23 +1070,11 @@ void NonlinearDiffusionTensorOp::update_newton_iteration_multifabs (
                 m_newton_iter_vel[ilev]->FillBoundary(
                                   m_incflo->Geom(ilev).periodicity());
             }
-            // Update m_newton_iter_func
-            compute_viscous_solve_equation(GetVecOfPtrs(m_newton_iter_func),
-                                           GetVecOfConstPtrs(m_newton_iter_vel));
-            norm_new = get_norm_of_residual();
+            norm_new = update_residual();
             if (norm_new < norm_old) {
                 break;
             }
         }
-    }
-
-    if (!m_use_eta_from_prev_time) {
-        // Update m_eta based on m_newton_iter_vel
-        m_incflo->compute_viscosity(GetVecOfPtrs(m_eta),
-                                    GetVecOfPtrs(m_density),
-                                    GetVecOfPtrs(m_newton_iter_vel),
-                                    GetVecOfPtrs(m_tracer),
-                                    m_incflo->m_cur_time, m_nghost_eta);
     }
 }
 
@@ -1075,7 +1106,7 @@ void NonlinearDiffusionTensorOp::compute_preconditioner_eta (
         }
 
         MultiFab scndOrderCoeff(eta[lev]->boxArray(), eta[lev]->DistributionMap(),
-                                m_ncomp_ho, 0, MFInfo(), eta[lev]->Factory());
+                                m_ncomp_ho, 1, MFInfo(), eta[lev]->Factory());
         m_incflo->compute_second_order_coeff(lev, scndOrderCoeff,
                                 *ho_coeff_velocity[lev],
                                 *m_density[lev], *m_conc_second[lev],
@@ -1326,12 +1357,14 @@ Real NonlinearDiffusionTensorOp::dotProduct (VCMFPtr const& v1,
         auto const& v1_arrays    = v1[ilev]->const_arrays();
         auto const& v2_arrays    = v2[ilev]->const_arrays();
         auto const& flag_arrays = factory.getMultiEBCellFlagFab().const_arrays();
+        auto const& fine_mask_arrays = m_norm_fine_mask[ilev]->const_arrays();
         dot_lev = amrex::ParReduce(TypeList<ReduceOpSum>{}, TypeList<Real>{},
                                      *v1[ilev],
                     [=] AMREX_GPU_DEVICE (int box_no, int i, int j, int k)
                     noexcept -> GpuTuple<Real>
                     {
-                        if (!flag_arrays[box_no](i,j,k).isCovered()) {
+                        if (fine_mask_arrays[box_no](i,j,k) != 0 &&
+                            !flag_arrays[box_no](i,j,k).isCovered()) {
                             Real dot_cell = Real(0.);
                             for (int idim=0; idim < numcomp; ++idim) {
                                  dot_cell +=
@@ -1348,7 +1381,11 @@ Real NonlinearDiffusionTensorOp::dotProduct (VCMFPtr const& v1,
         amrex::ParallelDescriptor::ReduceRealSum(&dot_lev, 1);
         dot_all_lev += dot_lev;
 #else
-        dot_all_lev += MultiFab::Dot(*v1[ilev],0,*v2[ilev],0,numcomp,0);
+        dot_lev = amrex::Dot(*m_norm_fine_mask[ilev],
+                             *v1[ilev], 0, *v2[ilev], 0,
+                             numcomp, IntVect(0), true);
+        amrex::ParallelDescriptor::ReduceRealSum(&dot_lev, 1);
+        dot_all_lev += dot_lev;
 #endif
     }
     return dot_all_lev;

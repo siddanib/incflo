@@ -25,6 +25,18 @@ void WriteGranularKEMonitor (Real time, Real kinetic_energy)
             << time << " " << kinetic_energy << "\n";
     }
 }
+
+void WriteTotalMassMonitor (Real time, Real total_mass)
+{
+    if (ParallelDescriptor::IOProcessor()) {
+        std::ofstream ofs("total_mass_monitor.txt", std::ios::out | std::ios::app);
+        if (!ofs.good()) {
+            amrex::FileOpenFailed("total_mass_monitor.txt");
+        }
+        ofs << std::scientific << std::setprecision(17)
+            << time << " " << total_mass << "\n";
+    }
+}
 }
 
 incflo::incflo ()
@@ -122,6 +134,8 @@ void incflo::InitData ()
                 amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", "
                                << granular_ke << "\n";
                 WriteGranularKEMonitor(m_cur_time, granular_ke);
+                const Real mass_total = ComputeTotalMass();
+                WriteTotalMassMonitor(m_cur_time, mass_total);
             }
             else {
                 amrex::Abort("xxxxx m_KE_int todo");
@@ -234,6 +248,8 @@ void incflo::Evolve()
                 amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", "
                                << granular_ke << "\n";
                 WriteGranularKEMonitor(m_cur_time, granular_ke);
+                const Real mass_total = ComputeTotalMass();
+                WriteTotalMassMonitor(m_cur_time, mass_total);
             }
             else {
                 amrex::Print() << "Time, Kinetic Energy: " << m_cur_time << ", " <<

@@ -8,6 +8,26 @@
 #endif
 
 using namespace amrex;
+
+namespace {
+
+constexpr Real vof_clamp_tolerance =
+    Real(64.) * std::numeric_limits<Real>::epsilon();
+constexpr Real vof_neighborhood_tolerance = Real(1.e-6);
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+Real clamp_vof (Real value) noexcept
+{
+    return value >= -vof_clamp_tolerance && value <= vof_clamp_tolerance
+               ? Real(0.)
+         : value >= Real(1.) - vof_clamp_tolerance
+               && value <= Real(1.) + vof_clamp_tolerance
+               ? Real(1.)
+               : value;
+}
+
+}
+
 #define EPS 1e-4
 #define THRESHOLD(c) {if ((c) < 0.) c = 0.; else if ((c) > 1.) c = 1.;}
 #define CELL_IS_FULL(f)             ((f) == 0. || (f) == 1.)
@@ -2332,6 +2352,280 @@ if (0){
 
 }
 
+void
+VolumeOfFluid::redistribute_vof (int lev, MultiFab& tracer)
+{
+    BL_PROFILE("VolumeOfFluid::redistribute_vof");
+
+    Geometry const& geom = v_incflo->Geom(lev);
+    auto const period = geom.periodicity();
+
+#if (AMREX_SPACEDIM == 2)
+    GpuArray<int,4> const ioff{-1, 1, 0, 0};
+    GpuArray<int,4> const joff{ 0, 0,-1, 1};
+    GpuArray<int,4> const koff{ 0, 0, 0, 0};
+#else
+    GpuArray<int,6> const ioff{-1, 1, 0, 0, 0, 0};
+    GpuArray<int,6> const joff{ 0, 0,-1, 1, 0, 0};
+    GpuArray<int,6> const koff{ 0, 0, 0, 0,-1, 1};
+#endif
+
+    // One marks a valid same-level cell or periodic/inter-box image.
+    iMultiFab active_mask(tracer.boxArray(), tracer.DistributionMap(), 1, 1);
+    active_mask.BuildMask(geom.Domain(), period, 1, 0, 0, 1);
+
+    if (lev < v_incflo->finest_level) {
+        iMultiFab fine_mask = makeFineMask(
+            tracer, v_incflo->m_leveldata[lev+1]->tracer, IntVect(1),
+            v_incflo->refRatio(lev), period, 1, 0);
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(active_mask); mfi.isValid(); ++mfi) {
+            Box const& bx = mfi.fabbox();
+            Array4<int> const& active = active_mask.array(mfi);
+            Array4<int const> const& uncovered = fine_mask.const_array(mfi);
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                active(i,j,k) *= uncovered(i,j,k);
+            });
+        }
+    }
+
+#ifdef AMREX_USE_EB
+    EBFArrayBoxFactory const& ebfact = v_incflo->EBFactory(lev);
+    auto const& flags = ebfact.getMultiEBCellFlagFab();
+    MultiFab const& vfrac_mf = ebfact.getVolFrac();
+#endif
+
+    // Freeze donor status before the gather updates tracer in place. Only an
+    // isolated, face-connected full cell may donate. Requiring every valid
+    // neighbor to be below one prevents redistribution from marching into the
+    // full side of an ordinary interface on successive calls.
+    iMultiFab donor_mask(tracer.boxArray(), tracer.DistributionMap(), 1, 1);
+    donor_mask.setVal(0);
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(tracer,TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        Box const& bx = mfi.tilebox();
+        Array4<Real const> const& vof = tracer.const_array(mfi);
+        Array4<int const> const& active = active_mask.const_array(mfi);
+        Array4<int> const& donor = donor_mask.array(mfi);
+#ifdef AMREX_USE_EB
+        Array4<EBCellFlag const> const& flag = flags[mfi].const_array();
+#endif
+
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+            bool cell_is_active = active(i,j,k) != 0;
+#ifdef AMREX_USE_EB
+            cell_is_active = cell_is_active && !flag(i,j,k).isCovered();
+#endif
+            if (!cell_is_active || vof(i,j,k,0) != Real(1.)) {
+                donor(i,j,k) = 0;
+                return;
+            }
+
+            int valid_neighbors = 0;
+            bool all_neighbors_below_one = true;
+            for (int n = 0; n < 2*AMREX_SPACEDIM; ++n) {
+                int const ii = i + ioff[n];
+                int const jj = j + joff[n];
+                int const kk = k + koff[n];
+
+                bool neighbor_is_valid = active(ii,jj,kk) != 0;
+#ifdef AMREX_USE_EB
+                neighbor_is_valid = neighbor_is_valid
+                    && !flag(ii,jj,kk).isCovered()
+                    && flag(i,j,k).isConnected(ioff[n],joff[n],koff[n]);
+#endif
+                if (neighbor_is_valid) {
+                    ++valid_neighbors;
+                    if (vof(ii,jj,kk,0) >= Real(1.)) {
+                        all_neighbors_below_one = false;
+                    }
+                }
+            }
+
+            donor(i,j,k) = valid_neighbors > 0 && all_neighbors_below_one;
+        });
+    }
+    donor_mask.FillBoundary(period);
+
+    // nrs(j) counts the cell's own neighborhood and all donor neighborhoods
+    // that recruit it.
+    iMultiFab nrs(tracer.boxArray(), tracer.DistributionMap(), 1, 1);
+    nrs.setVal(1);
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(tracer,TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        Box const& bx = mfi.tilebox();
+        Array4<Real const> const& vof = tracer.const_array(mfi);
+        Array4<int const> const& active = active_mask.const_array(mfi);
+        Array4<int const> const& donor = donor_mask.const_array(mfi);
+        Array4<int> const& count = nrs.array(mfi);
+#ifdef AMREX_USE_EB
+        Array4<EBCellFlag const> const& flag = flags[mfi].const_array();
+#endif
+
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+            bool cell_is_active = active(i,j,k) != 0;
+#ifdef AMREX_USE_EB
+            cell_is_active = cell_is_active && !flag(i,j,k).isCovered();
+#endif
+            if (!cell_is_active || donor(i,j,k) != 0) {
+                count(i,j,k) = 1;
+                return;
+            }
+
+            int memberships = 1;
+            for (int n = 0; n < 2*AMREX_SPACEDIM; ++n) {
+                int const ii = i + ioff[n];
+                int const jj = j + joff[n];
+                int const kk = k + koff[n];
+
+                bool donor_is_active = active(ii,jj,kk) != 0;
+#ifdef AMREX_USE_EB
+                donor_is_active = donor_is_active
+                    && !flag(ii,jj,kk).isCovered()
+                    && flag(i,j,k).isConnected(ioff[n],joff[n],koff[n]);
+#endif
+                if (donor_is_active && donor(ii,jj,kk) != 0) {
+                    ++memberships;
+                }
+            }
+            count(i,j,k) = memberships;
+        });
+    }
+    nrs.FillBoundary(period);
+
+    // Non-donor neighborhoods are singletons. Only donors need averaging.
+    MultiFab qhat(tracer.boxArray(), tracer.DistributionMap(), 1, 1,
+                  MFInfo(), tracer.Factory());
+    MultiFab::Copy(qhat, tracer, 0, 0, 1, 1);
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(tracer,TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        Box const& bx = mfi.tilebox();
+        Array4<Real const> const& vof = tracer.const_array(mfi);
+        Array4<int const> const& active = active_mask.const_array(mfi);
+        Array4<int const> const& donor = donor_mask.const_array(mfi);
+        Array4<int const> const& count = nrs.const_array(mfi);
+        Array4<Real> const& q = qhat.array(mfi);
+#ifdef AMREX_USE_EB
+        Array4<EBCellFlag const> const& flag = flags[mfi].const_array();
+        Array4<Real const> const& vfrac = vfrac_mf.const_array(mfi);
+#endif
+
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+            bool donor_is_active = active(i,j,k) != 0;
+#ifdef AMREX_USE_EB
+            donor_is_active = donor_is_active && !flag(i,j,k).isCovered();
+#endif
+            if (!donor_is_active || donor(i,j,k) == 0) {
+                return;
+            }
+
+            Real donor_volume = Real(1.);
+#ifdef AMREX_USE_EB
+            donor_volume = vfrac(i,j,k);
+#endif
+            Real weighted_state =
+                donor_volume * vof(i,j,k,0) / Real(count(i,j,k));
+            Real weighted_volume = donor_volume / Real(count(i,j,k));
+            bool has_receiver = false;
+
+            for (int n = 0; n < 2*AMREX_SPACEDIM; ++n) {
+                int const ii = i + ioff[n];
+                int const jj = j + joff[n];
+                int const kk = k + koff[n];
+
+                bool receiver_is_active = active(ii,jj,kk) != 0;
+#ifdef AMREX_USE_EB
+                receiver_is_active = receiver_is_active
+                    && !flag(ii,jj,kk).isCovered()
+                    && flag(i,j,k).isConnected(ioff[n],joff[n],koff[n]);
+#endif
+                if (receiver_is_active && vof(ii,jj,kk,0) < Real(1.)) {
+                    Real receiver_volume = Real(1.);
+#ifdef AMREX_USE_EB
+                    receiver_volume = vfrac(ii,jj,kk);
+#endif
+                    weighted_state += receiver_volume * vof(ii,jj,kk,0)
+                                      / Real(count(ii,jj,kk));
+                    weighted_volume += receiver_volume
+                                       / Real(count(ii,jj,kk));
+                    has_receiver = true;
+                }
+            }
+
+            if (has_receiver) {
+                q(i,j,k,0) = weighted_state / weighted_volume;
+            }
+        });
+    }
+    qhat.FillBoundary(period);
+
+    // Gather all neighborhood states containing a cell. This redistributes the
+    // apportioned sub-volumes without atomics.
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(tracer,TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        Box const& bx = mfi.tilebox();
+        Array4<Real> const& vof = tracer.array(mfi);
+        Array4<int const> const& active = active_mask.const_array(mfi);
+        Array4<int const> const& donor = donor_mask.const_array(mfi);
+        Array4<int const> const& count = nrs.const_array(mfi);
+        Array4<Real const> const& q = qhat.const_array(mfi);
+#ifdef AMREX_USE_EB
+        Array4<EBCellFlag const> const& flag = flags[mfi].const_array();
+#endif
+
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+        {
+            bool cell_is_active = active(i,j,k) != 0;
+#ifdef AMREX_USE_EB
+            cell_is_active = cell_is_active && !flag(i,j,k).isCovered();
+#endif
+            if (!cell_is_active) {
+                return;
+            }
+
+            Real redistributed = q(i,j,k,0);
+            if (count(i,j,k) > 1) {
+                for (int n = 0; n < 2*AMREX_SPACEDIM; ++n) {
+                    int const ii = i + ioff[n];
+                    int const jj = j + joff[n];
+                    int const kk = k + koff[n];
+
+                    bool donor_is_active = active(ii,jj,kk) != 0;
+#ifdef AMREX_USE_EB
+                    donor_is_active = donor_is_active
+                        && !flag(ii,jj,kk).isCovered()
+                        && flag(i,j,k).isConnected(ioff[n],joff[n],koff[n]);
+#endif
+                    if (donor_is_active && donor(ii,jj,kk) != 0) {
+                        redistributed += q(ii,jj,kk,0);
+                    }
+                }
+            }
+
+            vof(i,j,k,0) =
+                clamp_vof(redistributed / Real(count(i,j,k)));
+        });
+    }
+}
+
 /////////////////////////////////////////////////////////////////////////////////////
 ///////
 ///////              Advect the VOF tracer uing geometry-based scheme
@@ -2426,6 +2720,21 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
 // set its initial value to be 1. when the MAC velocity is divergence free, 'vol_eff' will
 // be still one after the sweep of all dimensions.
       vol_eff.setVal(1.0);
+
+      // Classify ghost cells so that the outgoing-flux correction can obtain
+      // dV^(k-1) from the appropriate source. Same-level and periodic ghosts
+      // are filled from vol_eff; coarse/fine ghosts have no valid fine-level
+      // vol_eff and are reconstructed below from the filled MAC velocities.
+      constexpr int level_mask_interior = 0;
+      constexpr int level_mask_covered = 1;
+      constexpr int level_mask_notcovered = 2;
+      constexpr int level_mask_physbnd = 3;
+      iMultiFab level_mask(tracer[lev]->boxArray(),
+                           tracer[lev]->DistributionMap(), 1, 1);
+      level_mask.BuildMask(geom.Domain(), geom.periodicity(),
+                           level_mask_covered, level_mask_notcovered,
+                           level_mask_physbnd, level_mask_interior);
+
       if (advect_temperature) {
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -2442,10 +2751,11 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
         }
         G[lev].FillBoundary(geom.periodicity());
       }
+      int const sweep_start = start;
       for (int d = 0; d < AMREX_SPACEDIM; d++){
     // the starting direction of the sweep for i,j,k direction for vof advection is alternated
     // during the solution to minimize the errors associated with the sweep direction.
-       int dir = (start+d)%AMREX_SPACEDIM;
+       int dir = (sweep_start+d)%AMREX_SPACEDIM;
         // Mask is used to identify cells uncovered by finer mesh
        iMultiFab mask;
        if (lev<v_incflo->finest_level){
@@ -2461,6 +2771,15 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
                                dir >= 2? w_mac[lev]:
 #endif
                                v_mac[lev];
+
+       // Equations (15)--(17) assume that a swept slab does not extend beyond
+       // the upwind cell. Treat roundoff at C=1 through the analytical limit,
+       // but reject a genuine multi-cell Courant number.
+       Real const courant_tolerance = vof_clamp_tolerance;
+       Real const max_courant = U_MF->norm0(0, 0) * dt / dx[dir];
+       if (max_courant > Real(1.) + courant_tolerance) {
+          amrex::Abort("VOF flux correction requires face Courant number <= 1");
+       }
 
        m_fluxes[lev][dir].setVal(0.);
        vof_fluxes[lev][dir].setVal(0.);
@@ -2500,9 +2819,26 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
            Array4<Real const> const& al = ldvof.alpha.const_array(mfi);
            Array4<Real> const& vof_eff_arr = vol_eff.array(mfi);
            Array4<Real const> const& vel_mac_arr =  U_MF->const_array(mfi);
+           Array4<Real const> const& umac_arr = u_mac[lev]->const_array(mfi);
+           Array4<Real const> const& vmac_arr = v_mac[lev]->const_array(mfi);
+#if AMREX_SPACEDIM == 3
+           Array4<Real const> const& wmac_arr = w_mac[lev]->const_array(mfi);
+#endif
            Array4<Real> m_flux_arr   = m_fluxes[lev][dir].array(mfi);
            Array4<Real> vof_flux_arr = vof_fluxes[lev][dir].array(mfi);
            Array4<int const> const& mask_arr =  mask.const_array(mfi);
+           Array4<int const> const& level_mask_arr = level_mask.const_array(mfi);
+           bool const dir_is_periodic = geom.isPeriodic(dir);
+           auto const lo_bc = v_incflo->m_bc_type[
+               Orientation(dir, Orientation::low)];
+           auto const hi_bc = v_incflo->m_bc_type[
+               Orientation(dir, Orientation::high)];
+           bool const lo_is_wall = lo_bc == incflo::BC::no_slip_wall
+                                   || lo_bc == incflo::BC::slip_wall;
+           bool const hi_is_wall = hi_bc == incflo::BC::no_slip_wall
+                                   || hi_bc == incflo::BC::slip_wall;
+           int const domain_lo = geom.Domain().smallEnd(dir);
+           int const domain_hi_face = geom.Domain().bigEnd(dir) + 1;
            // calculate the vof flux by doing the scanning of the cell faces
            // i.e., loop through the node-centered MultiFab.
            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
@@ -2512,6 +2848,23 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
              index_d[dir]-=1;
              if (mask_arr(index[0],index[1],index[2]) ||
                  mask_arr(index_d[0],index_d[1],index_d[2])){
+               int const face_index = dir == 0 ? i : dir == 1 ? j : k;
+
+               // Physical-boundary support is intentionally limited to slip
+               // and no-slip walls, where normal volume and phase fluxes are
+               // zero. Prescribed inflow would require an exterior-reservoir
+               // dV^(k-1) and valid phase/PLIC data. Outflow has an interior
+               // donor and is compatible with Eq. (15), but open-boundary mass
+               // accounting and flow reversal are not validated here, so
+               // non-wall physical faces retain the pre-existing flux path.
+               if (!dir_is_periodic
+                   && ((face_index == domain_lo && lo_is_wall)
+                       || (face_index == domain_hi_face && hi_is_wall))) {
+                  m_flux_arr(i,j,k) = Real(0.);
+                  vof_flux_arr(i,j,k) = Real(0.);
+                  return;
+               }
+
                Real un=vel_mac_arr(i,j,k)*dt/dx[dir], s = (un < 0) ? -1 : (un > 0);
                /* if (fabs (un) > 0.51) {
                 Real x = Real(i+0.5)*dx[0];
@@ -2558,8 +2911,82 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
                 else
                   cf = fvol;
                }
+               Real const courant = amrex::Math::abs(un);
+               Real corrected_flux;
+
+               if (fvol <= Real(0.) || courant <= courant_tolerance) {
+                  corrected_flux = Real(0.);
+               } else if (fvol >= Real(1.)) {
+                  corrected_flux = courant;
+               } else if (courant >= Real(1.) - courant_tolerance) {
+                  // At C=1, Eq. (17)'s n2 is 0/0, but the entire donor cell is
+                  // swept and the analytical outgoing phase flux is alpha.
+                  corrected_flux = fvol;
+               } else {
+                  Real donor_vol_eff =
+                      vof_eff_arr(index[0],index[1],index[2]);
+
+                  if (level_mask_arr(index[0],index[1],index[2])
+                      == level_mask_notcovered) {
+                     // This is a synthetic fine cell in a coarse/fine ghost
+                     // region. It has no evolved fine-level vol_eff. Rebuild
+                     // dV^(k-1) directly from Eq. (13), using the fine MAC
+                     // velocities that incflo has already filled from the
+                     // coarse level. Only directions completed before the
+                     // current sweep contribute.
+                     donor_vol_eff = Real(1.);
+                     for (int previous_sweep = 0;
+                          previous_sweep < d; ++previous_sweep) {
+                        int const previous_dir =
+                            (sweep_start + previous_sweep) % AMREX_SPACEDIM;
+                        Array<int,3> high_face = index;
+                        ++high_face[previous_dir];
+
+                        Real velocity_lo;
+                        Real velocity_hi;
+                        if (previous_dir == 0) {
+                           velocity_lo = umac_arr(
+                               index[0],index[1],index[2]);
+                           velocity_hi = umac_arr(
+                               high_face[0],high_face[1],high_face[2]);
+                        } else if (previous_dir == 1) {
+                           velocity_lo = vmac_arr(
+                               index[0],index[1],index[2]);
+                           velocity_hi = vmac_arr(
+                               high_face[0],high_face[1],high_face[2]);
+#if AMREX_SPACEDIM == 3
+                        } else {
+                           velocity_lo = wmac_arr(
+                               index[0],index[1],index[2]);
+                           velocity_hi = wmac_arr(
+                               high_face[0],high_face[1],high_face[2]);
+#endif
+                        }
+                        donor_vol_eff += dt / dx[previous_dir]
+                            * (velocity_lo - velocity_hi);
+                     }
+                  }
+
+                  Real const raw_flux = courant * cf;
+                  Real const n1 = raw_flux / courant;
+                  Real const n2 =
+                      (fvol - raw_flux) / (Real(1.) - courant);
+                  Real const n =
+                      amrex::Math::abs(n1 - Real(0.5))
+                              >= amrex::Math::abs(n2 - Real(0.5))
+                          ? n1 : n2;
+                  Real const corrected_vol_eff = donor_vol_eff
+                      + (Real(1.) - donor_vol_eff) * n;
+
+                  // Lörstad and Fuchs (2004), Eqs. (15)--(17). The
+                  // correction is formed as a positive outgoing flux and its
+                  // spatial sign is restored below.
+                  corrected_flux = donor_vol_eff * (raw_flux - courant)
+                      + corrected_vol_eff * courant;
+               }
+
                m_flux_arr(i,j,k) = un;
-               vof_flux_arr(i,j,k) = un*cf;
+               vof_flux_arr(i,j,k) = s * corrected_flux;
              }
             }); //  end ParallelFor
 
@@ -2648,13 +3075,17 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
                 G_arr(i,j,k)+=G_flux_arr(i,j,k)-G_flux_arr(nr[0],nr[1],nr[2]);
                 vof_eff_arr(i,j,k)+= m_flux_arr(i,j,k)-m_flux_arr(nr[0],nr[1],nr[2]);
                 Real f;
-                if (vof_eff_arr(i,j,k) > Real(1e-10)) {
-                  f = vof(i,j,k)/vof_eff_arr(i,j,k);
-                  G_arr(i,j,k) /= vof_eff_arr(i,j,k);
-                } else {
-                  f = vof(i,j,k);
-                }
-                vof(i,j,k)= f< 1e-10? 0.:f>1.-1e-10? 1.:f;
+                //if (vof_eff_arr(i,j,k) > Real(1e-10)) {
+                //  f = vof(i,j,k)/vof_eff_arr(i,j,k);
+                //  G_arr(i,j,k) /= vof_eff_arr(i,j,k);
+                //} else {
+                //  f = vof(i,j,k);
+                //}
+                // vof_eff_arr should not go to 0;
+                // See eq 13 and 14 in Lörstad, D., & Fuchs, L. JCP (2004).
+                f = vof(i,j,k)/vof_eff_arr(i,j,k);
+                G_arr(i,j,k) /= vof_eff_arr(i,j,k);
+                vof(i,j,k) = clamp_vof(f);
               }
             }); //  end ParallelFor
           }// end MFIter
@@ -2681,11 +3112,14 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
                 vof(i,j,k)+=vof_flux_arr(i,j,k)-vof_flux_arr(nr[0],nr[1],nr[2]);
                 vof_eff_arr(i,j,k)+= m_flux_arr(i,j,k)-m_flux_arr(nr[0],nr[1],nr[2]);
                 Real f;
-                if (vof_eff_arr(i,j,k) > Real(1e-10))
-                  f = vof(i,j,k)/vof_eff_arr(i,j,k);
-                else
-                  f = vof(i,j,k);
-                vof(i,j,k)= f< 1e-10? 0.:f>1.-1e-10? 1.:f;
+                //if (vof_eff_arr(i,j,k) > Real(1e-10))
+                //  f = vof(i,j,k)/vof_eff_arr(i,j,k);
+                //else
+                //  f = vof(i,j,k);
+                // vof_eff_arr should not go to 0;
+                // See eq 13 and 14 in Lörstad, D., & Fuchs, L. JCP (2004).
+                f = vof(i,j,k)/vof_eff_arr(i,j,k);
+                vof(i,j,k) = clamp_vof(f);
               /*  if (f > 0. && f < 1.)
                   Print() <<" vof_advection---dir "<<dir<<"  "<<vof_eff_arr(i,j,k)<<"  "
                         <<"("<<i<<","<<j<<","<<k<<")"<<"vof"<<"  "<<f<<"  "
@@ -2695,15 +3129,202 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
             }); //  end ParallelFor
           }// end MFIter
         }
+#ifdef AMREX_DEBUG
+        Real const raw_vof_min = tracer[lev]->min(0, 0);
+        Real const raw_vof_max = tracer[lev]->max(0, 0);
+        if (raw_vof_min < -vof_clamp_tolerance
+            || raw_vof_max > Real(1.) + vof_clamp_tolerance) {
+          amrex::Abort(
+              "VOF flux correction produced a material bound violation");
+        }
+#endif
+        // Eq. (15) in the next directional sweep may read the upwind donor
+        // through another FAB or a periodic image. Publish the just-updated
+        // valid dV values before constructing those face fluxes.
+        vol_eff.FillBoundary(geom.periodicity());
+
         //fixme: temporary solution for MPI boundary
         tracer[lev]->FillBoundary(geom.periodicity());
-        v_incflo->fillphysbc_tracer(lev, 0., *tracer[lev], 1);
+        v_incflo->fillphysbc_tracer(lev, 0., *tracer[lev], v_incflo->nghost_state());
         if (advect_temperature) {
           G[lev].FillBoundary(geom.periodicity());
         }
         // update the normal and alpha of the plane in each interface cell after each sweep
         tracer_vof_update (lev, *tracer[lev], ldvof.height);
       }// end i-,j-,k-sweep: calculation of vof advection
+
+      if (v_incflo->m_vof_redistribution) {
+        redistribute_vof(lev, *tracer[lev]);
+        // The isolated-cell fix must see redistributed values across boxes.
+        tracer[lev]->FillBoundary(geom.periodicity());
+        v_incflo->fillphysbc_tracer(
+            lev, 0., *tracer[lev], v_incflo->nghost_state());
+      }
+
+      // This block removes isolated tracer cells
+      const bool has_granular_powerlaw_ho =
+          (v_incflo->m_fluid_model_second == incflo::FluidModel::GranularPowerlaw
+           && v_incflo->m_mu_powerlaw.size() > 1)
+          || (v_incflo->m_fluid_model_second
+                  == incflo::FluidModel::GranularPowerlawTemperature
+              && v_incflo->m_mu_powerlaw_temperature.size() > 1);
+      if (has_granular_powerlaw_ho) {
+        MultiFab dup_tracer(tracer[lev]->boxArray(), tracer[lev]->DistributionMap(),
+                            1, 0, MFInfo(),
+                            tracer[lev]->Factory());
+        MultiFab::Copy(dup_tracer, *tracer[lev], 0, 0, 1, 0);
+        // Need this info to avoid including physical ghost cells
+        auto lev_geom = v_incflo->Geom(lev);
+        Box const& domain = lev_geom.Domain();
+        GpuArray<int, AMREX_SPACEDIM> const domain_lo = {
+            AMREX_D_DECL(domain.smallEnd(0), domain.smallEnd(1), domain.smallEnd(2))};
+        GpuArray<int, AMREX_SPACEDIM> const domain_hi = {
+            AMREX_D_DECL(domain.bigEnd(0), domain.bigEnd(1), domain.bigEnd(2))};
+        GpuArray<bool, AMREX_SPACEDIM> is_periodic;
+        AMREX_D_TERM(is_periodic[0] = lev_geom.isPeriodic(0);,
+                     is_periodic[1] = lev_geom.isPeriodic(1);,
+                     is_periodic[2] = lev_geom.isPeriodic(2););
+#ifdef AMREX_USE_EB
+        const auto& factory =
+          dynamic_cast<EBFArrayBoxFactory const&>(dup_tracer.Factory());
+        auto const& flags = factory.getMultiEBCellFlagFab();
+#endif
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(dup_tracer,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            Array4<Real> const& dup_tra_arr = dup_tracer.array(mfi);
+            Array4<Real const> const& tra_arr = tracer[lev]->const_array(mfi);
+#ifdef AMREX_USE_EB
+            auto const& flag_fab = flags[mfi];
+            auto typ = flag_fab.getType(bx);
+            if (typ == FabType::covered)
+            {
+                continue;
+            }
+            else if (typ == FabType::singlevalued)
+            {
+                auto const& flag_arr = flag_fab.const_array();
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    if (flag_arr(i,j,k).isCovered()) {
+                        return;
+                    }
+                    int valid_neigh_cells = 0;
+                    Real valid_neigh_sum = Real(0.);
+                    int i_start = i-1; int i_end = i+1;
+                    int j_start = j-1; int j_end = j+1;
+                    int k_start = 0; int k_end = 0;
+#if (AMREX_SPACEDIM == 3)
+                    k_start = k-1; k_end = k+1;
+#endif
+                    for (int i_l = i_start; i_l <= i_end; i_l++) {
+                       for (int j_l=j_start; j_l <= j_end; j_l++) {
+                          for ( int k_l=k_start; k_l <= k_end; k_l++) {
+                              if ((i_l == i) && (j_l == j) && (k_l == k)) {
+                                 continue;
+                              }
+                              if (i_l < domain_lo[0] && (!is_periodic[0])) {
+                                continue;
+                              }
+                              if (i_l > domain_hi[0] && (!is_periodic[0])) {
+                                continue;
+                              }
+                              if (j_l < domain_lo[1] && (!is_periodic[1])) {
+                                continue;
+                              }
+                              if (j_l > domain_hi[1] && (!is_periodic[1])) {
+                                continue;
+                              }
+#if (AMREX_SPACEDIM == 3)
+                              if (k_l < domain_lo[2] && (!is_periodic[2])) {
+                                continue;
+                              }
+                              if (k_l > domain_hi[2] && (!is_periodic[2])) {
+                                continue;
+                              }
+#endif
+                              if (!flag_arr(i_l,j_l,k_l).isCovered()) {
+                                valid_neigh_cells += 1;
+                                valid_neigh_sum += tra_arr(i_l,j_l,k_l,0);
+                              }
+                          }
+                       }
+                    }
+                    if (valid_neigh_sum < vof_neighborhood_tolerance && valid_neigh_cells > 0) {
+                       dup_tra_arr(i,j,k,0) = Real(0.);
+                    }
+                    if (std::abs(Real(valid_neigh_cells)-valid_neigh_sum) < vof_neighborhood_tolerance) {
+                       dup_tra_arr(i,j,k,0) = Real(1.);
+                    }
+                });
+            }
+            else
+#endif
+            {
+                ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                {
+                    int valid_neigh_cells = 0;
+                    Real valid_neigh_sum = Real(0.);
+                    int i_start = i-1; int i_end = i+1;
+                    int j_start = j-1; int j_end = j+1;
+                    int k_start = 0; int k_end = 0;
+#if (AMREX_SPACEDIM == 3)
+                    k_start = k-1; k_end = k+1;
+#endif
+                    for (int i_l = i_start; i_l <= i_end; i_l++) {
+                       for (int j_l=j_start; j_l <= j_end; j_l++) {
+                          for ( int k_l=k_start; k_l <= k_end; k_l++) {
+                              if ((i_l == i) && (j_l == j) && (k_l == k)) {
+                                 continue;
+                              }
+                              if (i_l < domain_lo[0] && (!is_periodic[0])) {
+                                continue;
+                              }
+                              if (i_l > domain_hi[0] && (!is_periodic[0])) {
+                                continue;
+                              }
+                              if (j_l < domain_lo[1] && (!is_periodic[1])) {
+                                continue;
+                              }
+                              if (j_l > domain_hi[1] && (!is_periodic[1])) {
+                                continue;
+                              }
+#if (AMREX_SPACEDIM == 3)
+                              if (k_l < domain_lo[2] && (!is_periodic[2])) {
+                                continue;
+                              }
+                              if (k_l > domain_hi[2] && (!is_periodic[2])) {
+                                continue;
+                              }
+#endif
+                              valid_neigh_cells += 1;
+                              valid_neigh_sum += tra_arr(i_l,j_l,k_l,0);
+                          }
+                       }
+                    }
+                    if (valid_neigh_sum < vof_neighborhood_tolerance && valid_neigh_cells > 0) {
+                       dup_tra_arr(i,j,k,0) = Real(0.);
+                    }
+                    if (std::abs(Real(valid_neigh_cells)-valid_neigh_sum) < vof_neighborhood_tolerance) {
+                       dup_tra_arr(i,j,k,0) = Real(1.);
+                    }
+                });
+            }
+        }
+        MultiFab::Copy(*tracer[lev], dup_tracer,0,0,1,0);
+        // Changes made so fills are needed
+        tracer[lev]->FillBoundary(geom.periodicity());
+        v_incflo->fillphysbc_tracer(lev, 0., *tracer[lev], v_incflo->nghost_state());
+        // update the normal and alpha of the plane in each interface cell
+        tracer_vof_update (lev, *tracer[lev], ldvof.height);
+      } // End of isolated cell fix
+      else if (v_incflo->m_vof_redistribution) {
+        tracer_vof_update (lev, *tracer[lev], ldvof.height);
+      }
 
       if (advect_temperature) {
         recover_temperature(lev);

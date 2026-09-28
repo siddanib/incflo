@@ -44,11 +44,12 @@ void incflo::MakeNewLevelFromCoarse (int lev,
         new_leveldata->p_nd.setVal(0.0);
     }
 
-    m_leveldata[lev] = std::move(new_leveldata);
-    m_factory[lev] = std::move(new_fact);
-
     m_diffusion_tensor_op.reset();
     m_diffusion_scalar_op.reset();
+    m_nonlin_diffusion_tensor_op.reset();
+
+    m_leveldata[lev] = std::move(new_leveldata);
+    m_factory[lev] = std::move(new_fact);
     if (m_vof_advect_tracer){
       std::unique_ptr<VolumeOfFluid::LevelData> new_leveldata_vof
                  (new VolumeOfFluid::LevelData(ba, dm, *m_factory[lev], this));
@@ -114,6 +115,10 @@ void incflo::RemakeLevel (int lev, Real time, const BoxArray& ba,
         new_leveldata->p_nd.setVal(0.0);
     }
 
+    m_diffusion_tensor_op.reset();
+    m_diffusion_scalar_op.reset();
+    m_nonlin_diffusion_tensor_op.reset();
+
     m_leveldata[lev] = std::move(new_leveldata);
     m_factory[lev] = std::move(new_fact);
 
@@ -132,8 +137,6 @@ void incflo::RemakeLevel (int lev, Real time, const BoxArray& ba,
 
     //make_mixedBC_mask(lev, ba, dm);
 
-    m_diffusion_tensor_op.reset();
-    m_diffusion_scalar_op.reset();
     if (m_vof_advect_tracer){
       std::unique_ptr<VolumeOfFluid::LevelData> new_leveldata_vof
                  (new VolumeOfFluid::LevelData(ba, dm, *m_factory[lev], this));
@@ -203,10 +206,12 @@ incflo::get_mac_projector ()
 void incflo::ClearLevel (int lev)
 {
     BL_PROFILE("incflo::ClearLevel()");
-    m_leveldata[lev].reset();
-    m_factory[lev].reset();
     m_diffusion_tensor_op.reset();
     m_diffusion_scalar_op.reset();
+    m_nonlin_diffusion_tensor_op.reset();
+
+    m_leveldata[lev].reset();
+    m_factory[lev].reset();
     macproj.reset();
     if (m_vof_advect_tracer){
         ptr_VOF->m_leveldata[lev].reset();

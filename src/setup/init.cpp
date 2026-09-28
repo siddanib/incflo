@@ -195,6 +195,10 @@ void incflo::ReadParameters ()
             pp.query("modified_time_stepping_include_ho_forces_in_cfl",
                      m_modified_time_stepping_include_ho_forces_in_cfl);
             if (m_gran_rheo_modified_time_stepping) {
+                if (m_diff_type == DiffusionType::Explicit) {
+                    amrex::Abort(
+                        "modified_time_stepping requires Crank-Nicolson or implicit diffusion");
+                }
                 if (m_modified_time_stepping_include_ho_forces_in_cfl &&
                     m_modified_time_stepping_constant != amrex::Real(0.0)) {
                     amrex::Print()
@@ -229,6 +233,7 @@ void incflo::ReadParameters ()
 
         //vof parameters
         pp.query("vof_advect_tracer", m_vof_advect_tracer);
+        pp.query("vof_redistribution", m_vof_redistribution);
         if (m_vof_advect_tracer && m_advect_tracer) {
             amrex::Abort("incflo.vof_advect_tracer and incflo.advect_tracer cannot both be true");
         }
