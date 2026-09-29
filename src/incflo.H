@@ -106,7 +106,7 @@ public:
     // Delete level data
     void ClearLevel (int lev) override;
 
-    void ComputeDt (int initialization, bool explicit_diffusion);
+    void ComputeDt (int initialization, bool explicit_diffusion, double cur_time);
 
     amrex::Real vol_wgt_sum (amrex::Vector<amrex::MultiFab*> const& mf, int icomp);
 
@@ -143,13 +143,13 @@ public:
     amrex::iMultiFab make_nodalBC_mask (int lev);
     amrex::Vector<amrex::MultiFab> make_robinBC_MFs(int lev, amrex::MultiFab* state = nullptr);
 
-    void set_inflow_velocity (int lev, amrex::Real time, amrex::MultiFab& vel, int nghost);
-
 #ifdef AMREX_USE_EB
     void set_eb_velocity (int lev, amrex::Real time, amrex::MultiFab& eb_vel, int nghost);
     void set_eb_density (int lev, amrex::Real time, amrex::MultiFab& eb_density, int nghost);
     void set_eb_tracer (int lev, amrex::Real time, amrex::MultiFab& eb_tracer, int nghost);
     void set_eb_temperature (int lev, amrex::Real time, amrex::MultiFab& eb_temperature, int nghost);
+    // Fill the EB Dirichlet data at m_t_old on all levels
+    void set_eb_bcs ();
 #endif
 
     ///////////////////////////////////////////////////////////////////////////
@@ -381,9 +381,6 @@ public:
                                       amrex::Array4<amrex::Real> const& robin_f,
                                       amrex::Array4<amrex::Real const> const& bcval,
                                       int lev);
-
-    void prob_set_inflow_velocity (int grid_id, amrex::Orientation ori, amrex::Box const& bx,
-                                   amrex::Array4<amrex::Real> const& v, int lev, amrex::Real time);
 
 #include "incflo_prob_I.H"
 #include "incflo_prob_usr_I.H"
@@ -790,7 +787,7 @@ private:
     amrex::Real m_papa_reg = 0.0;
     //! Lower bound on the strain rate used by the power-law viscosity, so that
     //! eta = mu*sr^(n-1) stays finite (and non-zero) at zero strain rate
-    amrex::Real m_sr_floor = 1.e-9;
+    amrex::Real m_sr_floor = amrex::Real(1.e-9);
     amrex::Real m_eta_0 = 0.0;
     amrex::Real m_eta_min = amrex::Real(0.0);
     amrex::Real m_eta_max = amrex::Real(1.0e+20);
@@ -1294,7 +1291,7 @@ private:
     void copy_from_old_to_new_tracer   (int lev, amrex::IntVect const& ng = amrex::IntVect{0});
     void copy_from_old_to_new_temperature (      amrex::IntVect const& ng = amrex::IntVect{0});
 
-    void Advance ();
+    void Advance (double cur_time);
     [[nodiscard]] bool writeNow () {
         return writeNow(m_plot_int, m_plot_per_approx, m_plot_per_exact); }
     [[nodiscard]] bool writeNow (int a_plot_int, amrex::Real a_plot_per_approx,

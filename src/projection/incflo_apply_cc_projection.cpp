@@ -75,8 +75,6 @@ average_ccvel_to_mac (const Array<MultiFab*,AMREX_SPACEDIM>& fc, const MultiFab&
                    }
                    if (ybx.contains(i,j,k) and n == 1) {
                        fyarr(i,j,k) = Real(0.5)*(ccarr(i,j-1,k,n) + ccarr(i,j,k,n));
-                //       Print()<<fyarr(i,j,k)<<" ("<<i<<", "<<j<<") "
-                //   <<ccarr(i,j,k,1)<<", "<<ccarr(i,j-1,k,1)<<"\n";
                    }
                 });
 #else
@@ -242,16 +240,12 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
         }
     }
 
-    auto bclo = get_mac_projection_bc(Orientation::low);
-    auto bchi = get_mac_projection_bc(Orientation::high);
+    auto bclo = get_projection_bc(Orientation::low);
+    auto bchi = get_projection_bc(Orientation::high);
 
     Vector<MultiFab*> vel;
     for (int lev = 0; lev <= finest_level; ++lev) {
         vel.push_back(&(m_leveldata[lev]->velocity));
-        /*vel[lev]->setBndry(0.0);
-        if (!proj_for_small_dt && !incremental) {
-            set_inflow_velocity(lev, time, *vel[lev], 1);
-        }*/
         fillpatch_velocity(lev, m_t_new[lev], *vel[lev], 1);
     }
 
@@ -317,12 +311,12 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
 
     //
     // Initialize (or redefine the beta in) the MacProjector
-    if (get_mac_projector()->needInitialization())
+    if (macproj->needInitialization())
     {
         LPInfo lp_info;
         lp_info.setMaxCoarseningLevel(m_mac_mg_max_coarsening_level);
 #ifndef AMREX_USE_EB
-        if (m_constant_density&&!m_vof_advect_tracer) {
+        if (m_constant_density && !m_vof_advect_tracer) {
             Vector<BoxArray> ba;
             Vector<DistributionMapping> dm;
             for (auto const& ir : inv_rho) {
@@ -335,41 +329,48 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
         {
             macproj->initProjector(lp_info, GetVecOfArrOfConstPtrs(inv_rho));
         }
+        macproj->setDomainBC(bclo, bchi);
     } else {
 #ifndef AMREX_USE_EB
-        if (m_constant_density&&!m_vof_advect_tracer) {
+        if (m_constant_density && !m_vof_advect_tracer) {
             macproj->updateBeta(scaling_factor/m_ro_0);  // unnecessary unless m_ro_0 changes.
         } else
 #endif
         {
-            macproj->updateCoeffs(GetVecOfArrOfConstPtrs(inv_rho));
-        }
-    }
-
-    macproj->setDomainBC(bclo, bchi);
-    if (m_has_mixedBC) {
-        for (int lev = 0; lev <= finest_level; ++lev) {
-            auto const robin = make_robinBC_MFs(lev);
-            macproj->setLevelBC(lev, nullptr, &robin[0], &robin[1], &robin[2]);
+            macproj->updateBeta(GetVecOfArrOfConstPtrs(inv_rho));
         }
     }
 
     Vector<MultiFab> cc_phi(finest_level+1);
     Vector<MultiFab> cc_gphi(finest_level+1);
-    for (int lev = 0; lev <= finest_level; ++lev) {
+    for (int lev = 0; lev <= finest_level; ++lev )
+    {
         cc_phi[lev].define(grids[lev], dmap[lev], 1, 1, MFInfo(), Factory(lev));
         cc_gphi[lev].define(grids[lev], dmap[lev], AMREX_SPACEDIM, 0, MFInfo(), Factory(lev));
         cc_phi[lev].setVal(0.);
         cc_gphi[lev].setVal(0.);
     }
-    auto cc_phi_ptrs = GetVecOfPtrs(cc_phi);
 
+    // Scratch face velocities for the projection.  The u_mac/v_mac/w_mac passed in
+    // are the caller's MAC-projected half-time velocities, which the caller still
+    // needs after this routine (tracer particle advection, small-cell correction),
+    // so they must not be overwritten here.
+    Vector<Array<MultiFab,AMREX_SPACEDIM> > umac_proj(finest_level+1);
     Vector<Array<MultiFab*,AMREX_SPACEDIM> > mac_vec(finest_level+1);
     for (int lev=0; lev <= finest_level; ++lev)
     {
-        AMREX_D_TERM(mac_vec[lev][0] = u_mac[lev];,
-                     mac_vec[lev][1] = v_mac[lev];,
-                     mac_vec[lev][2] = w_mac[lev];);
+        AMREX_D_TERM(umac_proj[lev][0].define(u_mac[lev]->boxArray(), dmap[lev], 1,
+                                              u_mac[lev]->nGrow(), MFInfo(), Factory(lev));,
+                     umac_proj[lev][1].define(v_mac[lev]->boxArray(), dmap[lev], 1,
+                                              v_mac[lev]->nGrow(), MFInfo(), Factory(lev));,
+                     umac_proj[lev][2].define(w_mac[lev]->boxArray(), dmap[lev], 1,
+                                              w_mac[lev]->nGrow(), MFInfo(), Factory(lev)););
+        AMREX_D_TERM(umac_proj[lev][0].setVal(0.);,
+                     umac_proj[lev][1].setVal(0.);,
+                     umac_proj[lev][2].setVal(0.););
+        AMREX_D_TERM(mac_vec[lev][0] = &umac_proj[lev][0];,
+                     mac_vec[lev][1] = &umac_proj[lev][1];,
+                     mac_vec[lev][2] = &umac_proj[lev][2];);
     }
 
     Vector<MultiFab> sfu_mac(finest_level+1), sfv_mac(finest_level+1), sfw_mac(finest_level+1);
@@ -379,10 +380,9 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
         // Predict normal velocity to faces -- note that the {u_mac, v_mac, w_mac}
         //    returned from this call are on face CENTROIDS
         vel[lev]->FillBoundary(geom[lev].periodicity());
-        // Bhargav, Look into the compiler flag here more carefully
-#if 0
+#if 1
         MOL::ExtrapVelToFaces(*vel[lev],
-                              AMREX_D_DECL(*u_mac[lev], *v_mac[lev], *w_mac[lev]),
+                              AMREX_D_DECL(*mac_vec[lev][0], *mac_vec[lev][1], *mac_vec[lev][2]),
                               geom[lev],
                               get_velocity_bcrec(), get_velocity_bcrec_device_ptr());
 
@@ -414,7 +414,7 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
     //
     // Perform MAC projection:  - del dot (dt/rho) grad phi = div(U)
     //
-    macproj->project(cc_phi_ptrs,m_mac_mg_rtol,m_mac_mg_atol);
+    macproj->project(GetVecOfPtrs(cc_phi),m_mac_mg_rtol,m_mac_mg_atol);
 
     //
     // After the projection we grab the dt/rho (grad phi) used in the projection
@@ -435,19 +435,18 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
     // Note that "fluxes" comes back as MINUS (dt/rho) Gphi
     //
 #ifdef AMREX_USE_EB
-    macproj->getFluxes(amrex::GetVecOfArrOfPtrs(m_fluxes), cc_phi_ptrs, MLMG::Location::FaceCentroid);
+    macproj->getFluxes(amrex::GetVecOfArrOfPtrs(m_fluxes), GetVecOfPtrs(cc_phi), MLMG::Location::FaceCentroid);
 #else
-    macproj->getFluxes(amrex::GetVecOfArrOfPtrs(m_fluxes), cc_phi_ptrs, MLMG::Location::FaceCenter);
+    macproj->getFluxes(amrex::GetVecOfArrOfPtrs(m_fluxes), GetVecOfPtrs(cc_phi), MLMG::Location::FaceCenter);
 #endif
 
     for (int lev=0; lev <= finest_level; ++lev)
     {
-    // Bhargav, Take a look at this compiler flag
-//#ifdef AMREX_USE_EB
-//        amrex::Abort("Haven't written mac_to_ccvel for EB");
-//#else
+#ifdef AMREX_USE_EB
+        amrex::Abort("Haven't written mac_to_ccvel for EB");
+#else
         average_mac_to_ccvel(GetArrOfPtrs(m_fluxes[lev]),cc_gphi[lev]);
-//#endif
+#endif
     }
     bool const vof_advect_tracer = m_vof_advect_tracer;
     // compute the cell-centered surface tension term (see note in VolumeOfFluid:: velocity_face_source)
@@ -480,7 +479,7 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
 
             Real r0 = m_ro_0;
 
-            amrex::ParallelFor(tbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            amrex::ParallelFor(tbx, [u,gphi,p_cc,phi,incremental,gsf,vof_advect_tracer] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
                 AMREX_D_TERM(u(i,j,k,0) += gphi(i,j,k,0);,
                              u(i,j,k,1) += gphi(i,j,k,1);,
@@ -497,7 +496,7 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
                     p_cc (i,j,k)  = phi(i,j,k);
             });
 
-            if (incremental && m_constant_density&&!m_vof_advect_tracer) {
+            if (incremental && m_constant_density && !m_vof_advect_tracer) {
                 amrex::ParallelFor(tbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
                 {
                     AMREX_D_TERM(gp_cc(i,j,k,0) -= gphi(i,j,k,0) * r0 / scaling_factor;,
@@ -538,8 +537,7 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
         ld.p_cc.FillBoundary(geom[lev].periodicity());
     }
 
-//get_volume_of_fluid()->WriteTecPlotFile (m_cur_time,m_nstep);
-//amrex::Abort("finish initial projection");
+    //get_volume_of_fluid()->WriteTecPlotFile (m_cur_time,m_nstep);
 
     // ***************************************************************************************
     // END OF MAC STUFF
@@ -566,9 +564,9 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
         amrex::average_down(m_leveldata[lev+1]->gp, m_leveldata[lev]->gp,
                             0, AMREX_SPACEDIM, refRatio(lev));
         amrex::average_down(m_leveldata[lev+1]->velocity, m_leveldata[lev]->velocity,
-                               0, AMREX_SPACEDIM, refRatio(lev));
+                            0, AMREX_SPACEDIM, refRatio(lev));
         amrex::average_down(m_leveldata[lev+1]->p_cc, m_leveldata[lev]->p_cc,
-                               0, 1, refRatio(lev));
+                            0, 1, refRatio(lev));
 #endif
     }
 }

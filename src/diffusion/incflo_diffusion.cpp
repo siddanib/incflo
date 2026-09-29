@@ -116,7 +116,7 @@ incflo::compute_laps_T(Vector<MultiFab      *> const& laps,
                        Vector<MultiFab const*> const& eta)
 {
     get_diffusion_scalar_op()->compute_laps(laps, scalar, eta, get_temperature_eb(),
-                                            get_temperature_bcrec());
+                                            get_temperature_bcrec(), true);
 }
 
 void
@@ -141,7 +141,7 @@ incflo::diffuse_temperature(Vector<MultiFab      *> const& temperature,
                                               get_temperature_eb(),
                                               {1} /* use rhocp */,
                                               get_temperature_bcrec(), dt_diff,
-                                              overset_mask);
+                                              overset_mask, true);
 }
 
 void
@@ -230,6 +230,14 @@ incflo::get_diffuse_tensor_bc (Orientation::Side side) const noexcept
                 r[dir][dir] = LinOpBCType::Dirichlet;
                 break;
             }
+            case BC::mixed:
+            {
+                // Neither MLTensorOp nor MLEBTensorOp implements Robin BCs, so the
+                // mixed BC can only be done by the component-wise velocity solve.
+                amrex::Abort("get_diffuse_tensor_bc: mixed BCs are not supported by the "
+                             "tensor solve; set incflo.use_tensor_solve = false");
+                break;
+            }
             default:
                 amrex::Abort("get_diffuse_tensor_bc: undefined BC type");
             };
@@ -288,7 +296,7 @@ incflo::get_diffuse_velocity_bc (Orientation::Side side, int comp) const noexcep
                 break;
             }
             default:
-                amrex::Abort("get_diffuse_tensor_bc: undefined BC type");
+                amrex::Abort("get_diffuse_velocity_bc: undefined BC type");
             };
         }
     }
@@ -362,6 +370,7 @@ incflo::average_velocity_eta_to_faces (int lev, MultiFab const& cc_eta) const
     //      (this should be the same for scalar and eta)
     EB_interp_CellCentroid_to_FaceCentroid (cc_eta, GetArrOfPtrs(r), 0, 0, 1, geom[lev],
                                             get_tracer_bcrec());
+    EB_set_covered_faces(GetArrOfPtrs(r), Real(0.0));
     // amrex::average_cellcenter_to_face(GetArrOfPtrs(r), cc_eta, Geom(lev));
 #else
     amrex::average_cellcenter_to_face(GetArrOfPtrs(r), cc_eta, Geom(lev));
@@ -466,6 +475,7 @@ incflo::average_scalar_eta_to_faces (int lev, int comp, MultiFab const& cc_eta) 
 #ifdef AMREX_USE_EB
     EB_interp_CellCentroid_to_FaceCentroid (cc, GetArrOfPtrs(r), 0, 0, 1, geom[lev],
                                             get_tracer_bcrec());
+    EB_set_covered_faces(GetArrOfPtrs(r), Real(0.0));
 #else
     amrex::average_cellcenter_to_face(GetArrOfPtrs(r), cc, Geom(lev));
 #endif

@@ -45,8 +45,6 @@ void incflo_PC::readInputs ()
 
     m_advect_w_flow = (m_name == incfloParticleNames::tracers ? true : false);
     pp.query("advect_with_flow", m_advect_w_flow);
-
-    return;
 }
 
 /*! Initialize particles in domain */
@@ -71,7 +69,6 @@ void incflo_PC::InitializeParticles (
                 << m_name << " particle species.\n";
         Error("See error message!");
     }
-    return;
 }
 
 /*! Uniform distribution: the number of particles per grid cell is specified
@@ -132,7 +129,7 @@ void incflo_PC::initializeParticlesUniformDistributionInBox ( const RealBox& par
 
         int np = 0;
         {
-            int ncell = num_particles[mfi].numPts();
+            int ncell = static_cast<int>(num_particles[mfi].numPts());
             const int* in = num_particles[mfi].dataPtr();
             int* out = offsets[mfi].dataPtr();
             np = Scan::PrefixSum<int>( ncell,
@@ -145,7 +142,7 @@ void incflo_PC::initializeParticlesUniformDistributionInBox ( const RealBox& par
 
         auto& particle_tile = DefineAndReturnParticleTile(lev, mfi);
         particle_tile.resize(np);
-        auto aos = &particle_tile.GetArrayOfStructs()[0];
+        auto* aos = &particle_tile.GetArrayOfStructs()[0];
         auto& soa = particle_tile.GetStructOfArrays();
         AMREX_D_TERM(auto* vx_ptr = soa.GetRealData(incflo_ParticlesRealIdxSoA::vx).data();,
                      auto* vy_ptr = soa.GetRealData(incflo_ParticlesRealIdxSoA::vy).data();,
@@ -238,11 +235,12 @@ void incflo_PC::initializeParticlesUniformDistributionInBox ( const RealBox& par
         Real z_ctr = cyl_center[2];
 #endif
 
-        // The cylinder axis matters here exactly as it does in AdvectWithFlow;
-        // assuming a z-parallel axis culls against the wrong axis for direction 0/1.
+        // The cylinder axis matters here exactly as it does in AdvectWithFlow,
+        // which accepts 0, 1 and 2 in both 2D and 3D; the culling below must
+        // use the same distance for each direction.
         int cyl_direction;
         pp.get("direction",cyl_direction);
-        AMREX_ALWAYS_ASSERT(cyl_direction >= 0 && cyl_direction < AMREX_SPACEDIM);
+        AMREX_ALWAYS_ASSERT(cyl_direction >= 0 && cyl_direction <= 2);
 
         // Remove particles that are outside of the cylinder
         for (ParIterType pti(*this, lev); pti.isValid(); ++pti)
@@ -264,8 +262,11 @@ void incflo_PC::initializeParticlesUniformDistributionInBox ( const RealBox& par
                        : (cyl_direction == 1) ? std::sqrt(x*x + z*z)
                                               : std::sqrt(x*x + y*y);
 #else
-                // In 2D the only cylinder axis is the out-of-plane one
-                Real r =  std::sqrt(x*x + y*y);
+                // Same convention as AdvectWithFlow and amrex::EB2::CylinderIF:
+                // direction 2 is a disk, directions 0 and 1 are slabs.
+                Real r = (cyl_direction == 2) ? std::sqrt(x*x + y*y)
+                       : (cyl_direction == 1) ? std::abs(x)
+                                              : std::abs(y);
 #endif
 
                 if (r > cyl_radius) {

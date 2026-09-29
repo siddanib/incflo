@@ -22,7 +22,8 @@ public:
                          amrex::Vector<int> const& use_chi,
                          amrex::Vector<amrex::BCRec> bcrec,
                          amrex::Real dt,
-                         amrex::Vector<amrex::iMultiFab const*> const* overset_mask = nullptr);
+                         amrex::Vector<amrex::iMultiFab const*> const* overset_mask = nullptr,
+                         bool is_temperature = false);
 
     void diffuse_vel_components (
                          amrex::Vector<amrex::MultiFab*> const& vel,
@@ -34,7 +35,8 @@ public:
                        amrex::Vector<amrex::MultiFab const*> const& a_scalar,
                        amrex::Vector<amrex::MultiFab const*> const& eta,
                        amrex::Vector<amrex::MultiFab*> const& eb_dirichlet,
-                       amrex::Vector<amrex::BCRec> bcrec);
+                       amrex::Vector<amrex::BCRec> bcrec,
+                       bool is_temperature = false);
 
     void compute_divtau (amrex::Vector<amrex::MultiFab*> const& a_divtau,
                          amrex::Vector<amrex::MultiFab const*> const& a_vel,
@@ -50,6 +52,11 @@ private:
 #ifdef AMREX_USE_EB
     std::unique_ptr<amrex::MLEBABecLap> m_eb_scal_solve_op;
     std::unique_ptr<amrex::MLEBABecLap> m_eb_scal_apply_op;
+    // The temperature gets its own EB ops: MLEBABecLap cannot revert an EB
+    // Dirichlet BC to Neumann, so the tracer and temperature passes must not
+    // share an operator when only one of them has an EB Dirichlet value.
+    std::unique_ptr<amrex::MLEBABecLap> m_eb_tem_solve_op;
+    std::unique_ptr<amrex::MLEBABecLap> m_eb_tem_apply_op;
     std::unique_ptr<amrex::MLEBABecLap> m_eb_vel_solve_op;
     std::unique_ptr<amrex::MLEBABecLap> m_eb_vel_apply_op;
 #endif

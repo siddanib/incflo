@@ -18,6 +18,11 @@ void incflo::ReadParameters ()
     pp.query("stop_time", m_stop_time);
     pp.query("max_step", m_max_step);
     pp.query("steady_state", m_steady_state);
+    if (m_steady_state) {
+        // SteadyStateReached() is a stub that Aborts, so refuse the option up
+        // front instead of taking one step (with the stop_time cap disabled) first.
+        amrex::Abort("steady_state = 1: SteadyStateReached() is not implemented yet");
+    }
     }
 
     { // Prefix amr
@@ -30,6 +35,12 @@ void incflo::ReadParameters ()
         pp.query("refine_particles", m_refine_particles);
 #endif
         pp.query("KE_int", m_KE_int);
+        if (m_KE_int > 0 && !m_two_fluid) {
+            // ComputeKineticEnergy() is not implemented (its body is #if 0'd and it
+            // returns 0), so refuse the option here rather than printing a zero as if
+            // it were a real diagnostic.  Checked here so that restarts refuse it too.
+            amrex::Abort("incflo.KE_int > 0: ComputeKineticEnergy() is not implemented yet");
+        }
 
     } // end prefix amr
 
@@ -54,8 +65,8 @@ void incflo::ReadParameters ()
 
         // This limits dt growth per time step
         pp.query("dt_change_max", m_dt_change_max);
-        if ( m_dt_change_max < 1.0 || m_dt_change_max > 1.1 ) {
-            amrex::Abort("We require 1. < dt_change_max <= 1.1");
+        if ( m_dt_change_max < 1.0_rt || m_dt_change_max > 1.1_rt ) {
+            amrex::Abort("We require 1. <= dt_change_max <= 1.1");
         }
 
         pp.query("nonlinear_diffusion_dt_control",
@@ -95,6 +106,14 @@ void incflo::ReadParameters ()
         pp.query("godunov_use_forces_in_trans"      , m_godunov_use_forces_in_trans);
         pp.query("godunov_include_diff_in_forcing"  , m_godunov_include_diff_in_forcing);
         pp.query("use_mac_phi_in_godunov"           , m_use_mac_phi_in_godunov);
+        if (m_use_mac_phi_in_godunov) {
+            // Only half of this option exists: it drops grad p from the forcing used
+            // to predict the MAC velocities, and mac_phi is solved for and doubled
+            // (see compute_MAC_projected_velocities) but never read back as the
+            // pressure anywhere in the Godunov forcing.
+            amrex::Abort("incflo.use_mac_phi_in_godunov is not implemented: mac_phi is "
+                         "never used as the pressure in the Godunov forcing");
+        }
         pp.query("use_cc_proj"                      , m_use_cc_proj);
 
         // What type of redistribution algorithm;
@@ -141,6 +160,19 @@ void incflo::ReadParameters ()
             amrex::Abort("We cannot have use_tensor_correction be true and diffusion type not Implicit");
         }
 
+        // With use_tensor_correction, compute_divtau redefines divtau as the
+        // (tensor - scalar) difference, because the scalar part is handled by the
+        // implicit solve in update_velocity.  ld.divtau_o is then *not* the full
+        // explicit viscous term that the Godunov edge-state forcing expects, so
+        // including it there would give the predictor essentially no viscous
+        // forcing instead of div(eta grad u)/rho.
+        if (use_tensor_correction && m_godunov_include_diff_in_forcing) {
+            m_godunov_include_diff_in_forcing = false;
+            amrex::Print() << "WARNING: incflo.use_tensor_correction = 1 sets "
+                              "godunov_include_diff_in_forcing = 0, because divtau_o then holds "
+                              "only the tensor-minus-scalar correction, not the full viscous term\n";
+        }
+
         if (m_advection_type == "MOL" && m_cfl > 0.5) {
             amrex::Abort("We currently require cfl <= 0.5 when using the MOL advection scheme");
         }
@@ -169,6 +201,12 @@ void incflo::ReadParameters ()
         pp.query("ic_v", m_ic_v);
         pp.query("ic_w", m_ic_w);
         pp.query("ic_p", m_ic_p);
+        if (std::abs(m_ic_p) > Real(0.0)) {
+            // set_background_pressure copies ic_p into m_p000, and nothing reads
+            // m_p000, so a non-zero initial pressure would be silently dropped.
+            amrex::Abort("incflo.ic_p is not implemented: it only sets m_p000, which no code "
+                         "reads, so a non-zero initial pressure would be silently ignored");
+        }
         if ( !pp.queryarr("ic_t", m_ic_t, 0, m_ntrac) ) {
             m_ic_t.resize(m_ntrac, 0.);
         }
@@ -428,10 +466,6 @@ void incflo::ReadParameters ()
 #ifdef INCFLO_USE_PARTICLES
     readTracerParticlesParams();
 #endif
-
-    if (m_use_cc_proj && max_level > 0) {
-//        amrex::Abort("Can't yet do multilevel with cell-centered projection");
-    }
 }
 
 void incflo::ReadIOParameters()
@@ -638,6 +672,21 @@ void incflo::ReadIOParameters()
         m_smallplotVars.clear();
         pp.queryarr("smallplotVariables", m_smallplotVars);
     }
+
+    // "divu" is accepted by the parsing above (amr.plt_divu, amr.plotVariables or
+    // amr.smallplotVariables), but WritePlotVariables has no implementation for it
+    // and only aborts.  Refuse it here rather than after the whole initialization,
+    // at the first plotfile.
+    for (auto const& v : m_plotVars) {
+        if (v == "divu") {
+            amrex::Abort("plotfile variable 'divu' (amr.plt_divu) is not implemented");
+        }
+    }
+    for (auto const& v : m_smallplotVars) {
+        if (v == "divu") {
+            amrex::Abort("smallplotfile variable 'divu' is not implemented");
+        }
+    }
 }
 
 //
@@ -666,7 +715,7 @@ void incflo::InitialIterations ()
 
     int initialisation = 1;
     bool explicit_diffusion = (m_diff_type == DiffusionType::Explicit);
-    ComputeDt(initialisation, explicit_diffusion);
+    ComputeDt(initialisation, explicit_diffusion, m_cur_time);
 
     if (m_verbose && m_initial_iterations > 0)
     {
@@ -678,6 +727,9 @@ void incflo::InitialIterations ()
     for (int lev = 0; lev <= finest_level; ++lev) m_t_old[lev] = m_t_new[lev];
     for (int lev = 0; lev <= finest_level; ++lev) mac_phi[lev]->setVal(0.);
 
+#ifdef AMREX_USE_EB
+    set_eb_bcs();
+#endif
     for (int iter = 0; iter < m_initial_iterations; ++iter)
     {
         if (m_verbose) amrex::Print() << "\n In initial_iterations: iter = " << iter << "\n";
@@ -816,10 +868,15 @@ void incflo::InitialPressureProjection()
     // Always zero this here
     Vector<MultiFab*> Source(finest_level+1, nullptr);
 
+    // The field being projected is a body force, (rho-rho0)/rho * g, not a velocity,
+    // so its ghost cells must not be filled with the inflow velocity (and there is
+    // nothing meaningful for enforceInOutSolvability to rescale).  Leave the ghost
+    // cells at zero, as the incremental/small-dt projections do, so that the
+    // boundary nodes see grad(phi).n = F.n, i.e. hydrostatic balance.
     // FIXME FIXME FIXME - THIS ONLY WORKS RIGHT FOR NODAL PROJ
     ApplyProjection(get_density_new_const(), GetVecOfPtrs(vel), Source,
                     m_cur_time, dummy_dt, false /*incremental*/,
-                    true /*set_inflow_bc*/);
+                    false /*set_inflow_bc*/);
 }
 
 #ifdef AMREX_USE_EB

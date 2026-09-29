@@ -6,6 +6,9 @@
 #include <utility>
 #endif
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <fstream>
 #include <iomanip>
@@ -114,7 +117,7 @@ void incflo::InitData ()
 
         // xxxxx TODO averagedown ???
 
-        if (m_check_int > 0) { WriteCheckPointFile(); }
+        if (m_check_int > 0) { WriteCheckPointFile(); m_last_chk = 0; }
 
         // Plot initial distribution
         if (m_plot_int > 0 || m_plot_per_exact > 0 || m_plot_per_approx > 0)
@@ -148,6 +151,11 @@ void incflo::InitData ()
         // Read starting configuration from chk file.
         ReadCheckpointFile();
 
+        // The checkpoint just read is the checkpoint for this step; without this
+        // the final-output block in Evolve() rewrites it (renaming the original to
+        // *.old.*) when the restart does not take any steps.
+        m_last_chk = m_nstep;
+
 #ifdef INCFLO_USE_PARTICLES
         particleData.Redistribute();
 #endif
@@ -155,12 +163,12 @@ void incflo::InitData ()
         if (m_plotfile_on_restart)
         {
             WritePlotFile();
-            m_last_plt = 0;
+            m_last_plt = m_nstep;
         }
         if (m_smallplotfile_on_restart)
         {
             WriteSmallPlotFile();
-            m_last_smallplt = 0;
+            m_last_smallplt = m_nstep;
         }
 
         // Reduce the m_dt if restart_shrink > 0
@@ -187,12 +195,31 @@ void incflo::Evolve()
 {
     BL_PROFILE("incflo::Evolve()");
 
+    // Track elapsed time in double locally to avoid float32 accumulation drift
+    // in single-precision builds; m_cur_time stays Real for AMReX interfaces.
+    double cur_time = m_cur_time;
+
+    auto stop_time_reached = [this] (double a_cur_time) -> bool
+    {
+        if (m_stop_time <= Real(0.0)) {
+            return false;
+        }
+
+        double const stop_time = m_stop_time;
+        double const dt = std::abs(m_dt);
+        double const scale = std::max(std::abs(stop_time), std::abs(a_cur_time));
+        Real const real_eps = std::numeric_limits<Real>::epsilon();
+        double const tol = std::max(1.e-12 * dt, 16.0 * real_eps * scale);
+        return a_cur_time >= stop_time - tol;
+    };
+
     // The stop_time test here mirrors the loop-exit test below, tolerance included, so
     // that restarting from the final checkpoint of a completed run does not take an
     // extra step past stop_time.
     bool do_not_evolve = ((m_max_step == 0) ||
-                           ((m_stop_time > 0.) && (m_cur_time >= m_stop_time - (1.e-12 * m_dt))) ||
-                           ((m_stop_time <= 0.) && (m_max_step <= 0)) || (m_max_step >= 0 && m_nstep >= m_max_step) )
+                          stop_time_reached(cur_time) ||
+                          ((m_stop_time <= Real(0.0)) && (m_max_step <= 0)) ||
+                          (m_max_step >= 0 && m_nstep >= m_max_step))
                          && !m_steady_state;
 
     while(!do_not_evolve)
@@ -206,6 +233,13 @@ void incflo::Evolve()
         {
             if (m_verbose > 0) amrex::Print() << "Regridding...\n";
             regrid(0, m_cur_time);
+#ifdef INCFLO_USE_PARTICLES
+            // This must be done after regrid() returns: inside RemakeLevel /
+            // MakeNewLevelFromCoarse the ParGDB still sees the old BoxArray,
+            // DistributionMapping and finest_level, so a Redistribute there would
+            // map the particles onto the pre-regrid layout.
+            particleData.Redistribute();
+#endif
             if (m_verbose > 0 && ParallelDescriptor::IOProcessor()) {
                 printGridSummary(amrex::OutStream(), 0, finest_level);
             }
@@ -220,16 +254,17 @@ void incflo::Evolve()
         //    get_volume_of_fluid()->write_tecplot_surface(finest_level,m_cur_time,m_nstep);
         //}
         // Advance to time t + dt
-        Advance();
+        Advance(cur_time);
         m_nstep++;
-        m_cur_time += m_dt;
+        cur_time += m_dt;
+        m_cur_time = static_cast<Real>(cur_time);
 
         if (writeNow())
         {
             WritePlotFile();
             m_last_plt = m_nstep;
         }
-        if (writeNow(m_smallplot_int, m_smallplot_per_approx, -1.))
+        if (writeNow(m_smallplot_int, m_smallplot_per_approx, Real(-1.0)))
         {
             WriteSmallPlotFile();
             m_last_smallplt = m_nstep;
@@ -259,8 +294,8 @@ void incflo::Evolve()
 
         // Mechanism to terminate incflo normally.
         do_not_evolve = (m_steady_state && SteadyStateReached()) ||
-            ( (m_stop_time > 0. && (m_cur_time >= m_stop_time - (1.e-12 * m_dt))) ||
-              (m_max_step >= 0 && m_nstep >= m_max_step) );
+            (stop_time_reached(cur_time) ||
+             (m_max_step >= 0 && m_nstep >= m_max_step));
     }
 
     // Output at the final time
@@ -350,7 +385,6 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
      get_volume_of_fluid()->m_leveldata[lev] = std::make_unique<VolumeOfFluid::LevelData>
                                                 (grids[lev], dmap[lev], *m_factory[lev],this);
     }
-
 
     m_t_new[lev] = time;
     m_t_old[lev] = time - Real(1.e200);

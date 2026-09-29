@@ -238,6 +238,9 @@ void DiffusionTensorOp::compute_divtau (Vector<MultiFab*> const& a_divtau,
                              AMREX_SPACEDIM, 1/*a_velocity[lev]->nGrow()*/, MFInfo(),
                              a_velocity[lev]->Factory());
         MultiFab::Copy(velocity[lev], *a_velocity[lev], 0, 0, AMREX_SPACEDIM, 1/*velocity[lev].nGrow()*/);
+#ifdef AMREX_USE_EB
+        EB_set_covered(velocity[lev], 0, AMREX_SPACEDIM, 1, Real(0.0));
+#endif
     }
 
 #ifdef AMREX_USE_EB
@@ -306,32 +309,6 @@ void DiffusionTensorOp::compute_divtau (Vector<MultiFab*> const& a_divtau,
         MLMG mlmg(*m_reg_apply_op);
         mlmg.apply(a_divtau, GetVecOfPtrs(velocity));
     }
-//for (int lev = finest_level; lev >= 0; --lev) {
-//
-//    for (MFIter mfi(*a_divtau[lev], TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-//        const Box& bx = mfi./*tilebox()*/growntilebox(velocity[lev].nGrow());
-//        const Box& bxv = mfi.tilebox();
-//        const auto lo = amrex::lbound(bxv);
-//        const auto hi = amrex::ubound(bxv);
-//        const auto& arr = (*a_divtau[lev])[mfi].array();
-//        const auto& arr0 = (velocity[lev])[mfi].array();
-//        const auto& arr1 = (*a_velocity[lev])[mfi].array();
-//
-//        // Loop over the valid region
-//        if (lo.x==10 && lo.y==16)
-//        amrex::ParallelFor(bx, velocity[lev].nComp(), [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) {
-//            //if (/*std::isnan(arr0(i, j, k, n))&&*/) {
-//                amrex::Print() << "NaN found at index (" << i << ", " << j << ", " << k
-//                               << ") in component " << n<<"  "<<arr0(i,j,k,n)<<" ,"<<arr1(i,j,k,n) << "\n";
-//            //}
-//        });
-//    }
-//
-//
-//if (a_divtau[lev]->contains_nan(0, AMREX_SPACEDIM,0)) {
-//    amrex::Abort("NaN detected in MultiFab!");
-//}
-//}
     bool advect_momentum = m_incflo->AdvectMomentum();
     if (!advect_momentum) {
 #ifdef _OPENMP
