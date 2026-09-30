@@ -3257,7 +3257,8 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
                     if (valid_neigh_sum < vof_neighborhood_tolerance && valid_neigh_cells > 0) {
                        dup_tra_arr(i,j,k,0) = Real(0.);
                     }
-                    if (std::abs(Real(valid_neigh_cells)-valid_neigh_sum) < vof_neighborhood_tolerance) {
+                    if (valid_neigh_cells > 0 &&
+                        std::abs(Real(valid_neigh_cells)-valid_neigh_sum) < vof_neighborhood_tolerance) {
                        dup_tra_arr(i,j,k,0) = Real(1.);
                     }
                 });
@@ -3309,7 +3310,8 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
                     if (valid_neigh_sum < vof_neighborhood_tolerance && valid_neigh_cells > 0) {
                        dup_tra_arr(i,j,k,0) = Real(0.);
                     }
-                    if (std::abs(Real(valid_neigh_cells)-valid_neigh_sum) < vof_neighborhood_tolerance) {
+                    if (valid_neigh_cells > 0 &&
+                        std::abs(Real(valid_neigh_cells)-valid_neigh_sum) < vof_neighborhood_tolerance) {
                        dup_tra_arr(i,j,k,0) = Real(1.);
                     }
                 });

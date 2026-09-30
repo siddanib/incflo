@@ -857,6 +857,7 @@ private:
     // VOF density filter:
     // 0 = repeated nodal averaging, 1 = signed-distance
     int m_vof_density_filter = 0;
+    bool m_vof_rho_harmonic = false;
     amrex::Real m_vof_interface_viscosity = amrex::Real(0.);
     amrex::Real m_vof_interface_viscosity_rho_floor = amrex::Real(0.);
 

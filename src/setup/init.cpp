@@ -35,13 +35,6 @@ void incflo::ReadParameters ()
         pp.query("refine_particles", m_refine_particles);
 #endif
         pp.query("KE_int", m_KE_int);
-        if (m_KE_int > 0 && !m_two_fluid) {
-            // ComputeKineticEnergy() is not implemented (its body is #if 0'd and it
-            // returns 0), so refuse the option here rather than printing a zero as if
-            // it were a real diagnostic.  Checked here so that restarts refuse it too.
-            amrex::Abort("incflo.KE_int > 0: ComputeKineticEnergy() is not implemented yet");
-        }
-
     } // end prefix amr
 
     { // Prefix incflo
@@ -272,6 +265,7 @@ void incflo::ReadParameters ()
         //vof parameters
         pp.query("vof_advect_tracer", m_vof_advect_tracer);
         pp.query("vof_redistribution", m_vof_redistribution);
+        pp.query("vof_rho_harmonic", m_vof_rho_harmonic);
         if (m_vof_advect_tracer && m_advect_tracer) {
             amrex::Abort("incflo.vof_advect_tracer and incflo.advect_tracer cannot both be true");
         }
@@ -279,6 +273,13 @@ void incflo::ReadParameters ()
            //the default of the density of VOF phase is same as the background fluid
            m_ro_s.resize(m_ntrac, m_ro_0);
            pp.queryarr("ro_s", m_ro_s, 0, m_ntrac );
+           if (m_vof_rho_harmonic) {
+               AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                   std::isfinite(m_ro_0) && m_ro_0 > Real(0.) &&
+                   std::isfinite(m_ro_s[0]) && m_ro_s[0] > Real(0.),
+                   "incflo.vof_rho_harmonic requires finite, strictly positive "
+                   "incflo.ro_0 and incflo.ro_s[0]");
+           }
            // the default of the surface tension is zero
            m_sigma.resize(m_ntrac, 0.);
            pp.queryarr("sigma", m_sigma, 0, m_ntrac );

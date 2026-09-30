@@ -186,7 +186,8 @@ void incflo::ComputeDt (int initialization, bool explicit_diffusion, double cur_
        if (explicit_diffusion) {
            nu.define(grids[lev], dmap[lev], 1, 0, MFInfo(), Factory(lev));
            compute_viscosity_at_level(lev, &nu, &m_leveldata[lev]->density,
-                                      &m_leveldata[lev]->velocity, geom[lev],
+                                      &m_leveldata[lev]->velocity,
+                                      &m_leveldata[lev]->tracer, geom[lev],
                                       m_cur_time, 0);
            Real mu_s_max = Real(0.0);
            if (m_advect_tracer) {

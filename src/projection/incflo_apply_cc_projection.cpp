@@ -443,7 +443,8 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
     for (int lev=0; lev <= finest_level; ++lev)
     {
 #ifdef AMREX_USE_EB
-        amrex::Abort("Haven't written mac_to_ccvel for EB");
+        amrex::EB_average_face_to_cellcenter(
+            cc_gphi[lev], 0, GetArrOfConstPtrs(m_fluxes[lev]));
 #else
         average_mac_to_ccvel(GetArrOfPtrs(m_fluxes[lev]),cc_gphi[lev]);
 #endif
@@ -457,7 +458,13 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
         AMREX_D_TERM(Copy(m_fluxes[lev][0],sfu_mac[lev], 0, 0, 1, 0);,
                      Copy(m_fluxes[lev][1],sfv_mac[lev], 0, 0, 1, 0);,
                      Copy(m_fluxes[lev][2],sfw_mac[lev], 0, 0, 1, 0););
+#ifdef AMREX_USE_EB
+        amrex::EB_average_face_to_cellcenter(
+            ptr_VOF->m_leveldata[lev]->force, 0,
+            GetArrOfConstPtrs(m_fluxes[lev]));
+#else
         average_mac_to_ccvel(GetArrOfPtrs(m_fluxes[lev]),ptr_VOF->m_leveldata[lev]->force);
+#endif
       }
     }
     for(int lev = 0; lev <= finest_level; lev++)
@@ -475,11 +482,14 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
 
             Array4<Real> const& u = ld.velocity.array(mfi);
             Array4<Real const> const& rho = density[lev]->const_array(mfi);
-            Array4<Real const> const& gsf = ptr_VOF->m_leveldata[lev]->force.const_array(mfi);
+            Array4<Real const> gsf;
+            if (vof_advect_tracer) {
+                gsf = ptr_VOF->m_leveldata[lev]->force.const_array(mfi);
+            }
 
             Real r0 = m_ro_0;
 
-            amrex::ParallelFor(tbx, [u,gphi,p_cc,phi,incremental,gsf,vof_advect_tracer] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            amrex::ParallelFor(tbx, [u,gphi,p_cc,phi,incremental,gsf,vof_advect_tracer,scaling_factor] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
             {
                 AMREX_D_TERM(u(i,j,k,0) += gphi(i,j,k,0);,
                              u(i,j,k,1) += gphi(i,j,k,1);,

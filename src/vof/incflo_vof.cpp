@@ -27,11 +27,17 @@ incflo::update_vof_density (int lev, MultiFab & density, MultiFab & tracer)
         Array4<Real const> const& tracer_arr = tracer.const_array(mfi);
         const Real ro_0 = m_ro_0;
         const Real ro_s = m_ro_s[0];
+        const bool rho_harmonic = m_vof_rho_harmonic;
         ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {  //fixme: we use the property of the tracer 0.
            // Print()<<i<<" "<<j<<" "<<k<<"\n";
            //Print()<<density_arr(i,j,k)<<" "<<m_ro_0<<" "<<m_ro_s[0]<<" "<<tracer_arr(i,j,k)<<"\n";
-           density_arr(i,j,k) = ro_0*(1.-tracer_arr(i,j,k,0))+ro_s*tracer_arr(i,j,k,0);
+           if (rho_harmonic) {
+               Real const c = tracer_arr(i,j,k,0);
+               density_arr(i,j,k) = Real(1.) / (c/ro_s + (Real(1.)-c)/ro_0);
+           } else {
+               density_arr(i,j,k) = ro_0*(1.-tracer_arr(i,j,k,0))+ro_s*tracer_arr(i,j,k,0);
+           }
         });
      }
      //fixme: BCs
