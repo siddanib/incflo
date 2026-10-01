@@ -1,0 +1,198 @@
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#            SIMULATION STOP            #
+#.......................................#
+h_c = "100.0*incflo.second_fluid.diameter"  # This will be granular column length along z
+L_z = "2.0*h_c"                            # This is domain length along z
+L_y = "200.0*incflo.second_fluid.diameter" # This is domain and granular length along y
+L_x = "10.0*incflo.second_fluid.diameter"  # This is domain and granular length along x
+#max_step                = 66000 #14500           # Max number of time steps
+stop_time                = 20.0
+#steady_state            =   0           # Steady-state solver?
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#         TIME STEP COMPUTATION         #
+#.......................................#
+
+incflo.init_shrink       = 1e-2
+incflo.cfl               = 0.1
+incflo.dt_change_max     = 1.1
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#            INPUT AND OUTPUT           #
+#.......................................#
+#amr.plot_per_exact     =  0.05
+amr.plot_int            =  100 #2500         # Steps between plot files
+#amr.plot_per_approx     =  0.5
+amr.check_int           =  500         # Steps between checkpoint files
+#amr.restart             = "chk19500"  # Checkpoint to restart from
+amr.KE_int = 1
+#amr.restart_shrink      = 5.e-1 # Shrink time step on restart, doing it coz we turn on higher order terms
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#               PHYSICS                 #
+#.......................................#
+
+incflo.ro_0             =   1.0          # Reference density
+incflo.fluid_model      =   "newtonian"  # Fluid model (rheology)
+incflo.mu               =   "0.1*incflo.ro_0*sqrt(9.81*(h_c**3))" # Dynamic viscosity coefficient
+
+zeta           = "atan(0.55)" # Corresponding zeta based on empirical expression
+incflo.gravity = "9.81*sin(zeta)" "0.0"  "-9.81*cos(zeta)"  # Gravitational force (3D)
+
+########## Second fluid
+incflo.two_fluid = true
+### Time Step related #####################
+incflo.modified_time_stepping  = true
+incflo.modified_time_stepping_constant = 0.0
+incflo.modified_time_stepping_include_ho_forces_in_cfl = true
+###############################################################
+incflo.two_fluid_max_dt              = 5.0e-1
+incflo.nonlinear_diffusion_dt_control = 1
+incflo.nonlinear_diffusion_dt_scale_min = 0.5
+incflo.nonlinear_diffusion_dt_scale_shrink = 0.5
+incflo.nonlinear_diffusion_dt_scale_growth = 1.1
+##### Adding additional numerical viscosity to the interface
+incflo.vof_interface_viscosity = 0.5
+#################################################
+incflo.two_fluid_rho_harmonic        = false
+incflo.two_fluid_eta_harmonic        = false
+incflo.two_fluid_cc_rho_conc         = true
+incflo.second_fluid.fluid_model      = "granularpowerlaw_temperature"
+incflo.second_fluid.coeff_table      = {{0.33, 0., 0.573, 0.7, 0., 0., 0., 0.},
+                                        {0.1, 0., 0.398, 0.9, 0., 0.},
+                                        {-0.151, 1.5}}
+#incflo.second_fluid.coeff_table      = {{0.33, 0., 0.573, 0.7, 0., 0., 0., 0.},
+#                                        {0., 0., 0., 0.9, 0., 0.},
+#                                        {0., 1.5}}
+incflo.second_fluid.ro_0              = 1560.4
+incflo.second_fluid.ro_grain          = 2600.0
+incflo.second_fluid.min_eta           = "0.01*incflo.second_fluid.ro_0*sqrt(9.81*(incflo.second_fluid.diameter**3))"
+incflo.second_fluid.max_eta           = "250.0*incflo.second_fluid.ro_0*sqrt(9.81*(h_c**3))"
+#incflo.second_fluid.max_eta           = "min(5.0e+3, 250.0*incflo.second_fluid.ro_0*sqrt(9.81*(h_c**3)))"
+incflo.second_fluid.min_eta_ho1       = 0.
+incflo.second_fluid.max_eta_ho1       = 1.0e+3
+incflo.second_fluid.min_eta_ho2       = -1.0e+3
+incflo.second_fluid.max_eta_ho2       = 0.
+incflo.second_fluid.mu_p_eps_second   = 1.0e-18
+incflo.second_fluid.mu_sr_eps_second  = 1.0e-18
+incflo.second_fluid.diameter          = 1.0e-3
+incflo.second_fluid.min_conc          = 1.0e-3
+
+incflo.eb_smooth_cutcell_viscosity = 0
+incflo.eb_smooth_cutcell_viscosity_blend = 0.5
+
+incflo.constant_density     = false
+incflo.vof_advect_tracer    = true
+incflo.vof_redistribution   = false
+incflo.vof_rho_harmonic     = false
+incflo.ro_s                 = "incflo.second_fluid.ro_0"
+incflo.mu_s                 = 0. # Diffusion for tracer for stability
+incflo.number_of_averaging  = 0
+incflo.use_cc_proj          = 1
+
+###### Probtype 537 specific
+incflo.probtype      = 537
+zeta_0               = "zeta"
+I_zeta_0             = "((tan(zeta_0)-0.33)/0.573)**(1.0/0.7)"
+smoothing_factor     = 0.1
+granular_length      =  "L_x" "L_y" "h_c"
+initialize_velocity  = "false"
+
+#### Granular Temperature related
+incflo.use_temperature = "true"
+incflo.use_granular_temperature = "true"
+incflo.ic_tem = 1.e-18
+# In JFM this is "D*particle_diameter**2"
+incflo.mu_T = "1.0*(incflo.second_fluid.diameter**2)"
+# characteristic elastic collision time
+incflo.cp = "incflo.second_fluid.diameter*sqrt(incflo.second_fluid.ro_grain/1.3e+7)"
+granular_temperature.collisional_dissipation = 1.0
+granular_temperature.local_fluctuation_production_coeff = 0.15
+granular_temperature.local_fluctuation_production_expnt = 1.5
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#        ADAPTIVE MESH REFINEMENT       #
+#.......................................#
+amr.n_cell              = 8 160 160    # Grid cells at coarsest AMRlevel
+amr.max_level           = 0             # Max AMR level in hierarchy
+#amr.blocking_factor    = 16
+amr.max_grid_size       = 16
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#              GEOMETRY                 #
+#.......................................#
+geometry.prob_lo        =  0. 0. 0. # Lo corner coordinates
+geometry.prob_hi        = "L_x" "L_y"  "L_z"   # Hi corner coordinates
+geometry.is_periodic    =  1 1 0   # Periodicity x y z (0/1)
+
+# Boundary conditions
+#ylo.type                =   "sw"
+#yhi.type                =   "sw"
+zlo.type                =   "nsw"
+zhi.type                =   "nsw"
+
+####### IMPORTANT CONTROLS IN INCFLO #########
+incflo.nodal_vel_eta      = 0
+incflo.advection_type     = "Godunov"
+incflo.diffusion_type     = 2
+incflo.advect_momentum   = false
+incflo.advect_tracer     = false
+incflo.ntrac             = 1
+incflo.trac_is_conservative  = 0
+incflo.initial_iterations = 3 # Perform initial pressure iterations, sets mac_phi
+
+############# MAC Projection information
+mac_proj.maxiter = 200
+mac_proj.mg_rtol = 1.0e-11
+mac_proj.mg_atol = 1.0e-14
+mac_proj.num_pre_smooth = 2
+mac_proj.num_post_smooth = 2
+############### NonlinearTensorDiffsusionOp
+incflo.use_jfnk_tensor_solve = "true"
+nonlinear_tensor_diffusion.verbose             =  0
+nonlinear_tensor_diffusion.gmres_verbose       =  0
+nonlinear_tensor_diffusion.newton_max_iter     = 20
+nonlinear_tensor_diffusion.gmres_max_iter      = 200
+nonlinear_tensor_diffusion.newton_rtol         = 1.0e-9 #1.0e-12
+nonlinear_tensor_diffusion.gmres_rtol          = 1.0e-9 #1.0e-12
+nonlinear_tensor_diffusion.newton_atol         = 1.0e-9 #1.0e-12
+nonlinear_tensor_diffusion.gmres_atol          = 1.0e-9 #1.0e-12
+nonlinear_tensor_diffusion.newton_update_alpha = 0.5
+nonlinear_tensor_diffusion.newton_update_max_iter = 2
+nonlinear_tensor_diffusion.gmres_use_precond   = "true"
+nonlinear_tensor_diffusion.mg_verbose          = 0
+nonlinear_tensor_diffusion.mg_max_iter         = 2
+nonlinear_tensor_diffusion.num_pre_smooth      = 3
+nonlinear_tensor_diffusion.num_post_smooth     = 3
+nonlinear_tensor_diffusion.use_eta_from_prev_time = "true"
+nonlinear_tensor_diffusion.use_ho_coeff_from_prev_time = "true"
+nonlinear_tensor_diffusion.use_ho_eta_precond = "false"
+nonlinear_tensor_diffusion.newton_epsilon = 1.0e-14
+nonlinear_tensor_diffusion.alpha_factor_list = 1.0
+nonlinear_tensor_diffusion.nonunity_alpha_tol_scale = 1.0e+3
+nonlinear_tensor_diffusion.max_time_substeps = 1
+nonlinear_tensor_diffusion.adaptive_time_substeps = "false"
+############################################
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#          NUMERICAL PARAMETERS         #
+#.......................................#
+incflo.steady_state_tol   = 1.e-5       # Tolerance for steady-state
+
+#¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨¨#
+#              VERBOSITY                #
+#.......................................#
+incflo.verbose              =  2        # incflo_level
+mac_proj.verbose            =  0        # MAC Projector
+
+scalar_diffusion.verbose    =  0      # Scalar Diffusion
+scalar_diffusion.mg_verbose =  0        # Scalar Diffusion
+
+amr.plotVariables = velx vely velz tracer strainrate eta inertial_num hydrostatic_p mu_I temperature eta_ho density
+
+amrex.fpe_trap_invalid = 1
+amrex.fpe_trap_zero = 1
+amrex.fpe_trap_overflow = 1
+amrex.throw_exception = 1
+
+### Testing
+incflo.godunov_include_diff_in_forcing = 0

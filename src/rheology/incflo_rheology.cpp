@@ -1165,7 +1165,7 @@ incflo::compute_granular_high_order_fluxes_on_level (
           if (ncomp_ho > 1) {
               Real B_11 = Real(0.25)*(-uy+vx)*(uy+vx)
                           - Real(0.25)*(uy-vx)*(uy+vx);
-              Real B_12 = Real(0.25)*(uy-vx)*(ux-vy);
+              Real B_12 = Real(0.5)*(uy-vx)*(ux-vy);
 #if (AMREX_SPACEDIM == 3)
               B_11 += Real(0.25)*(-uz+wx)*(uz+wx)
                       - Real(0.25)*(uz-wx)*(uz+wx);
@@ -1173,7 +1173,7 @@ incflo::compute_granular_high_order_fluxes_on_level (
                       + Real(0.25)*(uz+wx)*(-vz+wy);
               Real B_13 = -Real(0.25)*(uy-vx)*(vz+wy)
                           + Real(0.25)*(uy+vx)*(vz-wy)
-                          + Real(0.25)*(uz-wx)*(ux-wz);
+                          + Real(0.5)*(uz-wx)*(ux-wz);
 #endif
               // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
               // BE A MINUS IN FRONT OF THE TERMS
@@ -1248,7 +1248,7 @@ incflo::compute_granular_high_order_fluxes_on_level (
           A_23 *= Real(-1.0); flux_arr(i,j,k,2) = A_23;
 #endif
           if (ncomp_ho > 1) {
-              Real B_12 = Real(0.25)*(uy-vx)*(ux-vy);
+              Real B_12 = Real(0.5)*(uy-vx)*(ux-vy);
               Real B_22 = -Real(0.25)*(-uy+vx)*(uy+vx)
                           +Real(0.25)*(uy-vx)*(uy+vx);
 #if (AMREX_SPACEDIM == 3)
@@ -1258,7 +1258,7 @@ incflo::compute_granular_high_order_fluxes_on_level (
                       -Real(0.25)*(vz-wy)*(vz+wy);
               Real B_23 = -Real(0.25)*(-uy+vx)*(uz+wx)
                           +Real(0.25)*(uy+vx)*(uz-wx)
-                          +Real(0.25)*(vz-wy)*(vy-wz);
+                          +Real(0.5)*(vz-wy)*(vy-wz);
 #endif
               // THIS IS A COMPRESSIVE FORCE SO THERE NEEDS TO
               // BE A MINUS IN FRONT OF THE TERMS
@@ -1323,10 +1323,10 @@ incflo::compute_granular_high_order_fluxes_on_level (
           if (ncomp_ho > 1) {
               Real B_13 = -Real(0.25)*(uy-vx)*(vz+wy)
                           + Real(0.25)*(uy+vx)*(vz-wy)
-                          + Real(0.25)*(uz-wx)*(ux-wz);
+                          + Real(0.5)*(uz-wx)*(ux-wz);
               Real B_23 = -Real(0.25)*(-uy+vx)*(uz+wx)
                           +Real(0.25)*(uy+vx)*(uz-wx)
-                          +Real(0.25)*(vz-wy)*(vy-wz);
+                          +Real(0.5)*(vz-wy)*(vy-wz);
               Real B_33 = -Real(0.25)*(-uz+wx)*(uz+wx)
                           +Real(0.25)*(uz-wx)*(uz+wx)
                           -Real(0.25)*(-vz+wy)*(vz+wy)
@@ -1428,7 +1428,7 @@ incflo::compute_granular_high_order_fluxes_on_level (MultiFab* flux_eb,
                         const Real eta_3 = scndCoeff_arr(i,j,k,1);
                         Real B_11 = Real(0.25)*(-uy+vx)*(uy+vx)
                                     - Real(0.25)*(uy-vx)*(uy+vx);
-                        Real B_12 = Real(0.25)*(uy-vx)*(ux-vy);
+                        Real B_12 = Real(0.5)*(uy-vx)*(ux-vy);
                         Real B_22 = -Real(0.25)*(-uy+vx)*(uy+vx)
                                     +Real(0.25)*(uy-vx)*(uy+vx);
 #if (AMREX_SPACEDIM == 3)
@@ -1440,10 +1440,10 @@ incflo::compute_granular_high_order_fluxes_on_level (MultiFab* flux_eb,
                                 -Real(0.25)*(vz-wy)*(vz+wy);
                         Real B_13 = -Real(0.25)*(uy-vx)*(vz+wy)
                                     + Real(0.25)*(uy+vx)*(vz-wy)
-                                    + Real(0.25)*(uz-wx)*(ux-wz);
+                                    + Real(0.5)*(uz-wx)*(ux-wz);
                         Real B_23 = -Real(0.25)*(-uy+vx)*(uz+wx)
                                     +Real(0.25)*(uy+vx)*(uz-wx)
-                                    +Real(0.25)*(vz-wy)*(vy-wz);
+                                    +Real(0.5)*(vz-wy)*(vy-wz);
                         Real B_33 = -Real(0.25)*(-uz+wx)*(uz+wx)
                                     +Real(0.25)*(uz-wx)*(uz+wx)
                                     -Real(0.25)*(-vz+wy)*(vz+wy)
