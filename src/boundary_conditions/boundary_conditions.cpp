@@ -267,6 +267,39 @@ void incflo::init_bcs ()
             for (auto& b : m_bcrec_tracer) { b.set(ori, BCType::foextrap); }
             m_bcrec_temperature[0].set(ori, BCType::foextrap);
         }
+        else if (bc_type == "coulomb_wall")
+        {
+            amrex::Print() << bcid << " set to Coulomb friction wall.\n";
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!m_nodal_vel_eta,
+                "Coulomb friction wall BC is not supported with nodal viscosity "
+                "(set incflo.nodal_vel_eta = 0)");
+
+            m_bc_type[ori] = BC::coulomb_wall;
+
+            // Read per-face Coulomb friction coefficient
+            pp.get("mu", m_bc_mu_coulomb[ori]);
+
+            // Tangential: hoextrap (same as slip_wall, serves advection + CC strain rate)
+            // Normal: ext_dir (zero velocity)
+            AMREX_D_TERM(m_bcrec_velocity[0].set(ori, BCType::hoextrap);,
+                         m_bcrec_velocity[1].set(ori, BCType::hoextrap);,
+                         m_bcrec_velocity[2].set(ori, BCType::hoextrap););
+            m_bcrec_velocity[ori.coordDir()].set(ori, BCType::ext_dir);
+
+            if (m_advection_type == "BDS") {
+                m_bcrec_density[0].set(ori, BCType::foextrap);
+            } else {
+                m_bcrec_density[0].set(ori, BCType::hoextrap);
+            }
+            for (auto& b : m_bcrec_tracer) {
+                if (m_advection_type == "BDS") {
+                    b.set(ori, BCType::foextrap);
+                } else {
+                    b.set(ori, BCType::hoextrap);
+                }
+            }
+            for (auto& b : m_bcrec_temperature) { b.set(ori, BCType::reflect_even); }
+        }
         else
         {
             m_bc_type[ori] = BC::undefined;

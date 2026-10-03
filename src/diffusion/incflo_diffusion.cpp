@@ -230,6 +230,16 @@ incflo::get_diffuse_tensor_bc (Orientation::Side side) const noexcept
                 r[dir][dir] = LinOpBCType::Dirichlet;
                 break;
             }
+            case BC::coulomb_wall:
+            {
+                // Tangential: inhomogeneous Neumann (Coulomb flux in ghost cells)
+                // Normal:     Dirichlet (u·n = 0)
+                AMREX_D_TERM(r[0][dir] = LinOpBCType::inhomogNeumann;,
+                             r[1][dir] = LinOpBCType::inhomogNeumann;,
+                             r[2][dir] = LinOpBCType::inhomogNeumann;);
+                r[dir][dir] = LinOpBCType::Dirichlet;
+                break;
+            }
             default:
                 amrex::Abort("get_diffuse_tensor_bc: undefined BC type");
             };
@@ -280,6 +290,14 @@ incflo::get_diffuse_velocity_bc (Orientation::Side side, int comp) const noexcep
                 r[dir][dir] = LinOpBCType::Dirichlet;
                 break;
             }
+            case BC::coulomb_wall:
+            {
+                AMREX_D_TERM(r[0][dir] = LinOpBCType::inhomogNeumann;,
+                             r[1][dir] = LinOpBCType::inhomogNeumann;,
+                             r[2][dir] = LinOpBCType::inhomogNeumann;);
+                r[dir][dir] = LinOpBCType::Dirichlet;
+                break;
+            }
             case BC::mixed:
             {
                 AMREX_D_TERM(r[0][dir] = LinOpBCType::Robin;,
@@ -318,6 +336,7 @@ incflo::get_diffuse_scalar_bc (Orientation::Side side, const int* bcr) const noe
             }
             case BC::slip_wall:
             case BC::no_slip_wall:
+            case BC::coulomb_wall:
             {
                 r[dir] = LinOpBCType::Neumann;
                 if ( bcr[dir] == BCType::ext_dir ) {

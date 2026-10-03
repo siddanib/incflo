@@ -745,6 +745,7 @@ void NonlinearDiffusionTensorOp::compute_linear_part_of_divtau (Vector<MultiFab*
             } else {
                m_eb_apply_op->setEBShearViscosity(lev, *a_eta[lev]);
             }
+            m_incflo->fill_coulomb_flux_ghost_cells(lev, velocity[lev], *a_eta[lev]);
             m_eb_apply_op->setLevelBC(lev, &velocity[lev]);
         }
 
@@ -766,6 +767,7 @@ void NonlinearDiffusionTensorOp::compute_linear_part_of_divtau (Vector<MultiFab*
                 b = m_incflo->average_velocity_eta_to_faces(lev, *a_eta[lev]);
             }
             m_reg_apply_op->setShearViscosity(lev, GetArrOfConstPtrs(b));
+            m_incflo->fill_coulomb_flux_ghost_cells(lev, velocity[lev], *a_eta[lev]);
             m_reg_apply_op->setLevelBC(lev, &velocity[lev]);
         }
 
@@ -1178,6 +1180,7 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_mlmg (
     }
 
     for (int lev = 0; lev <= finest_level; ++lev) {
+        m_incflo->fill_coulomb_flux_ghost_cells(lev, *velocity[lev], *eta_mlmg[lev]);
 #ifdef AMREX_USE_EB
         if (m_eb_solve_op) {
             m_eb_solve_op->setLevelBC(lev, velocity[lev]);

@@ -1014,13 +1014,15 @@ private:
 
     enum struct BC : std::uint8_t {
         pressure_inflow, pressure_outflow, mass_inflow, no_slip_wall, slip_wall,
-        periodic, mixed, direction_dependent, undefined
+        periodic, mixed, direction_dependent, coulomb_wall, undefined
     };
 
     bool m_has_mixedBC = false;
 
     amrex::GpuArray<BC                         , AMREX_SPACEDIM*2> m_bc_type;
     amrex::GpuArray<amrex::Real                , AMREX_SPACEDIM*2> m_bc_pressure;
+    amrex::GpuArray<amrex::Real                , AMREX_SPACEDIM*2> m_bc_mu_coulomb = {0.};
+    amrex::Real m_coulomb_eps = amrex::Real(1.e-6);
     amrex::GpuArray<amrex::Real                , AMREX_SPACEDIM*2> m_bc_density;
     amrex::GpuArray<amrex::GpuArray<amrex::Real, AMREX_SPACEDIM>
                                                , AMREX_SPACEDIM*2> m_bc_velocity;
@@ -1270,6 +1272,8 @@ private:
     void fillcoarsepatch_gradp (int lev, amrex::Real time, amrex::MultiFab& gp, int ng);
 
     void fillphysbc_velocity (int lev, amrex::Real time, amrex::MultiFab& vel, int ng);
+    void fill_coulomb_flux_ghost_cells (int lev, amrex::MultiFab& vel,
+                                        amrex::MultiFab const& cc_eta);
     void fillphysbc_density (int lev, amrex::Real time, amrex::MultiFab& density, int ng);
     void fillphysbc_tracer (int lev, amrex::Real time, amrex::MultiFab& tracer, int ng);
     void fillphysbc_temperature (int lev, amrex::Real time, amrex::MultiFab& temperature, int ng);

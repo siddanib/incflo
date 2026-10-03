@@ -156,6 +156,9 @@ void incflo::ReadParameters ()
             amrex::Abort("We currently require at least one tracer");
         }
 
+        // Coulomb friction wall regularization
+        pp.query("coulomb_regularization", m_coulomb_eps);
+
         // vel_eta is nodal or cell-centered
         pp.query("nodal_vel_eta",m_nodal_vel_eta);
         if (m_nodal_vel_eta) {
