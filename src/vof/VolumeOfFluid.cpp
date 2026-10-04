@@ -8,9 +8,30 @@
 #endif
 
 using namespace amrex;
+
+namespace {
+
+// Shared tolerance for treating a VOF fraction as exactly empty/full.
+// Used consistently by clamp_vof() and CELL_IS_FULL() so that a cell
+// clipped to 0/1 by one is always recognized as full/empty by the other.
+constexpr Real vof_clamp_tolerance = Real(1.e-6);
+
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+Real clamp_vof (Real value) noexcept
+{
+    return value >= -vof_clamp_tolerance && value <= vof_clamp_tolerance
+               ? Real(0.)
+         : value >= Real(1.) - vof_clamp_tolerance
+               && value <= Real(1.) + vof_clamp_tolerance
+               ? Real(1.)
+               : value;
+}
+
+}
+
 #define EPS 1e-4
 #define THRESHOLD(c) {if ((c) < 0.) c = 0.; else if ((c) > 1.) c = 1.;}
-#define CELL_IS_FULL(f)             ((f) == 0. || (f) == 1.)
+#define CELL_IS_FULL(f)             ((f) <= vof_clamp_tolerance || (f) >= Real(1.) - vof_clamp_tolerance)
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define CLAMP(x,a,b) ((x) < (a) ? (a) : (x) > (b) ? (b) : (x))
@@ -2647,17 +2668,23 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
                 vof(i,j,k)+=vof_flux_arr(i,j,k)-vof_flux_arr(nr[0],nr[1],nr[2]);
                 G_arr(i,j,k)+=G_flux_arr(i,j,k)-G_flux_arr(nr[0],nr[1],nr[2]);
                 vof_eff_arr(i,j,k)+= m_flux_arr(i,j,k)-m_flux_arr(nr[0],nr[1],nr[2]);
-                Real f;
-                if (vof_eff_arr(i,j,k) > Real(1e-10)) {
-                  f = vof(i,j,k)/vof_eff_arr(i,j,k);
-                  G_arr(i,j,k) /= vof_eff_arr(i,j,k);
-                } else {
-                  f = vof(i,j,k);
-                }
-                vof(i,j,k)= f< 1e-10? 0.:f>1.-1e-10? 1.:f;
+                // vof_eff_arr should stay close to 1 when the MAC velocity is
+                // divergence-free (see eq. 13-14 in Lorstad & Fuchs, JCP 2004);
+                // a near-zero/negative value here means that assumption has
+                // been violated, so we let the host-side check below abort
+                // rather than silently dividing by (near) zero.
+                Real const f = vof(i,j,k)/vof_eff_arr(i,j,k);
+                G_arr(i,j,k) /= vof_eff_arr(i,j,k);
+                vof(i,j,k)= clamp_vof(f);
               }
             }); //  end ParallelFor
           }// end MFIter
+          Real const vol_eff_min = vol_eff.min(0, 0);
+          if (vol_eff_min <= vof_clamp_tolerance) {
+            amrex::Abort("VOF advection: vol_eff became non-positive, "
+                         "violating the divergence-free MAC velocity "
+                         "assumption used by the directional-split update.");
+          }
         } else {
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -2680,12 +2707,13 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
                 ++nr[dir];
                 vof(i,j,k)+=vof_flux_arr(i,j,k)-vof_flux_arr(nr[0],nr[1],nr[2]);
                 vof_eff_arr(i,j,k)+= m_flux_arr(i,j,k)-m_flux_arr(nr[0],nr[1],nr[2]);
-                Real f;
-                if (vof_eff_arr(i,j,k) > Real(1e-10))
-                  f = vof(i,j,k)/vof_eff_arr(i,j,k);
-                else
-                  f = vof(i,j,k);
-                vof(i,j,k)= f< 1e-10? 0.:f>1.-1e-10? 1.:f;
+                // vof_eff_arr should stay close to 1 when the MAC velocity is
+                // divergence-free (see eq. 13-14 in Lorstad & Fuchs, JCP 2004);
+                // a near-zero/negative value here means that assumption has
+                // been violated, so we let the host-side check below abort
+                // rather than silently dividing by (near) zero.
+                Real const f = vof(i,j,k)/vof_eff_arr(i,j,k);
+                vof(i,j,k)= clamp_vof(f);
               /*  if (f > 0. && f < 1.)
                   Print() <<" vof_advection---dir "<<dir<<"  "<<vof_eff_arr(i,j,k)<<"  "
                         <<"("<<i<<","<<j<<","<<k<<")"<<"vof"<<"  "<<f<<"  "
@@ -2694,6 +2722,12 @@ VolumeOfFluid::tracer_vof_advection(Vector<MultiFab*> const& tracer,
               }
             }); //  end ParallelFor
           }// end MFIter
+          Real const vol_eff_min = vol_eff.min(0, 0);
+          if (vol_eff_min <= vof_clamp_tolerance) {
+            amrex::Abort("VOF advection: vol_eff became non-positive, "
+                         "violating the divergence-free MAC velocity "
+                         "assumption used by the directional-split update.");
+          }
         }
         //fixme: temporary solution for MPI boundary
         tracer[lev]->FillBoundary(geom.periodicity());

@@ -281,7 +281,7 @@ void incflo::compute_viscosity_at_level (int lev,
              const bool eta_harmonic = m_two_fluid_eta_harmonic;
              amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
              {
-                if (conc_second_arr(i,j,k) > min_conc_scnd) {
+                if (conc_second_arr(i,j,k) >= min_conc_scnd) {
                   // Using weighted harmonic mean for vel_eta
                   if (eta_harmonic) {
                       eta_arr(i,j,k) = ((Real(1.0)-conc_second_arr(i,j,k))/eta_arr(i,j,k))
