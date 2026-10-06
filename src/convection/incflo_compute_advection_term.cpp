@@ -155,7 +155,10 @@ incflo::compute_convective_term (Vector<MultiFab*> const& conv_u,
     //    and compute the tracer forcing terms for the first time
     if (m_advection_type != "MOL") {
 
-        compute_vel_forces(vel_forces, vel, density, tracer, tracer, m_use_cc_proj?false:true);
+        // include_pressure_gradient = true (as in upstream incflo); with the CC
+        // projection only the surface-tension forcing is excluded
+        compute_vel_forces(vel_forces, vel, density, tracer, tracer,
+                           true, m_use_cc_proj?false:true);
 
         if (m_godunov_include_diff_in_forcing) {
 

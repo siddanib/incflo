@@ -4,8 +4,24 @@
 
 using namespace amrex;
 
+namespace {
+// Face value of a cell-centered velocity component. On an ext_dir domain face
+// the ghost cell holds the boundary value (as filled by fillpatch), so that
+// value is used directly, as in MOL::ExtrapVelToFaces; elsewhere the centered
+// average of the two neighboring cells is used.
+AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+Real ccvel_to_face (int idx, int dlo, int dhi, int bclo, int bchi,
+                    Real vm, Real vp) noexcept
+{
+    if (idx == dlo   && bclo == BCType::ext_dir) { return vm; }
+    if (idx == dhi+1 && bchi == BCType::ext_dir) { return vp; }
+    return Real(0.5)*(vm + vp);
+}
+}
+
 void
-average_ccvel_to_mac (const Array<MultiFab*,AMREX_SPACEDIM>& fc, const MultiFab& cc)
+average_ccvel_to_mac (const Array<MultiFab*,AMREX_SPACEDIM>& fc, const MultiFab& cc,
+                      Box const& domain, Vector<BCRec> const& bcrec)
 {
         AMREX_ASSERT(cc.nComp() == AMREX_SPACEDIM);
         AMREX_ASSERT(cc.nGrow() >= 1);
@@ -18,6 +34,15 @@ average_ccvel_to_mac (const Array<MultiFab*,AMREX_SPACEDIM>& fc, const MultiFab&
 #endif
 
         int ncomp = AMREX_SPACEDIM;
+
+        // BC type of velocity component d at the lo/hi domain faces normal to d
+        const auto dlo = amrex::lbound(domain);
+        const auto dhi = amrex::ubound(domain);
+        GpuArray<int,AMREX_SPACEDIM> bclo, bchi;
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+            bclo[d] = bcrec[d].lo(d);
+            bchi[d] = bcrec[d].hi(d);
+        }
 
 #ifdef AMREX_USE_GPU
         if (Gpu::inLaunchRegion() && cc.isFusingCandidate()) {
@@ -37,14 +62,17 @@ average_ccvel_to_mac (const Array<MultiFab*,AMREX_SPACEDIM>& fc, const MultiFab&
                              Box const& ybx = amrex::surroundingNodes(ccbx,1);,
                              Box const& zbx = amrex::surroundingNodes(ccbx,2););
                 if (xbx.contains(i,j,k) and n == 0) {
-                    fxma[box_no](i,j,k) = Real(0.5)*(ccma[box_no](i-1,j,k,n) + ccma[box_no](i,j,k,n));
+                    fxma[box_no](i,j,k) = ccvel_to_face(i, dlo.x, dhi.x, bclo[0], bchi[0],
+                                                        ccma[box_no](i-1,j,k,n), ccma[box_no](i,j,k,n));
                 }
                 if (ybx.contains(i,j,k) and n == 1) {
-                    fyma[box_no](i,j,k) = Real(0.5)*(ccma[box_no](i,j-1,k,n) + ccma[box_no](i,j,k,n));
+                    fyma[box_no](i,j,k) = ccvel_to_face(j, dlo.y, dhi.y, bclo[1], bchi[1],
+                                                        ccma[box_no](i,j-1,k,n), ccma[box_no](i,j,k,n));
                 }
 #if (AMREX_SPACEDIM == 3)
                 if (zbx.contains(i,j,k) and n == 2) {
-                    fzma[box_no](i,j,k) = Real(0.5)*(ccma[box_no](i,j,k-1,n) + ccma[box_no](i,j,k,n));
+                    fzma[box_no](i,j,k) = ccvel_to_face(k, dlo.z, dhi.z, bclo[2], bchi[2],
+                                                        ccma[box_no](i,j,k-1,n), ccma[box_no](i,j,k,n));
                 }
 #endif
             });
@@ -71,10 +99,12 @@ average_ccvel_to_mac (const Array<MultiFab*,AMREX_SPACEDIM>& fc, const MultiFab&
                 AMREX_HOST_DEVICE_PARALLEL_FOR_4D(index_bounds, ncomp, i, j, k, n,
                 {
                    if (xbx.contains(i,j,k) and n == 0) {
-                       fxarr(i,j,k) = Real(0.5)*(ccarr(i-1,j,k,n) + ccarr(i,j,k,n));
+                       fxarr(i,j,k) = ccvel_to_face(i, dlo.x, dhi.x, bclo[0], bchi[0],
+                                                    ccarr(i-1,j,k,n), ccarr(i,j,k,n));
                    }
                    if (ybx.contains(i,j,k) and n == 1) {
-                       fyarr(i,j,k) = Real(0.5)*(ccarr(i,j-1,k,n) + ccarr(i,j,k,n));
+                       fyarr(i,j,k) = ccvel_to_face(j, dlo.y, dhi.y, bclo[1], bchi[1],
+                                                    ccarr(i,j-1,k,n), ccarr(i,j,k,n));
                 //       Print()<<fyarr(i,j,k)<<" ("<<i<<", "<<j<<") "
                 //   <<ccarr(i,j,k,1)<<", "<<ccarr(i,j-1,k,1)<<"\n";
                    }
@@ -83,13 +113,16 @@ average_ccvel_to_mac (const Array<MultiFab*,AMREX_SPACEDIM>& fc, const MultiFab&
                 AMREX_HOST_DEVICE_PARALLEL_FOR_4D(index_bounds, ncomp, i, j, k, n,
                 {
                    if (xbx.contains(i,j,k) and n == 0) {
-                       fxarr(i,j,k) = Real(0.5)*(ccarr(i-1,j,k,n) + ccarr(i,j,k,n));
+                       fxarr(i,j,k) = ccvel_to_face(i, dlo.x, dhi.x, bclo[0], bchi[0],
+                                                    ccarr(i-1,j,k,n), ccarr(i,j,k,n));
                    }
                    if (ybx.contains(i,j,k) and n == 1) {
-                       fyarr(i,j,k) = Real(0.5)*(ccarr(i,j-1,k,n) + ccarr(i,j,k,n));
+                       fyarr(i,j,k) = ccvel_to_face(j, dlo.y, dhi.y, bclo[1], bchi[1],
+                                                    ccarr(i,j-1,k,n), ccarr(i,j,k,n));
                    }
                    if (zbx.contains(i,j,k) and n == 2) {
-                       fzarr(i,j,k) = Real(0.5)*(ccarr(i,j,k-1,n) + ccarr(i,j,k,n));
+                       fzarr(i,j,k) = ccvel_to_face(k, dlo.z, dhi.z, bclo[2], bchi[2],
+                                                    ccarr(i,j,k-1,n), ccarr(i,j,k,n));
                    }
                 });
 #endif
@@ -387,7 +420,8 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
                               get_velocity_bcrec(), get_velocity_bcrec_device_ptr());
 
 #else
-        average_ccvel_to_mac( mac_vec[lev],      *vel[lev]);
+        average_ccvel_to_mac( mac_vec[lev],      *vel[lev],
+                              geom[lev].Domain(), get_velocity_bcrec());
 #endif
 
 
