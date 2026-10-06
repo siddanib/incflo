@@ -135,7 +135,8 @@ private:
                        amrex::Vector<amrex::MultiFab      *> const& divtau,
                        amrex::Vector<amrex::MultiFab const*> const& velocity,
                        amrex::Vector<amrex::MultiFab const*> const& density,
-                       amrex::Vector<amrex::MultiFab const*> const& eta);
+                       amrex::Vector<amrex::MultiFab const*> const& eta,
+                       amrex::Vector<amrex::MultiFab const*> const& p_hydro);
 
     void add_non_linear_part_of_divtau (
                        amrex::Vector<amrex::MultiFab      *> const& a_divtau,
@@ -143,7 +144,8 @@ private:
                        amrex::Vector<amrex::MultiFab const*> const& a_density,
                        amrex::Vector<amrex::MultiFab const*> const& a_conc_second,
                        amrex::Vector<amrex::MultiFab const*> const& a_p_static,
-                       amrex::Vector<amrex::MultiFab const*> const& a_old_velocity);
+                       amrex::Vector<amrex::MultiFab const*> const& a_old_velocity,
+                       amrex::Vector<amrex::MultiFab const*> const& a_eta);
 
     // This function evaluates the norm2 of the non-linear function
     amrex::Real get_norm_of_residual ();

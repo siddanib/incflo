@@ -1005,6 +1005,8 @@ incflo::compute_granular_high_order_divtau_on_level (int ilev,
     // Get fluxes
     compute_granular_high_order_fluxes_on_level(amrex::GetArrOfPtrs(fluxes),
                     gradVel, amrex::GetArrOfConstPtrs(fc_scndOrdr));
+    // Coulomb walls: zero tangential HO fluxes, optionally replace the normal one
+    apply_coulomb_wall_ho_fluxes(ilev, amrex::GetArrOfPtrs(fluxes));
     for (int idim = 0; idim < AMREX_SPACEDIM; ++idim) {
         fluxes[idim].OverrideSync(lev_geom.periodicity());
     }

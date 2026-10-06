@@ -1022,6 +1022,9 @@ private:
     amrex::GpuArray<BC                         , AMREX_SPACEDIM*2> m_bc_type;
     amrex::GpuArray<amrex::Real                , AMREX_SPACEDIM*2> m_bc_pressure;
     amrex::GpuArray<amrex::Real                , AMREX_SPACEDIM*2> m_bc_mu_coulomb = {0.};
+    // 1: keep the higher-order normal flux at a Coulomb wall face (evaluated with
+    //    the Coulomb wall gradient); 0: copy it from the first interior face
+    amrex::GpuArray<int                        , AMREX_SPACEDIM*2> m_bc_coulomb_ho_normal = {0};
     amrex::Real m_coulomb_eps = amrex::Real(1.e-6);
     amrex::GpuArray<amrex::Real                , AMREX_SPACEDIM*2> m_bc_density;
     amrex::GpuArray<amrex::GpuArray<amrex::Real, AMREX_SPACEDIM>
@@ -1272,8 +1275,18 @@ private:
     void fillcoarsepatch_gradp (int lev, amrex::Real time, amrex::MultiFab& gp, int ng);
 
     void fillphysbc_velocity (int lev, amrex::Real time, amrex::MultiFab& vel, int ng);
+    [[nodiscard]] bool has_coulomb_wall () const noexcept;
     void fill_coulomb_flux_ghost_cells (int lev, amrex::MultiFab& vel,
-                                        amrex::MultiFab const& cc_eta);
+                                        amrex::MultiFab const& cc_eta,
+                                        amrex::MultiFab const* p_hydro);
+    amrex::MultiFab make_coulomb_p_hydro (int lev, amrex::MultiFab const& rho);
+    void apply_coulomb_wall_vel_grad (int lev,
+                                      amrex::Array<amrex::MultiFab*,AMREX_SPACEDIM> const& gradVel,
+                                      amrex::MultiFab const& vel,
+                                      amrex::MultiFab const& cc_eta,
+                                      amrex::MultiFab const& p_hydro);
+    void apply_coulomb_wall_ho_fluxes (int lev,
+                                       amrex::Array<amrex::MultiFab*,AMREX_SPACEDIM> const& fluxes);
     void fillphysbc_density (int lev, amrex::Real time, amrex::MultiFab& density, int ng);
     void fillphysbc_tracer (int lev, amrex::Real time, amrex::MultiFab& tracer, int ng);
     void fillphysbc_temperature (int lev, amrex::Real time, amrex::MultiFab& temperature, int ng);

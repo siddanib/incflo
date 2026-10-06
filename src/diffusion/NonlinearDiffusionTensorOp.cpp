@@ -481,7 +481,7 @@ void NonlinearDiffusionTensorOp::compute_divtau (
 {
     // Preparation for two_fluid scenario
     Vector<std::unique_ptr<MultiFab>> conc_second, p_static;
-    if (m_incflo->m_two_fluid) {
+    if (m_incflo->m_two_fluid || m_incflo->has_coulomb_wall()) {
         int nlevels = velocity.size();
         conc_second.resize(nlevels);
         p_static.resize(nlevels);
@@ -546,7 +546,8 @@ void NonlinearDiffusionTensorOp::compute_divtau (
 
         if (include_linear) {
             compute_linear_part_of_divtau(GetVecOfPtrs(divtau_tmp), velocity,
-                                          density, eta);
+                                          density, eta,
+                                          GetVecOfConstPtrs(p_static));
         }
         // Here velocity is used as old_velocity as well;
         // Reason: This is NOT used in implicit solve
@@ -555,7 +556,7 @@ void NonlinearDiffusionTensorOp::compute_divtau (
                                           density,
                                           GetVecOfConstPtrs(conc_second),
                                           GetVecOfConstPtrs(p_static),
-                                          velocity);
+                                          velocity, eta);
         }
         // Redistribution
         for(int lev = 0; lev <= finest_level; lev++)
@@ -571,7 +572,8 @@ void NonlinearDiffusionTensorOp::compute_divtau (
             divtau[lev]->setVal(Real(0.));
         }
         if (include_linear) {
-            compute_linear_part_of_divtau(divtau, velocity, density, eta);
+            compute_linear_part_of_divtau(divtau, velocity, density, eta,
+                                          GetVecOfConstPtrs(p_static));
         }
         // Here velocity is used as old_velocity as well;
         // Reason: This is NOT used in implicit solve
@@ -579,7 +581,7 @@ void NonlinearDiffusionTensorOp::compute_divtau (
             add_non_linear_part_of_divtau(divtau, velocity, density,
                                           GetVecOfConstPtrs(conc_second),
                                           GetVecOfConstPtrs(p_static),
-                                          velocity);
+                                          velocity, eta);
         }
     }
 
@@ -622,7 +624,8 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
         if (m_apply_divtau_redist) {
             compute_linear_part_of_divtau(nonlin_func, velocity,
                                           GetVecOfConstPtrs(m_density),
-                                          GetVecOfConstPtrs(m_eta));
+                                          GetVecOfConstPtrs(m_eta),
+                                          GetVecOfConstPtrs(m_p_static));
             if (include_nonlinear_divtau) {
                 int nlevels = nonlin_func.size();
                 Vector<MultiFab> nl_divtau_tmp(nlevels);
@@ -655,7 +658,8 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
                                               GetVecOfConstPtrs(m_density),
                                               GetVecOfConstPtrs(m_conc_second),
                                               GetVecOfConstPtrs(m_p_static),
-                                              ho_coeff_velocity);
+                                              ho_coeff_velocity,
+                                              GetVecOfConstPtrs(m_eta));
                 for (int lev = 0; lev < nlevels; ++lev) {
                     nl_divtau_tmp[lev].FillBoundary(m_incflo->Geom(lev).periodicity());
                     //amrex::single_level_redistribute(nl_divtau_tmp[lev],
@@ -672,13 +676,15 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
         else {
             compute_linear_part_of_divtau(nonlin_func, velocity,
                                           GetVecOfConstPtrs(m_density),
-                                          GetVecOfConstPtrs(m_eta));
+                                          GetVecOfConstPtrs(m_eta),
+                                          GetVecOfConstPtrs(m_p_static));
             if (include_nonlinear_divtau) {
                 add_non_linear_part_of_divtau(nonlin_func, velocity,
                                               GetVecOfConstPtrs(m_density),
                                               GetVecOfConstPtrs(m_conc_second),
                                               GetVecOfConstPtrs(m_p_static),
-                                              ho_coeff_velocity);
+                                              ho_coeff_velocity,
+                                              GetVecOfConstPtrs(m_eta));
             }
         }
     }
@@ -687,13 +693,15 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
     {
         compute_linear_part_of_divtau(nonlin_func, velocity,
                                       GetVecOfConstPtrs(m_density),
-                                      GetVecOfConstPtrs(m_eta));
+                                      GetVecOfConstPtrs(m_eta),
+                                      GetVecOfConstPtrs(m_p_static));
         if (include_nonlinear_divtau) {
             add_non_linear_part_of_divtau(nonlin_func, velocity,
                                           GetVecOfConstPtrs(m_density),
                                           GetVecOfConstPtrs(m_conc_second),
                                           GetVecOfConstPtrs(m_p_static),
-                                          ho_coeff_velocity);
+                                          ho_coeff_velocity,
+                                          GetVecOfConstPtrs(m_eta));
         }
     }
     // First multiply divtau with (-dt)
@@ -709,7 +717,8 @@ void NonlinearDiffusionTensorOp::compute_viscous_solve_equation (
 void NonlinearDiffusionTensorOp::compute_linear_part_of_divtau (Vector<MultiFab*> const& a_divtau,
                                         Vector<MultiFab const*> const& a_velocity,
                                         Vector<MultiFab const*> const& a_density,
-                                        Vector<MultiFab const*> const& a_eta)
+                                        Vector<MultiFab const*> const& a_eta,
+                                        Vector<MultiFab const*> const& p_hydro)
 {
     BL_PROFILE("NonlinearDiffusionTensorOp::compute_linear_part_of_divtau");
 
@@ -745,7 +754,8 @@ void NonlinearDiffusionTensorOp::compute_linear_part_of_divtau (Vector<MultiFab*
             } else {
                m_eb_apply_op->setEBShearViscosity(lev, *a_eta[lev]);
             }
-            m_incflo->fill_coulomb_flux_ghost_cells(lev, velocity[lev], *a_eta[lev]);
+            m_incflo->fill_coulomb_flux_ghost_cells(lev, velocity[lev], *a_eta[lev],
+                                                    p_hydro.empty() ? nullptr : p_hydro[lev]);
             m_eb_apply_op->setLevelBC(lev, &velocity[lev]);
         }
 
@@ -767,7 +777,8 @@ void NonlinearDiffusionTensorOp::compute_linear_part_of_divtau (Vector<MultiFab*
                 b = m_incflo->average_velocity_eta_to_faces(lev, *a_eta[lev]);
             }
             m_reg_apply_op->setShearViscosity(lev, GetArrOfConstPtrs(b));
-            m_incflo->fill_coulomb_flux_ghost_cells(lev, velocity[lev], *a_eta[lev]);
+            m_incflo->fill_coulomb_flux_ghost_cells(lev, velocity[lev], *a_eta[lev],
+                                                    p_hydro.empty() ? nullptr : p_hydro[lev]);
             m_reg_apply_op->setLevelBC(lev, &velocity[lev]);
         }
 
@@ -783,7 +794,8 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
                                         Vector<MultiFab const*> const& a_density,
                                         Vector<MultiFab const*> const& a_conc_second,
                                         Vector<MultiFab const*> const& a_p_static,
-                                        Vector<MultiFab const*> const& a_old_velocity)
+                                        Vector<MultiFab const*> const& a_old_velocity,
+                                        Vector<MultiFab const*> const& a_eta)
 {
     if (!(m_incflo->m_two_fluid)) {
         return;
@@ -838,11 +850,23 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
         }
         compVelGrad(ilev, velocity_tmp, loc, amrex::GetArrOfPtrs(gradVel),
                     &gradVel_EB);
+        // Coulomb walls: wall-consistent velocity gradients for the HO stress
+        if (m_incflo->has_coulomb_wall()) {
+            m_incflo->apply_coulomb_wall_vel_grad(ilev, amrex::GetArrOfPtrs(gradVel),
+                                                  velocity_tmp, *a_eta[ilev],
+                                                  *a_p_static[ilev]);
+        }
         m_incflo->compute_granular_high_order_divtau_on_level(ilev, ho_divtau[ilev],
                    amrex::GetArrOfConstPtrs(gradVel), &gradVel_EB,
                    scndOrderCoeff, already_on_centroids);
 #else
         compVelGrad(ilev, velocity_tmp, loc, amrex::GetArrOfPtrs(gradVel));
+        // Coulomb walls: wall-consistent velocity gradients for the HO stress
+        if (m_incflo->has_coulomb_wall()) {
+            m_incflo->apply_coulomb_wall_vel_grad(ilev, amrex::GetArrOfPtrs(gradVel),
+                                                  velocity_tmp, *a_eta[ilev],
+                                                  *a_p_static[ilev]);
+        }
         m_incflo->compute_granular_high_order_divtau_on_level(ilev, ho_divtau[ilev],
                    amrex::GetArrOfConstPtrs(gradVel),
                    scndOrderCoeff, already_on_centroids);
@@ -869,7 +893,7 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
     m_density.resize(nlevels);
     m_eta.resize(nlevels);
     m_tracer.resize(nlevels);
-    if (m_incflo->m_two_fluid) {
+    if (m_incflo->m_two_fluid || m_incflo->has_coulomb_wall()) {
         m_conc_second.resize(nlevels);
         m_p_static.resize(nlevels);
     }
@@ -903,7 +927,7 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
                                         a_tracer[ilev]->DistributionMap(),
                                         a_tracer[ilev]->nComp(), nghost_tracer,
                                         MFInfo(), a_tracer[ilev]->Factory());
-        if (m_incflo->m_two_fluid) {
+        if (m_incflo->m_two_fluid || m_incflo->has_coulomb_wall()) {
             m_conc_second[ilev] = std::make_unique<MultiFab>(
                                             a_eta[ilev]->boxArray(),
                                             a_eta[ilev]->DistributionMap(),
@@ -962,7 +986,7 @@ void NonlinearDiffusionTensorOp::update_member_multifabs (
                                0,idim,1,0);
         }
     }
-    if (m_incflo->m_two_fluid) {
+    if (m_incflo->m_two_fluid || m_incflo->has_coulomb_wall()) {
         auto a_conc_second = GetVecOfPtrs(m_conc_second);
         auto a_p_static    = GetVecOfPtrs(m_p_static);
         for (int ilev = 0; ilev < nlevels; ++ilev) {
@@ -1180,7 +1204,8 @@ void NonlinearDiffusionTensorOp::diffuse_velocity_mlmg (
     }
 
     for (int lev = 0; lev <= finest_level; ++lev) {
-        m_incflo->fill_coulomb_flux_ghost_cells(lev, *velocity[lev], *eta_mlmg[lev]);
+        m_incflo->fill_coulomb_flux_ghost_cells(lev, *velocity[lev], *eta_mlmg[lev],
+                                                m_p_static.empty() ? nullptr : m_p_static[lev].get());
 #ifdef AMREX_USE_EB
         if (m_eb_solve_op) {
             m_eb_solve_op->setLevelBC(lev, velocity[lev]);

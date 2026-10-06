@@ -23,6 +23,7 @@ void incflo::init_bcs ()
                      m_bc_velocity[ori][2] = 0.0;);
         m_bc_tracer[ori].resize(m_ntrac,0.0);
         m_bc_temperature[ori] = 1.0;
+        m_bc_coulomb_ho_normal[ori] = 1;
 
         ParmParse pp(bcid);
         std::string bc_type_in = "null";
@@ -278,6 +279,9 @@ void incflo::init_bcs ()
 
             // Read per-face Coulomb friction coefficient
             pp.get("mu", m_bc_mu_coulomb[ori]);
+            pp.query("ho_normal", m_bc_coulomb_ho_normal[ori]);
+            amrex::Print() << "  mu = " << m_bc_mu_coulomb[ori]
+                           << ", ho_normal = " << m_bc_coulomb_ho_normal[ori] << "\n";
 
             // Tangential: hoextrap (same as slip_wall, serves advection + CC strain rate)
             // Normal: ext_dir (zero velocity)
