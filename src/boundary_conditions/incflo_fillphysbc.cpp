@@ -344,6 +344,53 @@ void incflo::apply_coulomb_wall_vel_grad (int lev,
     }
 }
 
+// Wall-normal stretching in the velocity gradients used by the higher-order
+// (HO) granular stress. On a wall face normal to d (no-slip, slip or Coulomb,
+// all with u.n = 0) incompressibility gives
+//     d(u_d)/dx_d = - sum_{t != d} d(u_t)/dx_t ,
+// where the tangential derivatives are the ones already computed on that face
+// (zero at a no-slip wall). This replaces the one-sided value 2 u_d,0 / dx_d
+// from MLTensorOp::compVelGrad, which is nonzero whenever the first-cell
+// normal velocity is. Only stretching components are read and only the
+// wall-normal stretching component is written, so this commutes with
+// apply_coulomb_wall_vel_grad.
+void incflo::apply_wall_continuity_vel_grad (int lev,
+                                             Array<MultiFab*,AMREX_SPACEDIM> const& gradVel)
+{
+    constexpr int S = AMREX_SPACEDIM;
+    const Box& domain = Geom(lev).Domain();
+
+    for (OrientationIter oit; oit.isValid(); ++oit) {
+        const Orientation ori = oit();
+        const BC bct = m_bc_type[ori];
+        if (bct != BC::no_slip_wall && bct != BC::slip_wall &&
+            bct != BC::coulomb_wall) { continue; }
+        const int d = ori.coordDir();
+        if (Geom(lev).isPeriodic(d)) { continue; }
+        const bool is_lo = ori.isLow();
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(*gradVel[d]); mfi.isValid(); ++mfi)
+        {
+            Box const cbx = amrex::enclosedCells(mfi.validbox());
+            if ( is_lo && cbx.smallEnd(d) != domain.smallEnd(d)) { continue; }
+            if (!is_lo && cbx.bigEnd(d)   != domain.bigEnd(d))   { continue; }
+            Box const fbx = is_lo ? amrex::bdryLo(cbx, d) : amrex::bdryHi(cbx, d);
+            Array4<Real> const& gd = gradVel[d]->array(mfi);
+            ParallelFor(fbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                Real div_t = Real(0.);
+                for (int t = 0; t < S; ++t) {
+                    if (t != d) { div_t += gd(i,j,k,t+S*t); }
+                }
+                gd(i,j,k,d+S*d) = -div_t;
+            });
+        }
+    }
+}
+
 // Higher-order (HO) granular stress fluxes at Coulomb wall faces:
 //   - tangential components are set to zero, so the wall traction is exactly
 //     the Coulomb friction carried by the linear operator;

@@ -1285,6 +1285,8 @@ private:
                                       amrex::MultiFab const& vel,
                                       amrex::MultiFab const& cc_eta,
                                       amrex::MultiFab const& p_hydro);
+    void apply_wall_continuity_vel_grad (int lev,
+                                         amrex::Array<amrex::MultiFab*,AMREX_SPACEDIM> const& gradVel);
     void apply_coulomb_wall_ho_fluxes (int lev,
                                        amrex::Array<amrex::MultiFab*,AMREX_SPACEDIM> const& fluxes);
     void fillphysbc_density (int lev, amrex::Real time, amrex::MultiFab& density, int ng);

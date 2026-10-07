@@ -856,6 +856,8 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
                                                   velocity_tmp, *a_eta[ilev],
                                                   *a_p_static[ilev]);
         }
+        // Walls: wall-normal stretching from incompressibility
+        m_incflo->apply_wall_continuity_vel_grad(ilev, amrex::GetArrOfPtrs(gradVel));
         m_incflo->compute_granular_high_order_divtau_on_level(ilev, ho_divtau[ilev],
                    amrex::GetArrOfConstPtrs(gradVel), &gradVel_EB,
                    scndOrderCoeff, already_on_centroids);
@@ -867,6 +869,8 @@ void NonlinearDiffusionTensorOp::add_non_linear_part_of_divtau (Vector<MultiFab*
                                                   velocity_tmp, *a_eta[ilev],
                                                   *a_p_static[ilev]);
         }
+        // Walls: wall-normal stretching from incompressibility
+        m_incflo->apply_wall_continuity_vel_grad(ilev, amrex::GetArrOfPtrs(gradVel));
         m_incflo->compute_granular_high_order_divtau_on_level(ilev, ho_divtau[ilev],
                    amrex::GetArrOfConstPtrs(gradVel),
                    scndOrderCoeff, already_on_centroids);
