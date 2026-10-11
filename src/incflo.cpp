@@ -86,6 +86,9 @@ void incflo::InitData ()
         }
 #endif
 
+        // Background pressure gradient from the initial density (incflo.hydrostatic_gp0)
+        build_frozen_gp0();
+
         if (m_do_initial_proj) {
             InitialProjection();
 
@@ -133,6 +136,10 @@ void incflo::InitData ()
     {
         // Read starting configuration from chk file.
         ReadCheckpointFile();
+
+        // Background pressure gradient (incflo.hydrostatic_gp0); on restart it is
+        // rebuilt from the checkpoint density
+        build_frozen_gp0();
 
 #ifdef INCFLO_USE_PARTICLES
         particleData.Redistribute();
@@ -353,6 +360,7 @@ void incflo::MakeNewLevelFromScratch (int lev, Real time, const BoxArray& new_gr
     }
     //make_mixedBC_mask(lev, grids[lev], dmap[lev]);
 
+    m_cc_macproj.reset();
 #ifdef AMREX_USE_EB
     macproj = std::make_unique<Hydro::MacProjector>(Geom(0,finest_level),
                       MLMG::Location::FaceCentroid,  // Location of mac_vec

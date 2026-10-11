@@ -57,6 +57,7 @@ void incflo::MakeNewLevelFromCoarse (int lev,
     //ptr_VOF.reset();
 
     // Note: finest_level has not yet been updated and so we use lev
+    m_cc_macproj.reset();
 #ifdef AMREX_USE_EB
     macproj = std::make_unique<Hydro::MacProjector>(Geom(0,lev),
                       MLMG::Location::FaceCentroid,  // Location of mac_vec
@@ -163,6 +164,7 @@ void incflo::RemakeLevel (int lev, Real time, const BoxArray& ba,
     }
     //ptr_VOF.reset();
 
+    m_cc_macproj.reset();
 #ifdef AMREX_USE_EB
     macproj = std::make_unique<Hydro::MacProjector>(Geom(0,finest_level),
                       MLMG::Location::FaceCentroid,  // Location of mac_vec
@@ -198,6 +200,25 @@ incflo::get_mac_projector ()
     return macproj.get();
 }
 
+// Projector used by ApplyCCProjection: the shared macproj unless
+// incflo.cc_proj_own_projector is set, in which case a dedicated one is (re)built on demand.
+Hydro::MacProjector*
+incflo::get_cc_mac_projector ()
+{
+    if (!m_cc_proj_own_projector) { return get_mac_projector(); }
+    if (!m_cc_macproj) {
+#ifdef AMREX_USE_EB
+        m_cc_macproj = std::make_unique<Hydro::MacProjector>(Geom(0,finest_level),
+                          MLMG::Location::FaceCentroid,  // Location of mac_vec
+                          MLMG::Location::FaceCentroid,  // Location of beta
+                          MLMG::Location::CellCenter  ); // Location of solution variable phi
+#else
+        m_cc_macproj = std::make_unique<Hydro::MacProjector>(Geom(0,finest_level));
+#endif
+    }
+    return m_cc_macproj.get();
+}
+
 // Delete level data
 // overrides the pure virtual function in AmrCore
 void incflo::ClearLevel (int lev)
@@ -208,6 +229,7 @@ void incflo::ClearLevel (int lev)
     m_diffusion_tensor_op.reset();
     m_diffusion_scalar_op.reset();
     macproj.reset();
+    m_cc_macproj.reset();
     if (m_vof_advect_tracer){
         ptr_VOF->m_leveldata[lev].reset();
     }

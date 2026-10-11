@@ -129,6 +129,12 @@ public:
                                        const amrex::MultiFab& tracer_new,
                                        bool include_pressure_gradient = true,
                                        bool include_SF = false);
+    // Background pressure gradient used in the velocity forcing (see m_hydrostatic_gp0)
+    void compute_gp0_at_level (int lev, amrex::MultiFab& gp0, amrex::MultiFab const& density);
+    // With m_hydrostatic_gp0: build the time-independent gp0 from the current density
+    void build_frozen_gp0 ();
+    // Fill gp0 with the background pressure gradient used in the forcing
+    void get_gp0_at_level (int lev, amrex::MultiFab& gp0);
 
 
     ///////////////////////////////////////////////////////////////////////////
@@ -253,7 +259,8 @@ public:
                                     const amrex::MultiFab* rho_cc,
                                     amrex::Real p_surface,
                                     amrex::Geometry& lev_geom,
-                                    int nghost);
+                                    int nghost,
+                                    bool edge_row_density = false);
 
     void compute_cc_hydrostatic_pressure_at_level (int lev,
                                     amrex::MultiFab* p_static,
@@ -648,6 +655,30 @@ private:
     // Same lazy pattern as get_diffusion_tensor_op / get_diffusion_scalar_op.
     Hydro::MacProjector* get_mac_projector ();
 
+    // incflo.cc_proj_own_projector = false (default): ApplyCCProjection uses the shared
+    // macproj above.  true: it uses its own projector (m_cc_macproj), so BC changes made
+    // in the CC projection can never affect the predictor's MAC projection.  Same lazy
+    // (re)build pattern as get_mac_projector.
+    bool m_cc_proj_own_projector = false;
+    // incflo.cc_proj_wall_inhomog (requires cc_proj_own_projector): at no-slip/slip/Coulomb
+    // walls the CC projection uses the predicted wall-normal face velocity with an
+    // inhomogeneous Neumann condition dphi/dx_n = u~_f/beta_f, so the corrected wall
+    // velocity is 0 and the wall-face correction seen by the cell update is physical.
+    bool m_cc_proj_wall_inhomog = false;
+    // incflo.cc_proj_wall_inhomog_cellcopy: with cc_proj_wall_inhomog, the wall face takes the
+    // adjacent cell's predicted normal velocity (old behaviour) instead of the face force
+    bool m_cc_proj_wall_inhomog_cellcopy = false;
+    // incflo.cc_proj_wall_include_divtau: include the wall cell's normal stress divergence in
+    // the wall-face force (higher-order part only with modified time stepping, full divtau with
+    // explicit diffusion); false = gravity - gp0/rho + surface tension only
+    bool m_cc_proj_wall_include_divtau = true;
+    // Set around ApplyProjection by the predictor (1) / corrector (2); 0 = homogeneous walls
+    int m_cc_wall_force_step = 0;
+    // HO part of divtau_o for the CC wall force (modified time stepping); empty = use divtau_o
+    amrex::Vector<amrex::MultiFab> m_wall_divtau_ho;
+    std::unique_ptr<Hydro::MacProjector> m_cc_macproj;
+    Hydro::MacProjector* get_cc_mac_projector ();
+
     int m_mac_mg_max_coarsening_level = 100;
 
 #ifdef AMREX_USE_FLOAT
@@ -691,6 +722,13 @@ private:
 
     amrex::Real m_p000 = 0.0; // background pressure at node (0,0,0).
     amrex::Vector<amrex::Real> m_gp0{{0.0, 0.0, 0.0}};
+    // false: the background pressure gradient is the constant m_gp0 (default).
+    // true:  its AMREX_SPACEDIM-1 component is replaced by the discrete gradient of the
+    //        hydrostatic pressure of the initial density (consistent with the active
+    //        projection), and that gradient is also added to the other components.
+    //        The field is built once (build_frozen_gp0) and kept fixed in time.
+    bool m_hydrostatic_gp0 = false;
+    amrex::Vector<std::unique_ptr<amrex::MultiFab>> m_gp0_mf;
     amrex::Vector<amrex::Real> m_gravity{{0.0, 0.0, 0.0}};
     amrex::Vector<amrex::Real> m_delp{{0.0, 0.0, 0.0}};
 

@@ -513,7 +513,13 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
         else if (vars[n] == "gpx") {
             for (int lev = 0; lev <= finest_level; ++lev) {
                 MultiFab::Copy(mf[lev], m_leveldata[lev]->gp, 0, icomp, 1, 0);
-                mf[lev].plus(m_gp0[0],icomp,1,0);
+                if (m_hydrostatic_gp0) {
+                    MultiFab gp0(grids[lev], dmap[lev], AMREX_SPACEDIM, 0, MFInfo(), Factory(lev));
+                    get_gp0_at_level(lev, gp0);
+                    MultiFab::Add(mf[lev], gp0, 0, icomp, 1, 0);
+                } else {
+                    mf[lev].plus(m_gp0[0],icomp,1,0);
+                }
             }
             pltscaVarsName.push_back("gpx");
             ++icomp;
@@ -521,7 +527,13 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
         else if (vars[n] == "gpy") {
             for (int lev = 0; lev <= finest_level; ++lev) {
                 MultiFab::Copy(mf[lev], m_leveldata[lev]->gp, 1, icomp, 1, 0);
-                mf[lev].plus(m_gp0[1],icomp,1,0);
+                if (m_hydrostatic_gp0) {
+                    MultiFab gp0(grids[lev], dmap[lev], AMREX_SPACEDIM, 0, MFInfo(), Factory(lev));
+                    get_gp0_at_level(lev, gp0);
+                    MultiFab::Add(mf[lev], gp0, 1, icomp, 1, 0);
+                } else {
+                    mf[lev].plus(m_gp0[1],icomp,1,0);
+                }
             }
             pltscaVarsName.push_back("gpy");
             ++icomp;
@@ -530,7 +542,13 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
 #if (AMREX_SPACEDIM == 3)
             for (int lev = 0; lev <= finest_level; ++lev) {
                 MultiFab::Copy(mf[lev], m_leveldata[lev]->gp, 2, icomp, 1, 0);
-                mf[lev].plus(m_gp0[2],icomp,1,0);
+                if (m_hydrostatic_gp0) {
+                    MultiFab gp0(grids[lev], dmap[lev], AMREX_SPACEDIM, 0, MFInfo(), Factory(lev));
+                    get_gp0_at_level(lev, gp0);
+                    MultiFab::Add(mf[lev], gp0, 2, icomp, 1, 0);
+                } else {
+                    mf[lev].plus(m_gp0[2],icomp,1,0);
+                }
             }
             pltscaVarsName.push_back("gpz");
             ++icomp;

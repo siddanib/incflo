@@ -350,7 +350,8 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
 
     //
     // Initialize (or redefine the beta in) the MacProjector
-    if (get_mac_projector()->needInitialization())
+    Hydro::MacProjector* ccproj = get_cc_mac_projector();
+    if (ccproj->needInitialization())
     {
         LPInfo lp_info;
         lp_info.setMaxCoarseningLevel(m_mac_mg_max_coarsening_level);
@@ -362,28 +363,68 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
                 ba.push_back(ir[0].boxArray());
                 dm.push_back(ir[0].DistributionMap());
             }
-            macproj->initProjector(ba, dm, lp_info, scaling_factor/m_ro_0);
+            ccproj->initProjector(ba, dm, lp_info, scaling_factor/m_ro_0);
         } else
 #endif
         {
-            macproj->initProjector(lp_info, GetVecOfArrOfConstPtrs(inv_rho));
+            ccproj->initProjector(lp_info, GetVecOfArrOfConstPtrs(inv_rho));
         }
     } else {
 #ifndef AMREX_USE_EB
         if (m_constant_density&&!m_vof_advect_tracer) {
-            macproj->updateBeta(scaling_factor/m_ro_0);  // unnecessary unless m_ro_0 changes.
+            ccproj->updateBeta(scaling_factor/m_ro_0);  // unnecessary unless m_ro_0 changes.
         } else
 #endif
         {
-            macproj->updateCoeffs(GetVecOfArrOfConstPtrs(inv_rho));
+            ccproj->updateCoeffs(GetVecOfArrOfConstPtrs(inv_rho));
         }
     }
 
-    macproj->setDomainBC(bclo, bchi);
+    // Walls with u.n = 0 that get the wall-consistent (inhomogeneous Neumann) condition
+    GpuArray<int, 2*AMREX_SPACEDIM> inhomog_wall{};
+    // Face-force mode: inhomogeneous walls only in the predictor/corrector projections.
+    // Cell-copy mode keeps its original behaviour in every CC projection.
+    const bool wall_inhomog = m_cc_proj_wall_inhomog &&
+        (m_cc_proj_wall_inhomog_cellcopy || m_cc_wall_force_step != 0);
+    if (m_cc_proj_wall_inhomog) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_cc_proj_own_projector,
+            "incflo.cc_proj_wall_inhomog requires incflo.cc_proj_own_projector = 1");
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!m_has_mixedBC,
+            "incflo.cc_proj_wall_inhomog is not supported with mixed BCs");
+#ifndef AMREX_USE_EB
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(!(m_constant_density && !m_vof_advect_tracer),
+            "incflo.cc_proj_wall_inhomog is not supported with the constant-density projector");
+#endif
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_cc_proj_wall_inhomog_cellcopy || !m_use_boussinesq,
+            "incflo.cc_proj_wall_inhomog face-force mode is not supported with Boussinesq");
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_cc_proj_wall_inhomog_cellcopy || !m_hydrostatic_gp0,
+            "incflo.cc_proj_wall_inhomog face-force mode does not include the hydrostatic gp0 field; use hydrostatic_gp0 = 0");
+        if (wall_inhomog) {
+            for (OrientationIter oit; oit.isValid(); ++oit) {
+                const Orientation ori = oit();
+                const int d = ori.coordDir();
+                const BC bct = m_bc_type[ori];
+                if (!geom[0].isPeriodic(d) &&
+                    (bct == BC::no_slip_wall || bct == BC::slip_wall || bct == BC::coulomb_wall))
+                {
+                    inhomog_wall[int(ori)] = 1;
+                    if (ori.isLow()) { bclo[d] = LinOpBCType::inhomogNeumann; }
+                    else             { bchi[d] = LinOpBCType::inhomogNeumann; }
+                }
+            }
+        }
+    }
+
+    ccproj->setDomainBC(bclo, bchi);
+    // The level BC (types and values) is latched by setLevelBC; reset it when this
+    // projector's walls switch back to homogeneous Neumann
+    if (m_cc_proj_wall_inhomog && !wall_inhomog) {
+        for (int lev = 0; lev <= finest_level; ++lev) { ccproj->setLevelBC(lev, nullptr); }
+    }
     if (m_has_mixedBC) {
         for (int lev = 0; lev <= finest_level; ++lev) {
             auto const robin = make_robinBC_MFs(lev);
-            macproj->setLevelBC(lev, nullptr, &robin[0], &robin[1], &robin[2]);
+            ccproj->setLevelBC(lev, nullptr, &robin[0], &robin[1], &robin[2]);
         }
     }
 
@@ -441,14 +482,92 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
 
     }
 
-    macproj->setUMAC(mac_vec);
+    // Wall-consistent condition: the wall face carries u~_f, and dphi/dx_d = u~_f / beta_f
+    // (beta_f = inv_rho) makes the corrected wall velocity u~_f - beta_f dphi/dx_d exactly 0.
+    // The ghost cells of bcdata next to the wall hold that d/dx_d value (AMReX inhomogeneous
+    // Neumann convention).
+    // - face-force mode (default): u~_f = dt*(g_n - gp0_n/rho + sf_n + divtau_n/rho), i.e. the
+    //   forces applied over the step (sf_n is already in uf from velocity_face_source), so that
+    //   dp/dn = rho_f*(g_n - gp0_n/rho + sf_n + divtau_n/rho).  divtau_n is the wall cell's value:
+    //   divtau_o (predictor) or (divtau_o+divtau)/2 (corrector); with modified time stepping
+    //   only its higher-order part (the stiff linear part is treated implicitly).
+    // - cell-copy mode (cc_proj_wall_inhomog_cellcopy): u~_f = predicted normal velocity of
+    //   the adjacent cell.
+    const bool cellcopy   = m_cc_proj_wall_inhomog_cellcopy;
+    const bool use_divtau = m_cc_proj_wall_include_divtau && velocity_uses_explicit_diffusion_terms();
+    const bool momentum   = m_advect_momentum;
+    const int  step       = m_cc_wall_force_step;
+    const Real dts        = scaling_factor;
+    Vector<MultiFab> bcdata(finest_level+1);
+    if (wall_inhomog) {
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            bcdata[lev].define(grids[lev], dmap[lev], 1, 1, MFInfo(), Factory(lev));
+            bcdata[lev].setVal(Real(0.));
+            const Box& domain = geom[lev].Domain();
+            for (MFIter mfi(*vel[lev]); mfi.isValid(); ++mfi) {
+                Box const& vbx = mfi.validbox();
+                Array4<Real const> const& v  = vel[lev]->const_array(mfi);
+                Array4<Real>       const& bc = bcdata[lev].array(mfi);
+                for (OrientationIter oit; oit.isValid(); ++oit) {
+                    const Orientation ori = oit();
+                    if (!inhomog_wall[int(ori)]) { continue; }
+                    const int d = ori.coordDir();
+                    const bool is_lo = ori.isLow();
+                    if ( is_lo && vbx.smallEnd(d) != domain.smallEnd(d)) { continue; }
+                    if (!is_lo && vbx.bigEnd(d)   != domain.bigEnd(d))   { continue; }
+                    Box const fbx = is_lo ? amrex::bdryLo(vbx, d) : amrex::bdryHi(vbx, d);
+                    Array4<Real>       const& uf = mac_vec[lev][d]->array(mfi);
+                    Array4<Real const> const& br = inv_rho[lev][d].const_array(mfi);
+                    // divtau is not allocated for Godunov (no corrector); fetch only what is used
+                    Array4<Real const> dto, dtn;
+                    if (use_divtau) {
+                        dto = m_wall_divtau_ho.empty() ? m_leveldata[lev]->divtau_o.const_array(mfi)
+                                                       : m_wall_divtau_ho[lev].const_array(mfi);
+                        dtn = (step == 2) ? m_leveldata[lev]->divtau.const_array(mfi) : dto;
+                    }
+                    Array4<Real const> const& rc  = density[lev]->const_array(mfi);
+                    const Real gn   = m_gravity[d];
+                    const Real gp0n = m_gp0[d];   // background gradient, e.g. rho_0*g (set_background_pressure)
+                    const int sc = is_lo ? 0 : -1;   // interior cell = face + sc
+                    const int sg = is_lo ? -1 : 0;   // ghost cell    = face + sg
+                    ParallelFor(fbx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+                    {
+                        const int ic = i + (d==0 ? sc : 0);
+                        const int jc = j + (d==1 ? sc : 0);
+                        const int kc = k + (d==2 ? sc : 0);
+                        if (cellcopy) {
+                            uf(i,j,k) = v(ic,jc,kc,d);
+                        } else {
+                            // Face force over the step, added to the surface tension already in uf
+                            // same as the cell forcing -(gp+gp0)/rho + g, without gp
+                            Real a = gn - gp0n/rc(ic,jc,kc);
+                            if (use_divtau) {
+                                Real f = (step == 2) ? Real(0.5)*(dto(ic,jc,kc,d) + dtn(ic,jc,kc,d))
+                                                     : dto(ic,jc,kc,d);
+                                if (momentum) { f /= rc(ic,jc,kc); }
+                                a += f;
+                            }
+                            uf(i,j,k) += dts*a;
+                        }
+                        const int ig = i + (d==0 ? sg : 0);
+                        const int jg = j + (d==1 ? sg : 0);
+                        const int kg = k + (d==2 ? sg : 0);
+                        bc(ig,jg,kg) = (br(i,j,k) > Real(0.)) ? uf(i,j,k)/br(i,j,k) : Real(0.);
+                    });
+                }
+            }
+            ccproj->setLevelBC(lev, &bcdata[lev]);
+        }
+    }
+
+    ccproj->setUMAC(mac_vec);
 
 
     if (m_verbose > 2) amrex::Print() << "CC Projection:\n";
     //
     // Perform MAC projection:  - del dot (dt/rho) grad phi = div(U)
     //
-    macproj->project(cc_phi_ptrs,m_mac_mg_rtol,m_mac_mg_atol);
+    ccproj->project(cc_phi_ptrs,m_mac_mg_rtol,m_mac_mg_atol);
 
     //
     // After the projection we grab the dt/rho (grad phi) used in the projection
@@ -469,9 +588,9 @@ void incflo::ApplyCCProjection (Vector<MultiFab const*> density,
     // Note that "fluxes" comes back as MINUS (dt/rho) Gphi
     //
 #ifdef AMREX_USE_EB
-    macproj->getFluxes(amrex::GetVecOfArrOfPtrs(m_fluxes), cc_phi_ptrs, MLMG::Location::FaceCentroid);
+    ccproj->getFluxes(amrex::GetVecOfArrOfPtrs(m_fluxes), cc_phi_ptrs, MLMG::Location::FaceCentroid);
 #else
-    macproj->getFluxes(amrex::GetVecOfArrOfPtrs(m_fluxes), cc_phi_ptrs, MLMG::Location::FaceCenter);
+    ccproj->getFluxes(amrex::GetVecOfArrOfPtrs(m_fluxes), cc_phi_ptrs, MLMG::Location::FaceCenter);
 #endif
 
     for (int lev=0; lev <= finest_level; ++lev)

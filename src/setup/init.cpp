@@ -96,6 +96,11 @@ void incflo::ReadParameters ()
         pp.query("godunov_include_diff_in_forcing"  , m_godunov_include_diff_in_forcing);
         pp.query("use_mac_phi_in_godunov"           , m_use_mac_phi_in_godunov);
         pp.query("use_cc_proj"                      , m_use_cc_proj);
+        pp.query("hydrostatic_gp0"                  , m_hydrostatic_gp0);
+        pp.query("cc_proj_own_projector"            , m_cc_proj_own_projector);
+        pp.query("cc_proj_wall_inhomog"             , m_cc_proj_wall_inhomog);
+        pp.query("cc_proj_wall_inhomog_cellcopy"    , m_cc_proj_wall_inhomog_cellcopy);
+        pp.query("cc_proj_wall_include_divtau"      , m_cc_proj_wall_include_divtau);
 
         // What type of redistribution algorithm;
         // {NoRedist, FluxRedist, StateRedist}

@@ -138,7 +138,13 @@ void incflo::compute_vel_forces_on_level (int lev,
                                           bool include_SF)
 {
     GpuArray<Real,3> l_gravity{m_gravity[0],m_gravity[1],m_gravity[2]};
-    GpuArray<Real,3> l_gp0{m_gp0[0], m_gp0[1], m_gp0[2]};
+
+    // Background pressure gradient: constant m_gp0, or the frozen hydrostatic field
+    MultiFab gp0(density.boxArray(), density.DistributionMap(), AMREX_SPACEDIM, 0,
+                 MFInfo(), density.Factory());
+    if (!m_use_boussinesq) {
+        get_gp0_at_level(lev, gp0);
+    }
 
     auto const dx = geom[lev].CellSizeArray();
 
@@ -151,6 +157,7 @@ void incflo::compute_vel_forces_on_level (int lev,
             Array4<Real>       const& vel_f =  vel_forces.array(mfi);
             Array4<Real const> const&   rho =     density.const_array(mfi);
             Array4<Real const> const& gradp = m_leveldata[lev]->gp.const_array(mfi);
+            Array4<Real const> const& l_gp0 = gp0.const_array(mfi);
 
             if (m_use_boussinesq) {
                 // This uses a Boussinesq approximation where the buoyancy depends on
@@ -184,13 +191,13 @@ void incflo::compute_vel_forces_on_level (int lev,
 
                     if (include_pressure_gradient)
                     {
-                        AMREX_D_TERM(vel_f(i,j,k,0) = -(gradp(i,j,k,0)+l_gp0[0])*rhoinv + l_gravity[0];,
-                                     vel_f(i,j,k,1) = -(gradp(i,j,k,1)+l_gp0[1])*rhoinv + l_gravity[1];,
-                                     vel_f(i,j,k,2) = -(gradp(i,j,k,2)+l_gp0[2])*rhoinv + l_gravity[2];);
+                        AMREX_D_TERM(vel_f(i,j,k,0) = -(gradp(i,j,k,0)+l_gp0(i,j,k,0))*rhoinv + l_gravity[0];,
+                                     vel_f(i,j,k,1) = -(gradp(i,j,k,1)+l_gp0(i,j,k,1))*rhoinv + l_gravity[1];,
+                                     vel_f(i,j,k,2) = -(gradp(i,j,k,2)+l_gp0(i,j,k,2))*rhoinv + l_gravity[2];);
                     } else {
-                        AMREX_D_TERM(vel_f(i,j,k,0) = -(               l_gp0[0])*rhoinv + l_gravity[0];,
-                                     vel_f(i,j,k,1) = -(               l_gp0[1])*rhoinv + l_gravity[1];,
-                                     vel_f(i,j,k,2) = -(               l_gp0[2])*rhoinv + l_gravity[2];);
+                        AMREX_D_TERM(vel_f(i,j,k,0) = -(               l_gp0(i,j,k,0))*rhoinv + l_gravity[0];,
+                                     vel_f(i,j,k,1) = -(               l_gp0(i,j,k,1))*rhoinv + l_gravity[1];,
+                                     vel_f(i,j,k,2) = -(               l_gp0(i,j,k,2))*rhoinv + l_gravity[2];);
                     }
 
                     Real x = (i+Real(0.5)) * dx[0];
@@ -219,13 +226,13 @@ void incflo::compute_vel_forces_on_level (int lev,
 
                     if (include_pressure_gradient)
                     {
-                        AMREX_D_TERM(vel_f(i,j,k,0) = -(gradp(i,j,k,0)+l_gp0[0])*rhoinv + l_gravity[0];,
-                                     vel_f(i,j,k,1) = -(gradp(i,j,k,1)+l_gp0[1])*rhoinv + l_gravity[1];,
-                                     vel_f(i,j,k,2) = -(gradp(i,j,k,2)+l_gp0[2])*rhoinv + l_gravity[2];);
+                        AMREX_D_TERM(vel_f(i,j,k,0) = -(gradp(i,j,k,0)+l_gp0(i,j,k,0))*rhoinv + l_gravity[0];,
+                                     vel_f(i,j,k,1) = -(gradp(i,j,k,1)+l_gp0(i,j,k,1))*rhoinv + l_gravity[1];,
+                                     vel_f(i,j,k,2) = -(gradp(i,j,k,2)+l_gp0(i,j,k,2))*rhoinv + l_gravity[2];);
                     } else {
-                        AMREX_D_TERM(vel_f(i,j,k,0) = -(               l_gp0[0])*rhoinv + l_gravity[0];,
-                                     vel_f(i,j,k,1) = -(               l_gp0[1])*rhoinv + l_gravity[1];,
-                                     vel_f(i,j,k,2) = -(               l_gp0[2])*rhoinv + l_gravity[2];);
+                        AMREX_D_TERM(vel_f(i,j,k,0) = -(               l_gp0(i,j,k,0))*rhoinv + l_gravity[0];,
+                                     vel_f(i,j,k,1) = -(               l_gp0(i,j,k,1))*rhoinv + l_gravity[1];,
+                                     vel_f(i,j,k,2) = -(               l_gp0(i,j,k,2))*rhoinv + l_gravity[2];);
                     }
                 });
             }
@@ -657,4 +664,156 @@ void incflo::compute_vel_forces_on_level (int lev,
 
 
     }// end if (m_vof_advect_tracer)
+}
+
+void incflo::build_frozen_gp0 ()
+{
+    if (!m_hydrostatic_gp0) { return; }
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(max_level == 0,
+        "incflo.hydrostatic_gp0 is only implemented for max_level = 0");
+    m_gp0_mf.resize(finest_level+1);
+    for (int lev = 0; lev <= finest_level; ++lev) {
+        m_gp0_mf[lev] = std::make_unique<MultiFab>(grids[lev], dmap[lev], AMREX_SPACEDIM, 0,
+                                                   MFInfo(), Factory(lev));
+        compute_gp0_at_level(lev, *m_gp0_mf[lev], m_leveldata[lev]->density);
+    }
+}
+
+void incflo::get_gp0_at_level (int lev, MultiFab& gp0)
+{
+    if (m_hydrostatic_gp0) {
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(lev < static_cast<int>(m_gp0_mf.size()) && m_gp0_mf[lev],
+            "hydrostatic gp0 has not been built");
+        // ParallelCopy also handles a changed grid layout (values stay frozen)
+        gp0.ParallelCopy(*m_gp0_mf[lev]);
+    } else {
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) { gp0.setVal(m_gp0[d], d, 1); }
+    }
+}
+
+// Background pressure gradient gp0 used in the velocity forcing
+//     vel_f = -(gp + gp0)/rho + g.
+// m_hydrostatic_gp0 == false: gp0 = m_gp0 (constant) in every component.
+// m_hydrostatic_gp0 == true:  gp0 = discrete grad(p0) + m_gp0[d] for d != AMREX_SPACEDIM-1,
+//   where p0 is the hydrostatic pressure of `density` integrated along AMREX_SPACEDIM-1.
+//   With the flag on this is called once, from build_frozen_gp0, with the initial density.
+//   The vertical m_gp0 is replaced, not added (p0 already contains the rho_0 part).
+//   grad(p0) is formed exactly like the active projection forms gp, so that a
+//   hydrostatic state gives gp0 = rho*g with the projected pressure ~ 0, and the
+//   projection's homogeneous Neumann wall condition is consistent:
+//   - CC projection: gp = rho_cell * < dphi/dx_f / rho_f > (arithmetic face density);
+//     on a non-periodic domain face the first interior face value is used.
+//   - nodal projection: gp = edge average of nodal differences (MLNodeLaplacian::compGrad);
+//     p0 is integrated with the cell density along each vertical edge.
+void incflo::compute_gp0_at_level (int lev, MultiFab& gp0, MultiFab const& density)
+{
+    if (!m_hydrostatic_gp0) {
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) {
+            gp0.setVal(m_gp0[d], d, 1);
+        }
+        return;
+    }
+
+#ifdef AMREX_USE_EB
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(EBFactory(lev).isAllRegular(),
+        "incflo.hydrostatic_gp0 assumes an all-regular geometry");
+#endif
+
+    constexpr int S = AMREX_SPACEDIM;
+    Geometry& lev_geom = geom[lev];
+    const Box& domain = lev_geom.Domain();
+    const auto dlo = amrex::lbound(domain);
+    const auto dhi = amrex::ubound(domain);
+    const auto dxinv = lev_geom.InvCellSizeArray();
+    GpuArray<int,S> per{};
+    for (int d = 0; d < S; ++d) { per[d] = lev_geom.isPeriodic(d) ? 1 : 0; }
+    GpuArray<Real,S> gp0_other{};
+    for (int d = 0; d < S; ++d) { gp0_other[d] = (d == S-1) ? Real(0.) : m_gp0[d]; }
+
+    // Density with valid interior/periodic ghost cells
+    MultiFab rho(density.boxArray(), density.DistributionMap(), 1, 1, MFInfo(), density.Factory());
+    rho.setVal(Real(0.));
+    MultiFab::Copy(rho, density, 0, 0, 1, 0);
+    rho.FillBoundary(lev_geom.periodicity());
+
+    if (m_use_cc_proj)
+    {
+        MultiFab p0(density.boxArray(), density.DistributionMap(), 1, 1, MFInfo(), density.Factory());
+        p0.setVal(Real(0.));
+        compute_cc_hydrostatic_pressure_at_level(lev, &p0, &rho, Real(0.), lev_geom, 0);
+        p0.FillBoundary(lev_geom.periodicity());
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(gp0, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            Array4<Real>       const& g  = gp0.array(mfi);
+            Array4<Real const> const& p  = p0.const_array(mfi);
+            Array4<Real const> const& r  = rho.const_array(mfi);
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                const int c[3] = {i, j, k};
+                const int lo3[3] = {dlo.x, dlo.y, dlo.z};
+                const int hi3[3] = {dhi.x, dhi.y, dhi.z};
+                for (int d = 0; d < S; ++d) {
+                    const int di = (d==0), dj = (d==1), dk = (d==2);
+                    // dphi/dx_f / rho_f on the low and high faces of the cell
+                    auto q = [&] (int il, int jl, int kl, int ih, int jh, int kh) {
+                        return (p(ih,jh,kh) - p(il,jl,kl)) * dxinv[d]
+                            / (Real(0.5)*(r(il,jl,kl) + r(ih,jh,kh)));
+                    };
+                    const bool at_lo = !per[d] && c[d] == lo3[d];
+                    const bool at_hi = !per[d] && c[d] == hi3[d];
+                    Real qlo = Real(0.), qhi = Real(0.);
+                    if (!at_lo) { qlo = q(i-di,j-dj,k-dk, i,j,k); }
+                    if (!at_hi) { qhi = q(i,j,k, i+di,j+dj,k+dk); }
+                    if (at_lo && !at_hi) { qlo = qhi; }
+                    if (at_hi && !at_lo) { qhi = qlo; }
+                    g(i,j,k,d) = r(i,j,k) * Real(0.5)*(qlo + qhi) + gp0_other[d];
+                }
+            });
+        }
+    }
+    else
+    {
+        MultiFab p0(amrex::convert(density.boxArray(), IntVect::TheNodeVector()),
+                    density.DistributionMap(), 1, 0, MFInfo(), density.Factory());
+        compute_nodal_hydrostatic_pressure_at_level(lev, &p0, &rho, Real(0.), lev_geom, 0,
+                                                    true /*edge_row_density*/);
+
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(gp0, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            Array4<Real>       const& g = gp0.array(mfi);
+            Array4<Real const> const& p = p0.const_array(mfi);
+            ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                // Same stencil as mlndlap_mknewu_c (MLNodeLaplacian::compGrad), sigma = 1
+#if (AMREX_SPACEDIM == 3)
+                const Real fx = Real(0.25)*dxinv[0];
+                const Real fy = Real(0.25)*dxinv[1];
+                const Real fz = Real(0.25)*dxinv[2];
+                g(i,j,k,0) = fx*(-p(i,j,k  )+p(i+1,j,k  )-p(i,j+1,k  )+p(i+1,j+1,k  )
+                                 -p(i,j,k+1)+p(i+1,j,k+1)-p(i,j+1,k+1)+p(i+1,j+1,k+1))
+                             + gp0_other[0];
+                g(i,j,k,1) = fy*(-p(i,j,k  )-p(i+1,j,k  )+p(i,j+1,k  )+p(i+1,j+1,k  )
+                                 -p(i,j,k+1)-p(i+1,j,k+1)+p(i,j+1,k+1)+p(i+1,j+1,k+1))
+                             + gp0_other[1];
+                g(i,j,k,2) = fz*(-p(i,j,k  )-p(i+1,j,k  )-p(i,j+1,k  )-p(i+1,j+1,k  )
+                                 +p(i,j,k+1)+p(i+1,j,k+1)+p(i,j+1,k+1)+p(i+1,j+1,k+1))
+                             + gp0_other[2];
+#else
+                const Real fx = Real(0.5)*dxinv[0];
+                const Real fy = Real(0.5)*dxinv[1];
+                g(i,j,k,0) = fx*(-p(i,j,k)+p(i+1,j,k)-p(i,j+1,k)+p(i+1,j+1,k)) + gp0_other[0];
+                g(i,j,k,1) = fy*(-p(i,j,k)-p(i+1,j,k)+p(i,j+1,k)+p(i+1,j+1,k)) + gp0_other[1];
+#endif
+            });
+        }
+    }
 }

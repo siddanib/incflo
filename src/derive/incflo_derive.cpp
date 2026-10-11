@@ -176,18 +176,68 @@ void incflo::compute_nodal_strainrate_at_level (int /*lev*/,
         }
 }
 
+// edge_row_density = false: nodal density = average of the 2^d surrounding cells.
+// edge_row_density = true:  the value stored at node (i,j,k) is the average density of
+//   cell row k over the in-domain cells sharing the vertical edge (i,j). Summed over rows
+//   h >= k this integrates the cell density exactly along each vertical edge, so the
+//   nodal-projection cell gradient of the result is rho*g in a vertically stratified state.
 void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
                                           MultiFab* p_static,
                                           const MultiFab* rho_cc,
                                           Real p_surface,
                                           Geometry& lev_geom,
-                                          int nghost)
+                                          int nghost,
+                                          bool edge_row_density)
 {
     if (lev > 0) {
         amrex::Abort("Hydrostatic pressure is not implemented for lev > 0");
     }
 
     MultiFab rho_nodal(p_static->boxArray(), p_static->DistributionMap(),1,nghost);
+    if (edge_row_density) {
+        const Dim3 dlo = amrex::lbound(lev_geom.Domain());
+        const Dim3 dhi = amrex::ubound(lev_geom.Domain());
+        GpuArray<int,AMREX_SPACEDIM> per{};
+        for (int d = 0; d < AMREX_SPACEDIM; ++d) { per[d] = lev_geom.isPeriodic(d) ? 1 : 0; }
+#ifdef _OPENMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+        for (MFIter mfi(rho_nodal,TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        {
+            Box const& bx = mfi.tilebox();
+            Array4<Real const> const& rho_arr = rho_cc->const_array(mfi);
+            Array4<Real> const& rho_nodal_arr = rho_nodal.array(mfi);
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
+            {
+                // Horizontal cell range sharing the vertical edge; drop cells outside a
+                // non-periodic domain face
+                int ilo = i-1, ihi = i;
+                if (!per[0]) { if (i == dlo.x) { ilo = i; } if (i == dhi.x+1) { ihi = i-1; } }
+#if (AMREX_SPACEDIM == 3)
+                int jlo = j-1, jhi = j;
+                if (!per[1]) { if (j == dlo.y) { jlo = j; } if (j == dhi.y+1) { jhi = j-1; } }
+                const int kr = k;                         // cell row along the vertical
+                const bool row_ok = (k <= dhi.z);
+#else
+                int jlo = j, jhi = j;
+                const int kr = k;
+                const bool row_ok = (j <= dhi.y);
+#endif
+                Real sum = Real(0.); int cnt = 0;
+                if (row_ok) {
+#if (AMREX_SPACEDIM == 3)
+                    for (int jj = jlo; jj <= jhi; ++jj) {
+                        for (int ii = ilo; ii <= ihi; ++ii) { sum += rho_arr(ii,jj,kr); ++cnt; }
+                    }
+#else
+                    amrex::ignore_unused(jlo,jhi,kr);
+                    for (int ii = ilo; ii <= ihi; ++ii) { sum += rho_arr(ii,j,0); ++cnt; }
+#endif
+                }
+                rho_nodal_arr(i,j,k) = (cnt > 0) ? sum/Real(cnt) : Real(0.);
+            });
+        }
+    } else {
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
@@ -209,6 +259,7 @@ void incflo::compute_nodal_hydrostatic_pressure_at_level (int lev,
               }
            }
         });
+    }
     }
 
     BoxArray pencil_ba(surroundingNodes(lev_geom.Domain()));

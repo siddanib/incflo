@@ -159,6 +159,22 @@ void incflo::ApplyPredictor (bool incremental_projection)
                        &tracer_old);
     }
 
+    // Higher-order (non-stiff) part of divtau_o for the CC-projection wall force; with modified
+    // time stepping the linear part is treated implicitly and must not enter the wall BC
+    m_wall_divtau_ho.clear();
+    if (m_use_cc_proj && m_cc_proj_wall_inhomog && !m_cc_proj_wall_inhomog_cellcopy &&
+        m_cc_proj_wall_include_divtau && m_gran_rheo_modified_time_stepping)
+    {
+        m_wall_divtau_ho.resize(finest_level+1);
+        for (int lev = 0; lev <= finest_level; ++lev) {
+            m_wall_divtau_ho[lev].define(grids[lev], dmap[lev], AMREX_SPACEDIM, 0, MFInfo(), Factory(lev));
+        }
+        auto tracer_old = get_tracer_old_const();
+        compute_divtau(GetVecOfPtrs(m_wall_divtau_ho), get_velocity_old_const(),
+                       get_density_old_const(), GetVecOfConstPtrs(vel_eta),
+                       false /*linear*/, true /*nonlinear*/, &tracer_old);
+    }
+
     // *************************************************************************************
     // Compute explicit diffusive term -- note this is used inside compute_convective_term
     // *************************************************************************************
@@ -242,9 +258,11 @@ void incflo::ApplyPredictor (bool incremental_projection)
     // **********************************************************************************************
     // Project velocity field, update pressure
     // **********************************************************************************************
+    m_cc_wall_force_step = incremental_projection ? 0 : 1;
     ApplyProjection(get_density_nph_const(),
                     AMREX_D_DECL(GetVecOfPtrs(u_mac), GetVecOfPtrs(v_mac),
                     GetVecOfPtrs(w_mac)),new_time,m_dt,incremental_projection);
+    m_cc_wall_force_step = 0;
 
 #ifdef INCFLO_USE_PARTICLES
     // **************************************************************************************
