@@ -147,6 +147,9 @@ void incflo::ReadRheologyParameters()
             pp_scnd.get("min_eta", m_eta_min_second);
             pp_scnd.get("max_eta", m_eta_max_second);
             pp_scnd.query("diameter", m_diam_second);
+            pp_scnd.query("max_inertial_num", m_max_inertial_num_second);
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(m_max_inertial_num_second > amrex::Real(0.),
+                "incflo.second_fluid.max_inertial_num must be positive");
         }
 
         amrex::Print() << "Second fluid properties : " << std::endl;

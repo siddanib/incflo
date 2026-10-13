@@ -275,6 +275,7 @@ public:
                                     const amrex::MultiFab* press,
                                     amrex::Real p_eps, amrex::Real ro_grain,
                                     amrex::Real diam_grain,
+                                    amrex::Real max_inrt_num,
                                     int nghost);
 
     void compute_cc_second_fluid_conc (amrex::MultiFab* conc_second_cc,
@@ -872,6 +873,8 @@ private:
     amrex::Real m_I_1_N_powerlaw_temperature = amrex::Real(0.);
     // epsilon value to pressure while calculating Inertial Number
     amrex::Real m_mu_p_eps_second = amrex::Real(1.0e-4);
+    // Upper clamp on Inertial Number (default: no clamp)
+    amrex::Real m_max_inertial_num_second = std::numeric_limits<amrex::Real>::max();
     // epsilon value to strain rate magnitude while calculating dynamic viscosity
     amrex::Real m_mu_sr_eps_second = amrex::Real(1.0e-3);
     // Variable for surface pressure in mu(I) model

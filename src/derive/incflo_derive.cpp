@@ -418,6 +418,7 @@ void incflo::compute_inertial_num_at_level (int lev,
                                           const MultiFab* press,
                                           Real p_eps, Real ro_grain,
                                           Real diam_grain,
+                                          Real max_inrt_num,
                                           int nghost)
 {
 #ifdef _OPENMP
@@ -432,6 +433,7 @@ void incflo::compute_inertial_num_at_level (int lev,
         const Real eps = p_eps;
         const Real diam_scnd = diam_grain;
         const Real ro_scnd = ro_grain;
+        const Real max_I = max_inrt_num;
         amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept
         {
              // Regularized Pressure
@@ -445,8 +447,9 @@ void incflo::compute_inertial_num_at_level (int lev,
              Real p_reg = p_nd_arr(i,j,k) + eps;
 
              // Strainrate in incflo is two-times the actual value
-             inrt_num_arr(i,j,k) = std::sqrt(ro_scnd/p_reg)*
-                                   diam_scnd*Real(0.5)*sr_arr(i,j,k);
+             // Clamped from above by max_I
+             inrt_num_arr(i,j,k) = amrex::min(std::sqrt(ro_scnd/p_reg)*
+                                   diam_scnd*Real(0.5)*sr_arr(i,j,k), max_I);
         });
     }
     amrex::ignore_unused<int>(lev);
