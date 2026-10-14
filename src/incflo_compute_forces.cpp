@@ -49,7 +49,7 @@ void incflo::compute_tem_forces (Real time, Vector<MultiFab*> const& tem_forces)
                                                  m_mu_p_surf_second, geom[lev], 0);
         compute_inertial_num_at_level(lev, &inertial_num, &strainrate, &p_static,
                                       m_mu_p_eps_second, m_ro_grain_second,
-                                      m_diam_second, 0);
+                                      m_diam_second, m_max_inertial_num_second, 0);
 
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())

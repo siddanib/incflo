@@ -830,6 +830,7 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
                                                m_mu_p_eps_second,
                                                m_ro_grain_second,
                                                m_diam_second,
+                                               m_max_inertial_num_second,
                                                0);
                 if (m_nodal_vel_eta) {
                    amrex::average_node_to_cellcenter(mf[lev],icomp,
@@ -894,6 +895,7 @@ void incflo::WritePlotVariables(Vector<std::string> vars, const std::string& plo
                                                m_mu_p_eps_second,
                                                m_ro_grain_second,
                                                m_diam_second,
+                                               m_max_inertial_num_second,
                                                0);
                 if (m_fluid_model_second == FluidModel::DataDrivenMPMD) {
 #ifdef USE_AMREX_MPMD

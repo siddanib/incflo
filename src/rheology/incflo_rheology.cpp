@@ -481,7 +481,7 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
            MultiFab inertial_num(inertial_num_mpmd,amrex::make_alias,0,1);
            compute_inertial_num_at_level(lev,&inertial_num,
                                          &sr_mf,&p_static,m_mu_p_eps_second,
-                                         m_ro_grain_second,m_diam_second,
+                                         m_ro_grain_second,m_diam_second,m_max_inertial_num_second,
                                          nghost_hydrostatic);
            // Copy concentration
            MultiFab::Copy(inertial_num_mpmd,conc_second,0,1,1,nghost_hydrostatic);
@@ -544,7 +544,7 @@ void incflo::compute_second_fluid_viscosity_at_level (int lev,
                                 1,nghost_hydrostatic);
           compute_inertial_num_at_level(lev,&inertial_num,
                                         &sr_mf,&p_static,m_mu_p_eps_second,
-                                        m_ro_grain_second,m_diam_second,
+                                        m_ro_grain_second,m_diam_second,m_max_inertial_num_second,
                                         nghost_hydrostatic);
           if (m_fluid_model_second == FluidModel::GranularPowerlawTemperature) {
 #ifdef _OPENMP
@@ -1559,7 +1559,7 @@ void incflo::compute_granular_powerlaw_temperature_second_order_coeff (
    MultiFab inertial_num(velocity.boxArray(),velocity.DistributionMap(),1,0);
    compute_inertial_num_at_level(lev,&inertial_num,
                                  &sr_mf,&p_static,m_mu_p_eps_second,
-                                 m_ro_grain_second,m_diam_second,
+                                 m_ro_grain_second,m_diam_second,m_max_inertial_num_second,
                                  0);
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -1655,7 +1655,7 @@ void incflo::compute_granular_powerlaw_temperature_third_order_coeff (
    MultiFab inertial_num(velocity.boxArray(),velocity.DistributionMap(),1,0);
    compute_inertial_num_at_level(lev,&inertial_num,
                                  &sr_mf,&p_static,m_mu_p_eps_second,
-                                 m_ro_grain_second,m_diam_second,
+                                 m_ro_grain_second,m_diam_second,m_max_inertial_num_second,
                                  0);
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
@@ -1710,7 +1710,7 @@ void incflo::compute_granular_powerlaw_second_order_coeff (int lev, MultiFab& sc
    MultiFab inertial_num(velocity.boxArray(),velocity.DistributionMap(),1,0);
    compute_inertial_num_at_level(lev,&inertial_num,
                                  &sr_mf,&p_static,m_mu_p_eps_second,
-                                 m_ro_grain_second,m_diam_second,
+                                 m_ro_grain_second,m_diam_second,m_max_inertial_num_second,
                                  0);
 #ifdef _OPENMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
